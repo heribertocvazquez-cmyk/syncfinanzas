@@ -122,6 +122,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Modo no válido." });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido.";
-    return res.status(400).json({ error: message });
+    const cause = err instanceof Error ? (err as unknown as { cause?: { message?: string; code?: string } }).cause : undefined;
+    console.error("API error:", message, cause);
+    return res.status(400).json({ error: message, cause: cause?.message ?? null, code: cause?.code ?? null });
   }
 }
