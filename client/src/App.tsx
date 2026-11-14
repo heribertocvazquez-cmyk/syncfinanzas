@@ -25,22 +25,22 @@ const TABS: {id:Tab;label:string}[] = [
 // desde Movimientos; Fondos son apartados dentro de Cuentas; Presupuestos vigilan Categorías).
 const MODULE_GROUPS: {title:string; tabs:Tab[]}[] = [
   {title:"Resumen y registro diario", tabs:["inicio","personal","movimientos","cuentas"]},
-  {title:"Planificación (se desprende de sus movimientos)", tabs:["presupuestos","fondos","aportaciones","metas"]},
+  {title:"Planificación", tabs:["presupuestos","fondos","aportaciones","metas"]},
   {title:"Decisiones y patrimonio", tabs:["acuerdos","patrimonio"]},
   {title:"Tandas", tabs:["tandas"]},
   {title:"Configuración y ayuda", tabs:["categorias","perfiles","hogar","guia"]},
 ];
 const MODULE_HINT: Partial<Record<Tab,string>> = {
-  aportaciones:"Se calcula desde los gastos compartidos de Movimientos",
-  fondos:"Apartados virtuales dentro de sus Cuentas",
-  presupuestos:"Vigilan el gasto por Categoría",
-  personal:"Sus gastos del día y su sueldo",
-  guia:"Instalación en el celular, guías en PDF por segmento y video de uso",
+  aportaciones:"Desde Movimientos",
+  fondos:"Apartados en Cuentas",
+  presupuestos:"Gasto por categoría",
+  personal:"Sueldo y gastos del día",
+  guia:"Instalación, guías y video",
 };
 // Guía en PDF de cada segmento: se abre dentro de la aplicación, en la pestaña Guía de uso.
 const GUIDE_PDF_BY_GROUP: Record<string,string> = {
   "Resumen y registro diario": guiaResumenPdf,
-  "Planificación (se desprende de sus movimientos)": guiaPlanificacionPdf,
+  "Planificación": guiaPlanificacionPdf,
   "Decisiones y patrimonio": guiaDecisionesPdf,
   "Tandas": guiaTandasPdf,
   "Configuración y ayuda": guiaConfiguracionPdf,
@@ -65,22 +65,22 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 }
 
 function CategoryChart({data}:{data:{name:string;total:number}[]}){
-  if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos registrados en el mes en curso.</p>;
+  if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const maxTotal=Math.max(...data.map(d=>d.total));
   return <div className="mt-2 rounded-2xl bg-[var(--surface2)] p-2" role="img" aria-label="Gráfica de gasto por categoría">
-    <ResponsiveContainer width="100%" height={Math.max(150, data.length*46)}>
+    <ResponsiveContainer width="100%" height={Math.max(120, data.length*40)}>
       <BarChart data={data} layout="vertical" margin={{left:8,right:76,top:6,bottom:6}} barCategoryGap="22%">
         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
         <XAxis type="number" tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize:11, fill:"var(--dim)"}} axisLine={{stroke:"var(--border)"}} tickLine={false} />
         <YAxis type="category" dataKey="name" width={104} tick={{fontSize:12, fill:"var(--text)"}} axisLine={false} tickLine={false} />
         <Tooltip cursor={{fill:"rgba(0,0,0,0.04)"}} formatter={(v)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,"Gastado"]} />
-        <Bar dataKey="total" barSize={22} radius={[0,8,8,0]} background={{fill:"rgba(0,0,0,0.03)", radius:8} as never}>
+        <Bar dataKey="total" barSize={18} radius={[0,8,8,0]} background={{fill:"rgba(0,0,0,0.03)", radius:8} as never}>
           {data.map((d,i)=><Cell key={i} fill={d.total===maxTotal?"#B42318":"#C5962C"} />)}
           <LabelList dataKey="total" position="right" formatter={(v: unknown)=>`$${Number(v).toLocaleString("es-MX")}`} style={{fontSize:12, fontWeight:700, fill:"var(--text)"}} />
         </Bar>
       </BarChart>
     </ResponsiveContainer>
-    <p className="text-xs text-[var(--dim)] px-1 pb-1">La barra resaltada en rojo es la categoría de mayor gasto; cada barra muestra su monto al final, sin superponerse con las demás.</p>
+    <p className="text-xs text-[var(--dim)] px-1 pb-1">En rojo, la categoría de mayor gasto.</p>
   </div>;
 }
 function MonthlyChart({series}:{series:{label:string;income:number;expense:number}[]}){
@@ -88,7 +88,7 @@ function MonthlyChart({series}:{series:{label:string;income:number;expense:numbe
   const allZero=data.every(d=>d.Ingresos===0&&d.Gastos===0);
   if(allZero) return <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>;
   return <div className="mt-2 rounded-2xl bg-[var(--surface2)] p-2" role="img" aria-label="Gráfica de ingresos contra gastos por mes">
-    <ResponsiveContainer width="100%" height={230}>
+    <ResponsiveContainer width="100%" height={180}>
       <BarChart data={data} margin={{left:0,right:8,top:10,bottom:4}} barCategoryGap="26%" barGap={6}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
         <XAxis dataKey="label" tick={{fontSize:12, fill:"var(--text)"}} axisLine={{stroke:"var(--border)"}} tickLine={false} />
@@ -103,12 +103,12 @@ function MonthlyChart({series}:{series:{label:string;income:number;expense:numbe
   </div>;
 }
 function Help({children}:{children:React.ReactNode}){ return <p className="text-[13px] leading-snug text-[var(--dim)] bg-[var(--surface2)] rounded-xl px-3 py-2">{children}</p>; }
-function Empty({title,body}:{title:string;body:string}){ return <div className="border border-dashed border-[var(--border)] rounded-2xl p-5 text-center"><p className="font-display font-bold">{title}</p><p className="text-sm text-[var(--dim)] mt-1">{body}</p></div>; }
+function Empty({title,body}:{title:string;body:string}){ return <div className="border border-dashed border-[var(--border)] rounded-2xl p-3.5 text-center"><p className="font-display font-bold">{title}</p><p className="text-sm text-[var(--dim)] mt-1">{body}</p></div>; }
 function Stars({value,size}:{value:number;size?:string}){ const full=Math.round(value); return <span className={`text-[var(--gold)] ${size||"text-base"}`} role="img" aria-label={`${value} de 5 estrellas`}>{"★★★★★".slice(0,full)}{"☆☆☆☆☆".slice(0,5-full)}</span>; }
 function Label({htmlFor,children}:{htmlFor:string;children:React.ReactNode}){ return <label htmlFor={htmlFor} className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">{children}</label>; }
 const inputCls="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]";
 const btnPrimary="rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
-const btnGhost="rounded-full border border-[var(--border)] px-4 py-2 text-sm font-semibold";
+const btnGhost="rounded-full border border-[var(--border)] px-3 py-2 text-sm font-semibold";
 
 // ---- Instalación en el celular (aplicación instalable, pensada primero para el teléfono) ----
 // El manifiesto (generado al cargar en main.tsx, con las rutas reales de los iconos) y las
@@ -150,17 +150,17 @@ const INSTALL_STEPS: Record<InstallPlatform, string[]> = {
 };
 function InstallCard({ installed, onInstall, onDismiss }: { installed: boolean; onInstall: () => void; onDismiss?: () => void }) {
   return (
-    <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-3xl p-4 sm:p-5">
-      <div className="flex items-start gap-3">
-        <img src={appIcon512} alt="Icono de SyncFinanzas: una casa blanca con flechas de sincronización doradas sobre fondo azul marino" className="w-14 h-14 rounded-2xl shrink-0 border border-[var(--border)]" />
+    <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 sm:p-3.5">
+      <div className="flex items-start gap-2">
+        <img src={appIcon512} alt="Icono de SyncFinanzas: una casa blanca con flechas de sincronización doradas sobre fondo azul marino" className="w-11 h-11 rounded-2xl shrink-0 border border-[var(--border)]" />
         <div className="min-w-0 flex-1">
-          <h2 className="font-display font-bold text-lg leading-tight">Instale SyncFinanzas en su celular</h2>
-          <p className="text-sm text-[var(--dim)] mt-1">Queda un icono en su pantalla principal y se abre a pantalla completa.</p>
+          <h2 className="font-display font-bold text-base leading-tight">Instale SyncFinanzas en su celular</h2>
+          <p className="text-sm text-[var(--dim)] mt-1">Queda un icono en su pantalla principal.</p>
         </div>
-        {onDismiss && <button type="button" aria-label="Descartar el aviso de instalación" onClick={onDismiss} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>}
+        {onDismiss && <button type="button" aria-label="Descartar el aviso de instalación" onClick={onDismiss} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>}
       </div>
       {installed ? (
-        <p className="text-sm font-semibold text-[var(--green)] mt-3" role="status">Ya está instalada: ábrala desde su icono en la pantalla principal.</p>
+        <p className="text-sm font-semibold text-[var(--green)] mt-3" role="status">Ya instalada: ábrala desde su icono.</p>
       ) : (
         <button type="button" aria-label="Instalar la aplicación SyncFinanzas en este dispositivo" className={btnPrimary + " mt-3 w-full sm:w-auto"} onClick={onInstall}>Instalar</button>
       )}
@@ -174,16 +174,16 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
   const platform = detectInstallPlatform();
   const title = platform === "ios" ? "Instalar en iPhone" : platform === "android" ? "Instalar en Android" : "Instalar en la computadora";
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
-      <div className="bg-[var(--surface)] text-[var(--text)] rounded-3xl w-full max-w-sm p-5" onClick={e=>e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="font-display font-bold text-lg">{title}</h2>
-          <button type="button" aria-label="Cerrar las instrucciones de instalación" onClick={onClose} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
+      <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-sm p-3.5" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="font-display font-bold text-base">{title}</h2>
+          <button type="button" aria-label="Cerrar las instrucciones de instalación" onClick={onClose} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
         </div>
         <ol className="list-decimal ml-5 text-sm space-y-1.5 mt-3">
           {INSTALL_STEPS[platform].map((s, i) => <li key={i}>{s}</li>)}
         </ol>
-        <button type="button" className={btnPrimary + " mt-4 w-full"} onClick={onClose}>Entendido</button>
+        <button type="button" className={btnPrimary + " mt-3 w-full"} onClick={onClose}>Entendido</button>
       </div>
     </div>
   );
@@ -394,20 +394,20 @@ export function App(){
     return (
       <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
         <SafeAreaTopScrim backgroundColor="var(--bg)" />
-        <main className="max-w-xl mx-auto px-4 pb-10 pt-6">
-          {resetDone && <div className="mb-4 bg-[var(--surface)] border-2 border-[var(--green)] rounded-3xl p-4 flex items-start gap-3" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+        <main className="max-w-xl mx-auto px-3 pb-6 pt-4">
+          {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-3 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
           <p className="text-[var(--gold)] font-display font-extrabold tracking-wide text-sm">SYNCFINANZAS · VERSIÓN GRANDE</p>
-          <h1 className="font-display text-3xl font-extrabold mt-2 leading-tight">Un solo hogar,<br/>cuentas claras.</h1>
-          <p className="text-[var(--dim)] mt-3">Registre sus gastos e ingresos y vea cuánto le queda, solo o en familia.</p>
-          <div className="mt-6"><InstallCard installed={appInstalled} onInstall={handleInstallClick} /></div>
-          <div className="bg-[var(--surface)] rounded-3xl border-2 border-[var(--gold)] p-5 mt-6 space-y-3">
-            <h2 className="font-display font-bold text-lg">¿Recibió una invitación?</h2>
-            <p className="text-sm text-[var(--dim)]">Escriba su correo y pulse Buscar invitación.</p>
+          <h1 className="font-display text-2xl font-extrabold mt-2 leading-tight">Un solo hogar,<br/>cuentas claras.</h1>
+          <p className="text-[var(--dim)] mt-3">Registre sus gastos e ingresos y vea cuánto le queda.</p>
+          <div className="mt-4"><InstallCard installed={appInstalled} onInstall={handleInstallClick} /></div>
+          <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2">
+            <h2 className="font-display font-bold text-base">¿Recibió una invitación?</h2>
+            <p className="text-sm text-[var(--dim)]">Escriba su correo.</p>
             <div className="flex gap-2"><input aria-label="Correo para buscar invitación" type="email" placeholder="tu@correo.com" className={inputCls} value={invEmail} onChange={e=>setInvEmail(e.target.value)} /><button type="button" className={btnPrimary} onClick={()=>findInv.mutate()} disabled={!invEmail || findInv.isPending}>Buscar invitación</button></div>
             {invSearched && invFound.length===0 && <p className="text-sm text-[var(--dim)]">No hay invitación pendiente para ese correo.</p>}
             {invFound.map(iv=>(
               <div key={iv.id} className="border border-[var(--border)] rounded-2xl p-3 space-y-2">
-                <p className="text-sm"><b>Invitación pendiente</b> para unirse a <b>“{iv.householdName}”</b>{iv.invitedName?` · fue registrado como ${iv.invitedName}; confirme su nombre a continuación:`:" · confirme su nombre a continuación:"}</p>
+                <p className="text-sm"><b>Invitación pendiente</b> para unirse a <b>“{iv.householdName}”</b>{iv.invitedName?` · confirme su nombre:`:" · confirme su nombre:"}</p>
                 <div className="grid grid-cols-2 gap-2">
                   <input aria-label="Tu nombre al aceptar la invitación" placeholder="Nombre" className={inputCls} value={joinFirst} onChange={e=>setJoinFirst(e.target.value)} />
                   <input aria-label="Tu apellido al aceptar la invitación" placeholder="Apellido" className={inputCls} value={joinLast} onChange={e=>setJoinLast(e.target.value)} />
@@ -421,12 +421,12 @@ export function App(){
             ))}
           </div>
           {tokenInvite && !tokenDone && (
-            <div className="bg-[var(--surface)] rounded-3xl border-2 border-[var(--gold)] p-5 mt-6 space-y-3" role="status">
-              <h2 className="font-display font-bold text-lg">Invitación recibida por correo</h2>
-              {tokenInvite.kind==="household" && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará directamente a ese hogar.</p>}
+            <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2" role="status">
+              <h2 className="font-display font-bold text-base">Invitación recibida por correo</h2>
+              {tokenInvite.kind==="household" && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará a ese hogar.</p>}
               {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante.</p>}
               {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
-              {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Esta invitación ya se usó o venció. Solicite una nueva.</p>}
+              {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Ya se usó o venció. Solicite una nueva.</p>}
               {tokenInvite.usable && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
@@ -434,7 +434,7 @@ export function App(){
                     <input aria-label="Su apellido al aceptar la invitación del enlace" placeholder="Apellido" className={inputCls} value={joinLast} onChange={e=>setJoinLast(e.target.value)} />
                   </div>
                   <div className="flex gap-2">
-                    <button type="button" className={btnPrimary} onClick={()=>acceptTokenInvite.mutate()} disabled={acceptTokenInvite.isPending}>{tokenInvite.kind==="general"?"Aceptar invitación y crear mi cuenta personal":"Aceptar invitación"}</button>
+                    <button type="button" className={btnPrimary} onClick={()=>acceptTokenInvite.mutate()} disabled={acceptTokenInvite.isPending}>{tokenInvite.kind==="general"?"Aceptar y crear mi cuenta":"Aceptar invitación"}</button>
                     <button type="button" className={btnGhost} onClick={()=>rejectTokenInvite.mutate()} disabled={rejectTokenInvite.isPending}>Rechazar</button>
                   </div>
                   {(acceptTokenInvite.error || rejectTokenInvite.error) && <p className="text-sm text-[var(--red)]">{String(acceptTokenInvite.error || rejectTokenInvite.error)}</p>}
@@ -442,10 +442,10 @@ export function App(){
               )}
             </div>
           )}
-          {tokenDone && <p className="text-sm text-[var(--green)] mt-6" role="status">Invitación respondida. Ya puede continuar en la aplicación.</p>}
-          <div className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 mt-6 space-y-3">
-            <h2 className="font-display font-bold text-lg">Invitar a una persona a crear su cuenta personal</h2>
-            <p className="text-sm text-[var(--dim)]">La persona recibirá un enlace directo.</p>
+          {tokenDone && <p className="text-sm text-[var(--green)] mt-4" role="status">Invitación respondida.</p>}
+          <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-2">
+            <h2 className="font-display font-bold text-base">Invitar a crear una cuenta personal</h2>
+            <p className="text-sm text-[var(--dim)]">Recibirá un enlace directo.</p>
             <div className="flex flex-wrap gap-2">
               <input aria-label="Correo para invitar a crear una cuenta personal" type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={genEmail} onChange={e=>setGenEmail(e.target.value)} />
               <input aria-label="Nombre de la persona invitada a crear una cuenta personal" placeholder="Nombre (opcional)" className={inputCls+" flex-1 min-w-[160px]"} value={genName} onChange={e=>setGenName(e.target.value)} />
@@ -455,83 +455,83 @@ export function App(){
             {genResult && (
               <div className="text-sm space-y-2">
                 {genResult.emailSent
-                  ? <p className="text-[var(--green)]">Correo de invitación enviado. La persona recibirá el enlace directo para crear su cuenta.</p>
-                  : <><p className="text-[var(--red)]">El correo no se envió automáticamente. Copie el enlace y envíelo por el medio que prefiera:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{genResult.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(genResult.inviteUrl)}>{copiedLink===genResult.inviteUrl?"Enlace copiado":"Copiar enlace de invitación"}</button></>}
-                {genResult.id && <p><button type="button" className="underline font-semibold text-sm" onClick={()=>resendGenInv.mutate(genResult.id as number)} disabled={resendGenInv.isPending}>Reenviar invitación con un enlace nuevo</button></p>}
+                  ? <p className="text-[var(--green)]">Correo enviado.</p>
+                  : <><p className="text-[var(--red)]">Copie el enlace y envíelo usted:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{genResult.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(genResult.inviteUrl)}>{copiedLink===genResult.inviteUrl?"Enlace copiado":"Copiar enlace"}</button></>}
+                {genResult.id && <p><button type="button" className="underline font-semibold text-sm" onClick={()=>resendGenInv.mutate(genResult.id as number)} disabled={resendGenInv.isPending}>Reenviar con enlace nuevo</button></p>}
               </div>
             )}
           </div>
           {modeModalOpen && (
-            <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Elija el modo de su espacio">
-              <div className="bg-[var(--surface)] text-[var(--text)] rounded-3xl w-full max-w-md p-5">
-                <div className="flex items-start justify-between gap-3">
+            <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Elija el modo de su espacio">
+              <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md p-3.5">
+                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h2 className="font-display font-bold text-lg">¿Cómo quiere usar SyncFinanzas?</h2>
-                    <p className="text-sm text-[var(--dim)] mt-1">Elija un modo para empezar. Podrá cambiarlo después en Hogar.</p>
+                    <h2 className="font-display font-bold text-base">¿Cómo quiere usar SyncFinanzas?</h2>
+                    <p className="text-sm text-[var(--dim)] mt-1">Podrá cambiarlo después en Hogar.</p>
                   </div>
-                  <button type="button" aria-label="Cerrar la elección de modo" onClick={()=>setModeModalOpen(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+                  <button type="button" aria-label="Cerrar la elección de modo" onClick={()=>setModeModalOpen(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
                 </div>
-                <div className="grid grid-cols-2 gap-3 mt-4" role="group" aria-label="Elija el modo Personal o Familiar">
-                  <button type="button" aria-label="Modo Personal" onClick={()=>setPlanMode("personal")} className={`rounded-2xl border-2 p-4 text-left ${planMode==="personal"?"border-[var(--gold)] bg-[var(--surface2)]":"border-[var(--border)]"}`}><b className="font-display block">Personal</b><span className="text-[13px] text-[var(--dim)]">Solo usted: su sueldo y sus gastos del día.</span></button>
-                  <button type="button" aria-label="Modo Familiar" onClick={()=>setPlanMode("familiar")} className={`rounded-2xl border-2 p-4 text-left ${planMode==="familiar"?"border-[var(--gold)] bg-[var(--surface2)]":"border-[var(--border)]"}`}><b className="font-display block">Familiar</b><span className="text-[13px] text-[var(--dim)]">Pareja o familia: gastos compartidos y privados.</span></button>
+                <div className="grid grid-cols-2 gap-2 mt-3" role="group" aria-label="Elija el modo Personal o Familiar">
+                  <button type="button" aria-label="Modo Personal" onClick={()=>setPlanMode("personal")} className={`rounded-2xl border-2 p-3 text-left ${planMode==="personal"?"border-[var(--gold)] bg-[var(--surface2)]":"border-[var(--border)]"}`}><b className="font-display block">Personal</b><span className="text-[13px] text-[var(--dim)]">Su sueldo y sus gastos del día.</span></button>
+                  <button type="button" aria-label="Modo Familiar" onClick={()=>setPlanMode("familiar")} className={`rounded-2xl border-2 p-3 text-left ${planMode==="familiar"?"border-[var(--gold)] bg-[var(--surface2)]":"border-[var(--border)]"}`}><b className="font-display block">Familiar</b><span className="text-[13px] text-[var(--dim)]">Gastos compartidos y privados.</span></button>
                 </div>
-                <button type="button" className={btnPrimary+" w-full mt-4"} onClick={()=>{ setModeModalOpen(false); setObStep(1); }}>Continuar</button>
+                <button type="button" className={btnPrimary+" w-full mt-3"} onClick={()=>{ setModeModalOpen(false); setObStep(1); }}>Continuar</button>
               </div>
             </div>
           )}
-          <form className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 mt-6 space-y-4" onSubmit={(e:FormEvent)=>{e.preventDefault();createHh.mutate();}}>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="font-display font-bold text-lg">{planMode==="personal"?"Su espacio personal en 3 pasos":"Cree su hogar en 3 pasos"}</h2>
+          <form className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();createHh.mutate();}}>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-display font-bold text-base">{planMode==="personal"?"Su espacio personal":"Cree su hogar"}</h2>
               <span className="text-xs font-bold text-[var(--dim)] shrink-0">Paso {obStep+1} de 3</span>
             </div>
             <div className="flex gap-1.5" aria-label={`Paso ${obStep+1} de 3`}>
               {[0,1,2].map(i=><span key={i} className={`h-1.5 flex-1 rounded-full ${i<=obStep?"bg-[var(--gold)]":"bg-[var(--surface2)]"}`} />)}
             </div>
             {obStep===0 && (
-              <div className="space-y-4">
-                <p className="text-sm text-[var(--dim)]">Primero, elija su modo: solo usted o con su familia.</p>
-                <div className="rounded-2xl border-2 border-[var(--gold)] bg-[var(--surface2)] p-4 flex items-center justify-between gap-3">
-                  <div><b className="font-display block">{planMode==="personal"?"Personal":"Familiar"}</b><span className="text-[13px] text-[var(--dim)]">{planMode==="personal"?"Solo usted: su sueldo y sus gastos del día.":"Pareja o familia: gastos compartidos y privados."}</span></div>
+              <div className="space-y-3">
+                <p className="text-sm text-[var(--dim)]">Elija su modo.</p>
+                <div className="rounded-2xl border-2 border-[var(--gold)] bg-[var(--surface2)] p-3 flex items-center justify-between gap-2">
+                  <div><b className="font-display block">{planMode==="personal"?"Personal":"Familiar"}</b><span className="text-[13px] text-[var(--dim)]">{planMode==="personal"?"Su sueldo y sus gastos del día.":"Gastos compartidos y privados."}</span></div>
                   <button type="button" className={btnGhost+" shrink-0"} onClick={()=>setModeModalOpen(true)}>Cambiar modo</button>
                 </div>
                 <button type="button" className={btnPrimary+" w-full"} onClick={()=>setObStep(1)}>Siguiente</button>
               </div>
             )}
             {obStep===1 && (
-              <div className="space-y-4">
-                <p className="text-sm text-[var(--dim)]">Ahora, escriba el nombre de su espacio y sus datos.</p>
+              <div className="space-y-3">
+                <p className="text-sm text-[var(--dim)]">Nombre su espacio y sus datos.</p>
                 <div><Label htmlFor="hh-name">Nombre del hogar</Label><input id="hh-name" aria-label="Nombre del hogar" className={inputCls} value={hhName} onChange={e=>setHhName(e.target.value)} required /></div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div><Label htmlFor="owner-name">Su nombre</Label><input id="owner-name" aria-label="Su nombre" className={inputCls} value={ownerName} onChange={e=>setOwnerName(e.target.value)} placeholder="Ej. Andrés" required /></div>
                   <div><Label htmlFor="owner-last">Su apellido</Label><input id="owner-last" aria-label="Su apellido" className={inputCls} value={ownerLast} onChange={e=>setOwnerLast(e.target.value)} placeholder="Ej. Téllez" /></div>
-                  <div><Label htmlFor="owner-income">{planMode==="personal"?"Su sueldo / ingreso mensual ($)":"Su ingreso neto mensual ($)"}</Label><input id="owner-income" aria-label="Su ingreso neto mensual" type="number" min="0" className={inputCls} value={ownerIncome} onChange={e=>setOwnerIncome(e.target.value)} placeholder="0" /></div>
+                  <div><Label htmlFor="owner-income">{planMode==="personal"?"Su sueldo mensual ($)":"Su ingreso mensual ($)"}</Label><input id="owner-income" aria-label="Su ingreso neto mensual" type="number" min="0" className={inputCls} value={ownerIncome} onChange={e=>setOwnerIncome(e.target.value)} placeholder="0" /></div>
                 </div>
                 <p className="text-xs text-[var(--dim)]">Su nombre no se toma de su correo.</p>
                 {obError && <p className="text-sm text-[var(--red)]">{obError}</p>}
                 <div className="flex gap-2">
                   <button type="button" className={btnGhost+" flex-1"} onClick={()=>{setObError("");setObStep(0);}}>Atrás</button>
-                  <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{ if(!hhName.trim()){ setObError("Escriba el nombre de su hogar para continuar."); return; } if(!ownerName.trim()){ setObError("Escriba su nombre para continuar."); return; } setObError(""); setObStep(2); }}>Siguiente</button>
+                  <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{ if(!hhName.trim()){ setObError("Escriba el nombre de su hogar."); return; } if(!ownerName.trim()){ setObError("Escriba su nombre."); return; } setObError(""); setObStep(2); }}>Siguiente</button>
                 </div>
               </div>
             )}
             {obStep===2 && (
-              <div className="space-y-4">
-                <p className="text-sm text-[var(--dim)]">Por último, revise las reglas. Puede cambiarlas después en Hogar.</p>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
+                <p className="text-sm text-[var(--dim)]">Revise las reglas.</p>
+                <div className="grid grid-cols-2 gap-2">
                   <div><Label htmlFor="cutoff">Día de corte (1–28)</Label><input id="cutoff" aria-label="Día de corte" type="number" min="1" max="28" className={inputCls} value={cutoff} onChange={e=>setCutoff(e.target.value)} /></div>
                   <div><Label htmlFor="threshold">Umbral de aprobación ($)</Label><input id="threshold" aria-label="Umbral de aprobación" type="number" min="0" className={inputCls} value={threshold} onChange={e=>setThreshold(e.target.value)} /></div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label htmlFor="contrib-rule">Reparto del gasto compartido</Label><select id="contrib-rule" aria-label="Reparto del gasto compartido" className={inputCls} value={contribRule} onChange={e=>setContribRule(e.target.value as "equal"|"proportional")}><option value="equal">Partes iguales</option><option value="proportional">Proporcional al ingreso</option></select></div>
-                  <div><Label htmlFor="approval-rule">Aprobación de acuerdos</Label><select id="approval-rule" aria-label="Aprobación de acuerdos" className={inputCls} value={approvalRule} onChange={e=>setApprovalRule(e.target.value as "unanimous"|"majority")}><option value="unanimous">Unánime (se requiere el voto favorable de todos)</option><option value="majority">Mayoría</option></select></div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><Label htmlFor="contrib-rule">Reparto del gasto</Label><select id="contrib-rule" aria-label="Reparto del gasto" className={inputCls} value={contribRule} onChange={e=>setContribRule(e.target.value as "equal"|"proportional")}><option value="equal">Partes iguales</option><option value="proportional">Proporcional al ingreso</option></select></div>
+                  <div><Label htmlFor="approval-rule">Aprobación</Label><select id="approval-rule" aria-label="Aprobación" className={inputCls} value={approvalRule} onChange={e=>setApprovalRule(e.target.value as "unanimous"|"majority")}><option value="unanimous">Unánime</option><option value="majority">Mayoría</option></select></div>
                 </div>
-                <Help><b>Día de corte:</b> día en que cierra su mes. <b>Umbral:</b> los gastos mayores requieren un Acuerdo.</Help>
+                <Help><b>Corte:</b> cierra su mes. <b>Umbral:</b> los gastos mayores requieren un Acuerdo.</Help>
                 {createHh.error && <p className="text-sm text-[var(--red)]">{String(createHh.error)}</p>}
                 <div className="flex gap-2">
                   <button type="button" className={btnGhost+" flex-1"} onClick={()=>setObStep(1)}>Atrás</button>
-                  <button type="submit" className={btnPrimary+" flex-1"} disabled={createHh.isPending}>{createHh.isPending?"Creando…":planMode==="personal"?"Crear mi espacio personal":"Crear hogar y empezar"}</button>
+                  <button type="submit" className={btnPrimary+" flex-1"} disabled={createHh.isPending}>{createHh.isPending?"Creando…":planMode==="personal"?"Crear mi espacio":"Crear hogar"}</button>
                 </div>
-                <p className="text-xs text-[var(--dim)] text-center">Se crean 7 categorías de ingreso y 14 de gasto.</p>
+                <p className="text-xs text-[var(--dim)] text-center">7 de ingreso y 14 de gasto.</p>
               </div>
             )}
           </form>
@@ -558,15 +558,15 @@ export function App(){
       <SafeAreaTopScrim backgroundColor="var(--bg)" />
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)] pt-safe">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+        <div className="max-w-5xl mx-auto px-3 py-2 flex items-center justify-between gap-2">
           <div><p className="font-display font-extrabold leading-none">{hh.name} <span className="text-[11px] align-middle bg-[var(--gold)] text-white rounded-full px-2 py-0.5">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p><p className="text-xs text-[var(--dim)]">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}{me?` · ${fullName(me)} · ${me.role==="admin"?"Administrador":"Integrante"}`:""}</p></div>
           <div className="flex gap-2 shrink-0">
             {!appInstalled && <button type="button" className={btnGhost} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
-            <button className={btnGhost} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo etiquetados como demo"}>Demo</button>
+            <button className={btnGhost} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>Demo</button>
           </div>
         </div>
-        <div className="max-w-5xl mx-auto px-4 pb-3 flex items-center gap-3">
-          <button type="button" aria-label={menuOpen?"Cerrar menú de módulos":"Abrir menú de módulos"} aria-expanded={menuOpen} aria-controls="menu-modulos" onClick={()=>setMenuOpen(o=>!o)} className="shrink-0 w-11 h-11 rounded-full bg-[var(--surface)] border border-[var(--border)] flex flex-col items-center justify-center gap-[5px]">
+        <div className="max-w-5xl mx-auto px-3 pb-3 flex items-center gap-2">
+          <button type="button" aria-label={menuOpen?"Cerrar menú de módulos":"Abrir menú de módulos"} aria-expanded={menuOpen} aria-controls="menu-modulos" onClick={()=>setMenuOpen(o=>!o)} className="shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex flex-col items-center justify-center gap-[5px]">
             <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"translate-y-[7.5px] rotate-45":""}`} />
             <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-opacity ${menuOpen?"opacity-0":""}`} />
             <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"-translate-y-[7.5px] -rotate-45":""}`} />
@@ -575,34 +575,34 @@ export function App(){
             <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">MÓDULO ACTUAL</p>
             <p className="font-display font-bold leading-tight truncate">{TABS.find(t=>t.id===effTab)?.label}</p>
           </div>
-          <p className="ml-auto text-xs text-[var(--dim)] hidden sm:block">Toque el menú para ver los {TABS.length} módulos</p>
+          <p className="ml-auto text-xs text-[var(--dim)] hidden sm:block">Toque el menú para ver los módulos</p>
         </div>
         {menuOpen && (
-          <nav id="menu-modulos" aria-label="Módulos agrupados por función" className="border-t border-[var(--border)] bg-[var(--surface)] max-h-[70vh] overflow-y-auto">
-            <div className="max-w-5xl mx-auto px-4 py-3 space-y-2">
-              <p className="text-xs text-[var(--dim)]">Seleccione un segmento para ver sus módulos.</p>
+          <nav id="menu-modulos" aria-label="Módulos agrupados por función" className="border-t border-[var(--border)] bg-[var(--surface)] max-h-[60vh] overflow-y-auto">
+            <div className="max-w-5xl mx-auto px-3 py-2 space-y-2">
+              <p className="text-xs text-[var(--dim)]">Seleccione un segmento.</p>
               {MODULE_GROUPS.map(g=>{ const isOpen = expandedGroup===g.title; const hasCurrent = g.tabs.includes(effTab); return (
                 <div key={g.title} className="border border-[var(--border)] rounded-2xl overflow-hidden">
-                  <button type="button" aria-label={`${isOpen?"Contraer":"Desplegar"} el segmento ${g.title}`} aria-expanded={isOpen} onClick={()=>setOpenGroup(isOpen?"":g.title)} className={`w-full flex items-center justify-between gap-2 px-4 py-3 text-left ${hasCurrent?"bg-[var(--surface2)]":"bg-[var(--surface)]"}`}>
+                  <button type="button" aria-label={`${isOpen?"Contraer":"Desplegar"} el segmento ${g.title}`} aria-expanded={isOpen} onClick={()=>setOpenGroup(isOpen?"":g.title)} className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left ${hasCurrent?"bg-[var(--surface2)]":"bg-[var(--surface)]"}`}>
                     <span className="min-w-0"><span className="block text-[13px] font-bold tracking-wide">{g.title.toUpperCase()}</span><span className="block text-[11px] text-[var(--dim)] truncate">{g.tabs.map(tid=>TABS.find(x=>x.id===tid)?.label).join(" · ")}{hasCurrent?` — está usted en ${TABS.find(x=>x.id===effTab)?.label}`:""}</span></span>
                     <span aria-hidden="true" className={`shrink-0 text-lg leading-none transition-transform ${isOpen?"rotate-180":""}`}>▾</span>
                   </button>
                   {isOpen && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 p-3">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; return <button key={t.id} type="button" aria-label={`Ir a ${t.label}`} aria-current={effTab===t.id?"page":undefined} onClick={()=>{goTab(t.id);setMenuOpen(false);}} className={`rounded-2xl px-4 py-3 text-left text-sm font-bold ${effTab===t.id?"bg-[var(--accent)] text-[var(--accent-text)]":"bg-[var(--surface2)] text-[var(--text)]"}`}>{t.label}{effTab===t.id && <span className="block text-[11px] font-semibold opacity-80">Módulo actual</span>}{MODULE_HINT[t.id] && <span className={`block text-[11px] font-normal mt-0.5 ${effTab===t.id?"opacity-80":"text-[var(--dim)]"}`}>{MODULE_HINT[t.id]}</span>}</button>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; return <button key={t.id} type="button" aria-label={`Ir a ${t.label}`} aria-current={effTab===t.id?"page":undefined} onClick={()=>{goTab(t.id);setMenuOpen(false);}} className={`rounded-2xl px-3 py-2 text-left text-sm font-bold ${effTab===t.id?"bg-[var(--accent)] text-[var(--accent-text)]":"bg-[var(--surface2)] text-[var(--text)]"}`}>{t.label}{effTab===t.id && <span className="block text-[11px] font-semibold opacity-80">Módulo actual</span>}{MODULE_HINT[t.id] && <span className={`block text-[11px] font-normal mt-0.5 ${effTab===t.id?"opacity-80":"text-[var(--dim)]"}`}>{MODULE_HINT[t.id]}</span>}</button>; })}
                     </div>
                   )}
                 </div>
               ); })}
               <div className="border-2 border-[var(--red)] rounded-2xl overflow-hidden">
-                <div className="px-4 py-3 bg-[var(--surface)]">
+                <div className="px-3 py-2 bg-[var(--surface)]">
                   <p className="text-[13px] font-bold tracking-wide text-[var(--red)]">REINICIAR LA APLICACIÓN</p>
-                  <p className="text-[11px] text-[var(--dim)] mt-0.5">Borra todo, incluido su hogar. Después elija de nuevo Personal o Familiar.</p>
+                  <p className="text-[11px] text-[var(--dim)] mt-0.5">Borra todo, incluido su hogar.</p>
                   {!resetConfirm ? (
-                    <button type="button" aria-label="Reiniciar todo y borrar todos los datos" onClick={()=>{ setResetConfirm(true); setResetWord(""); }} className="mt-2 w-full rounded-full bg-[var(--red)] text-white font-bold px-4 py-2.5 text-sm">Reiniciar todo y borrar los datos</button>
+                    <button type="button" aria-label="Reiniciar todo y borrar todos los datos" onClick={()=>{ setResetConfirm(true); setResetWord(""); }} className="mt-2 w-full rounded-full bg-[var(--red)] text-white font-bold px-3 py-2.5 text-sm">Reiniciar todo y borrar los datos</button>
                   ) : (
                     <div className="mt-2 border border-dashed border-[var(--red)] rounded-xl p-3 bg-[var(--surface2)]">
-                      <p className="text-xs">Esta acción <b>elimina todo de forma permanente y no se puede deshacer</b>: movimientos, cuentas, presupuestos, fondos, metas, acuerdos, patrimonio, tandas, invitaciones, perfiles, categorías y fotos. También se borra su hogar.</p>
+                      <p className="text-xs">Elimina todo de forma permanente, incluido su hogar: movimientos, cuentas, presupuestos, fondos, metas, acuerdos, patrimonio, tandas, invitaciones, perfiles, categorías y fotos.</p>
                       <div className="mt-3">
                         <Label htmlFor="reset-word">Para confirmar, escriba REINICIAR</Label>
                         <input id="reset-word" aria-label="Escriba REINICIAR para confirmar el reinicio" className={inputCls} value={resetWord} onChange={e=>setResetWord(e.target.value)} placeholder="REINICIAR" autoComplete="off" />
@@ -619,129 +619,129 @@ export function App(){
             </div>
           </nav>
         )}
-        {demo.error && <p className="max-w-5xl mx-auto px-4 pb-2 text-xs text-[var(--red)]">{String(demo.error)}</p>}
-        {demo.isSuccess && <p className="max-w-5xl mx-auto px-4 pb-2 text-xs text-[var(--green)]">Datos de demostración cargados; todos están identificados con la etiqueta “(demo)”.</p>}
+        {demo.error && <p className="max-w-5xl mx-auto px-3 pb-2 text-xs text-[var(--red)]">{String(demo.error)}</p>}
+        {demo.isSuccess && <p className="max-w-5xl mx-auto px-3 pb-2 text-xs text-[var(--green)]">Demo cargada: datos con “(demo)”.</p>}
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 pb-16 pt-4">
-        {resetDone && <div className="mb-4 bg-[var(--surface)] border-2 border-[var(--green)] rounded-3xl p-4 flex items-start gap-3" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+      <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
+        {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-3 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
-          <div className="mb-4 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-3xl p-4 sm:p-5" role="status">
-            <div className="flex items-start justify-between gap-3">
+          <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 sm:p-3.5" role="status">
+            <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="font-display font-bold text-lg">Empiece en 3 pasos</h2>
+                <h2 className="font-display font-bold text-base">Empiece en 3 pasos</h2>
                 
               </div>
-              <button type="button" aria-label="Cerrar la guía de inicio" onClick={dismissFirstGuide} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+              <button type="button" aria-label="Cerrar la guía de inicio" onClick={dismissFirstGuide} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
             </div>
-            <ol className="mt-3 space-y-3">
-              <li className="flex gap-3 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep1?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep1?"✓":"1"}</span><div className="flex-1"><p className="text-sm font-bold">{hh.mode==="personal"?"Registre su sueldo":"Abra su cuenta inicial"}</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"En Personal, escriba su sueldo y pulse Guardar sueldo.":"En Cuentas, pulse Nueva cuenta."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"cuentas")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Cuentas"}</button></li>
-              <li className="flex gap-3 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep2?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep2?"✓":"2"}</span><div className="flex-1"><p className="text-sm font-bold">Registre su primer gasto</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"En Personal, registre su gasto del día.":"En Movimientos, escriba el importe y pulse Registrar."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"movimientos")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Movimientos"}</button></li>
-              <li className="flex gap-3 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep3?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep3?"✓":"3"}</span><div className="flex-1"><p className="text-sm font-bold">Revise sus gráficas</p><p className="text-sm text-[var(--dim)]">En Inicio, vea su gasto por categoría.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("inicio")}>Ir a Inicio</button></li>
+            <ol className="mt-3 space-y-2">
+              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep1?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep1?"✓":"1"}</span><div className="flex-1"><p className="text-sm font-bold">{hh.mode==="personal"?"Registre su sueldo":"Abra su cuenta inicial"}</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Escriba su sueldo en Personal.":"Pulse Nueva cuenta en Cuentas."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"cuentas")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Cuentas"}</button></li>
+              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep2?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep2?"✓":"2"}</span><div className="flex-1"><p className="text-sm font-bold">Registre su primer gasto</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Registre su gasto del día en Personal.":"Escriba el importe en Movimientos."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"movimientos")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Movimientos"}</button></li>
+              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep3?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep3?"✓":"3"}</span><div className="flex-1"><p className="text-sm font-bold">Revise sus gráficas</p><p className="text-sm text-[var(--dim)]">Vea su gasto por categoría en Inicio.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("inicio")}>Ir a Inicio</button></li>
             </ol>
-            <button type="button" className={btnPrimary+" mt-4"} onClick={dismissFirstGuide}>Entendido</button>
+            <button type="button" className={btnPrimary+" mt-3"} onClick={dismissFirstGuide}>Entendido</button>
           </div>
         )}
-        {!appInstalled && !installDismissed && <div className="mb-4"><InstallCard installed={appInstalled} onInstall={handleInstallClick} onDismiss={dismissInstall} /></div>}
+        {!appInstalled && !installDismissed && <div className="mb-3"><InstallCard installed={appInstalled} onInstall={handleInstallClick} onDismiss={dismissInstall} /></div>}
         {effTab==="inicio" && (
           <section>
-            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-3xl p-5">
-              <p className="text-sm opacity-80">Disponible libre · {s.currentMonth}</p>
-              <p className="font-display text-4xl font-extrabold mt-1">{money2(s.availableFree)}</p>
-              <p className="text-sm opacity-80 mt-1">Saldo total {money2(s.totalBalance)} − fondos {money2(s.totalInFunds)} = disponible libre.</p>
-              <div className="grid grid-cols-3 gap-2 mt-4 text-center">
-                <div className="bg-white/10 rounded-2xl py-3"><p className="text-xs opacity-80">Entradas del mes</p><p className="font-display font-bold">{money(s.monthIncome)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-3"><p className="text-xs opacity-80">Salidas del mes</p><p className="font-display font-bold">{money(s.monthExpense)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-3"><p className="text-xs opacity-80">Neto</p><p className="font-display font-bold">{money(s.monthNet)}</p></div>
+            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3.5">
+              <p className="text-sm opacity-80">Disponible · {s.currentMonth}</p>
+              <p className="font-display text-3xl font-extrabold mt-1">{money2(s.availableFree)}</p>
+              <p className="text-sm opacity-80 mt-1">Total {money2(s.totalBalance)} − fondos {money2(s.totalInFunds)}.</p>
+              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Entradas</p><p className="font-display font-bold">{money(s.monthIncome)}</p></div>
+                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Salidas</p><p className="font-display font-bold">{money(s.monthExpense)}</p></div>
+                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Neto</p><p className="font-display font-bold">{money(s.monthNet)}</p></div>
               </div>
             </div>
 
-            {data.movements.length===0 && <div className="mt-4"><Empty title="Su hogar aún no tiene registros" body="Cree una cuenta en Cuentas y registre su primer movimiento." /></div>}
+            {data.movements.length===0 && <div className="mt-3"><Empty title="Su hogar aún no tiene registros" body="Cree una cuenta y registre su primer movimiento." /></div>}
 
-            <div className="grid md:grid-cols-2 gap-4 mt-4">
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+            <div className="grid md:grid-cols-2 gap-3 mt-3">
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
                 <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total}))} />
               </div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Ingresos vs gastos</h2>
                 <MonthlyChart series={s.monthlySeries} />
                 <p className="text-xs text-[var(--dim)]">Últimos 6 meses.</p>
                 <button type="button" aria-label="Ver los movimientos completos desde Inicio" className={btnPrimary+" mt-3"} onClick={()=>goTab("movimientos")}>Ver movimientos completos</button>
               </div>
             </div>
-            <div className="grid md:grid-cols-2 gap-4 mt-4">
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
-                <h2 className="font-display font-bold">Presupuestos del mes</h2>
-                {data.budgets.filter(b=>b.month===s.currentMonth).length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin presupuestos este mes. Créalos en Presupuestos.</p> : data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
+            <div className="grid md:grid-cols-2 gap-3 mt-3">
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
+                <h2 className="font-display font-bold">Presupuestos</h2>
+                {data.budgets.filter(b=>b.month===s.currentMonth).length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin presupuestos este mes.</p> : data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
                   <div key={b.id} className="mt-3"><div className="flex justify-between text-sm"><span>{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><b>{money(b.spent)} / {money(b.amount)}</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--gold)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p></div>
                 ))}
               </div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Metas y patrimonio</h2>
                 {data.goals.slice(0,3).map(g=><div key={g.id} className="mt-3"><div className="flex justify-between text-sm"><span>{g.name}</span><b>{g.pct}%</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">{money(g.savedAmount)} de {money(g.targetAmount)}{g.targetDate?` · meta ${fmtDate(g.targetDate)}`:""}</p></div>)}
                 {data.goals.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin metas registradas.</p>}
-                <div className="border-t border-[var(--border)] mt-4 pt-3 flex justify-between"><span className="text-sm">Patrimonio neto (real)</span><b className="font-display">{money2(s.netWorth)}</b></div>
+                <div className="border-t border-[var(--border)] mt-3 pt-3 flex justify-between"><span className="text-sm">Patrimonio neto</span><b className="font-display">{money2(s.netWorth)}</b></div>
                 <p className="text-xs text-[var(--dim)]">Activos {money(s.totalAssets)} − Pasivos {money(s.totalLiabilities)}.</p>
               </div>
             </div>
 
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 mt-4">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 mt-3">
               <h2 className="font-display font-bold">Actividad reciente</h2>
               {visibleMovs.slice(0,6).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
-              {data.movements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos. Registra el primero en Movimientos.</p>}
+              {data.movements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>}
               {data.movements.length>0 && <button type="button" aria-label="Ver todos los movimientos del hogar" className={btnGhost+" mt-2"} onClick={()=>goTab("movimientos")}>Ver todos los movimientos</button>}
             </div>
           </section>
         )}
 
         {effTab==="movimientos" && (
-          <section className="grid md:grid-cols-[380px_1fr] gap-4 items-start">
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveMv.mutate();}}>
-              <h2 className="font-display font-bold text-lg">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
+          <section className="grid md:grid-cols-[340px_1fr] gap-3 items-start">
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveMv.mutate();}}>
+              <h2 className="font-display font-bold text-base">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
               <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
                 {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
               </div>
-              <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-3"} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
+              <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
               <div><Label htmlFor="mv-concept">Concepto</Label><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls} value={mvConcept} onChange={e=>setMvConcept(e.target.value)} placeholder="Ej. Súper semanal" /></div>
-              {mvType!=="transfer" && <div className="grid grid-cols-2 gap-3">
+              {mvType!=="transfer" && <div className="grid grid-cols-2 gap-2">
                 <div><Label htmlFor="mv-cat">Categoría</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");}}><option value="">Seleccione una categoría…</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Agregar una subcategoría nueva…</option></select>                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Agregar “{newSubName||"…"}” a {selectedCat.name}?</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
+                <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Nueva subcategoría…</option></select>                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Agregar “{newSubName||"…"}” a {selectedCat.name}?</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
                 </div>
               </div>}
               <div>
-                <button type="button" aria-expanded={mvMore} aria-label={mvMore?"Ocultar más opciones del movimiento":"Mostrar más opciones del movimiento"} onClick={()=>setMvMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{mvMore?"▾ Ocultar más opciones":"▸ Más opciones: cuenta, fecha, visibilidad y comprobante"}</button>
-                {mvMore && (<div className="space-y-3 mt-3">
-              <div className="grid grid-cols-2 gap-3">
+                <button type="button" aria-expanded={mvMore} aria-label={mvMore?"Ocultar más opciones del movimiento":"Mostrar más opciones del movimiento"} onClick={()=>setMvMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{mvMore?"▾ Ocultar más opciones":"▸ Más opciones"}</button>
+                {mvMore && (<div className="space-y-2 mt-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div><Label htmlFor="mv-account">Cuenta</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>setMvAccount(e.target.value)}><option value="">Sin cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
                 {mvType==="transfer" && <div><Label htmlFor="mv-to">Cuenta destino</Label><select id="mv-to" aria-label="Cuenta destino" className={inputCls} value={mvToAccount} onChange={e=>setMvToAccount(e.target.value)}><option value="">Seleccione…</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>}
                 <div><Label htmlFor="mv-date">Fecha</Label><input id="mv-date" aria-label="Fecha del movimiento" type="date" required className={inputCls} value={mvDate} onChange={e=>setMvDate(e.target.value)} /></div>
               </div>
               <div className="border border-dashed border-[var(--border)] rounded-2xl p-3">
-                <Label htmlFor="mv-receipt">Foto del comprobante de compra (opcional)</Label>
+                <Label htmlFor="mv-receipt">Foto del comprobante (opcional)</Label>
                 <input id="mv-receipt" aria-label="Adjuntar foto del comprobante" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setReceipt); }} />
-                <p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante del gasto.</p>
-                {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-14 h-14 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>setReceipt(null)}>Quitar foto</button></div>}
+                <p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
+                {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>setReceipt(null)}>Quitar foto</button></div>}
               </div>
               <div className="border-2 border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-                <p className="font-display font-bold text-sm">Lectura automática del comprobante</p>
-                                <p className="text-[11px] text-[var(--dim)] mt-1">Suba la foto y los gastos se crearán automáticamente.</p>
+                <p className="font-display font-bold text-sm">Lectura automática</p>
+                                <p className="text-[11px] text-[var(--dim)] mt-1">Los gastos se crean solos.</p>
                 <input aria-label="Fotografía del comprobante para lectura automática" type="file" accept="image/*" className="w-full text-sm mt-2" onChange={e=>{ const f=e.target.files?.[0]; if(f) void imageFileToJpeg(f).then(setScanImg).catch(()=>setScanImg(null)); e.target.value=""; }} />
-                {scanImg && <div className="mt-2 space-y-2"><img src={scanImg.preview} alt="Vista previa del comprobante que se leerá automáticamente" className="w-full max-h-44 object-contain rounded-xl border border-[var(--border)] bg-white" />
-                  <div><Label htmlFor="scan-cat">Categoría para los productos (opcional)</Label><select id="scan-cat" aria-label="Categoría para los productos leídos del comprobante" className={inputCls} value={scanCat} onChange={e=>setScanCat(e.target.value)}><option value="">Detectarla automáticamente</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                {scanImg && <div className="mt-2 space-y-2"><img src={scanImg.preview} alt="Vista previa del comprobante que se leerá automáticamente" className="w-full max-h-36 object-contain rounded-xl border border-[var(--border)] bg-white" />
+                  <div><Label htmlFor="scan-cat">Categoría (opcional)</Label><select id="scan-cat" aria-label="Categoría para los productos leídos del comprobante" className={inputCls} value={scanCat} onChange={e=>setScanCat(e.target.value)}><option value="">Automática</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                   <button type="button" aria-label="Leer el comprobante y crear los gastos automáticamente" className={btnPrimary+" w-full"} disabled={scanRcpt.isPending} onClick={()=>scanRcpt.mutate({img:{dataBase64:scanImg.dataBase64,mimeType:scanImg.mimeType},visibility:mvVis,categoryId:scanCat?Number(scanCat):null})}>{scanRcpt.isPending?"Leyendo el comprobante…":"Leer comprobante y crear los gastos"}</button>
                 </div>}
-                {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Lectura completada: se crearon {scanRcpt.data.created} gasto(s){scanRcpt.data.store?` de ${scanRcpt.data.store}`:""} por un total de {money2(scanRcpt.data.totalDetected)}. Ya aparecen en la lista de movimientos.</p>}
+                {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Se crearon {scanRcpt.data.created} gasto(s) por {money2(scanRcpt.data.totalDetected)}.</p>}
                 {scanRcpt.error && <p className="text-sm text-[var(--red)] mt-2">{String(scanRcpt.error)}</p>}
               </div>
               <div><Label htmlFor="mv-profile">Hecho por</Label><select id="mv-profile" aria-label="Integrante que hizo el movimiento" className={inputCls} value={mvProfile} onChange={e=>setMvProfile(e.target.value)}><option value="">{me?`Yo (${fullName(me)})`:"El hogar"}</option>{data.profiles.filter(x=>x.kind==="adult").map(x=><option key={x.id} value={x.id}>{fullName(x)}</option>)}</select></div>
               <div>
-                <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">Visibilidad del movimiento: Compartido o Privado</span>
+                <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">Visibilidad</span>
                 <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Selector de visibilidad compartido o privado">
                   <button type="button" aria-label="Movimiento compartido" onClick={()=>setMvVis("shared")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="shared"?"bg-[var(--green)] text-white":"border border-[var(--border)]"}`}>Compartido</button>
                   <button type="button" aria-label="Movimiento privado" onClick={()=>setMvVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
                 </div>
-                <p className="text-[11px] text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos los integrantes.":"Solo usted lo ve."}</p>
+                <p className="text-[11px] text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos.":"Solo usted lo ve."}</p>
               </div>
                 </div>)}
               </div>
@@ -749,9 +749,9 @@ export function App(){
               {saveMv.error && <p className="text-sm text-[var(--red)]">{String(saveMv.error)}</p>}
               <button className={btnPrimary+" w-full"} disabled={saveMv.isPending || !mvAmount || !mvConcept}>{saveMv.isPending?"Guardando…":editingMv?"Guardar cambios":"Registrar"}</button>
               {editingMv && <button type="button" className={btnGhost+" w-full"} onClick={()=>setEditingMv(null)}>Cancelar edición</button>}
-              {data.accounts.length===0 && <Help>Cree primero una cuenta en Cuentas.</Help>}
+              {data.accounts.length===0 && <Help>Cree primero una cuenta.</Help>}
             </form>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
               <div className="flex gap-2 flex-wrap" role="group" aria-label="Mostrar movimientos por tipo">
                 {([["all","Todos"],["income","Ingresos"],["expense","Gastos"],["transfer","Transferencias"],["debt_payment","Pagos de deuda"]] as const).map(([v,l])=>(
                   <button key={v} type="button" aria-label={`Mostrar ${l}`} aria-pressed={mvFilter===v} onClick={()=>setMvFilter(v)} className={`rounded-full px-3.5 py-2 text-[13px] font-bold ${mvFilter===v?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{l}</button>
@@ -759,33 +759,33 @@ export function App(){
               </div>
               <div className="flex gap-2 flex-wrap mt-2">
                 <input aria-label="Buscar movimientos" placeholder="Buscar concepto…" className={inputCls+" flex-1 min-w-[160px]"} value={mvSearch} onChange={e=>setMvSearch(e.target.value)} />
-                <select aria-label="Filtrar por subcategoría" className={inputCls+" w-auto"} value={mvSubFilter} onChange={e=>setMvSubFilter(e.target.value)}><option value="all">Todas las subcategorías</option>{Array.from(new Set(data.categories.flatMap(c=>c.subcategories))).sort().map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="">Sin subcategoría</option></select>
+                <select aria-label="Filtrar por subcategoría" className={inputCls+" w-auto"} value={mvSubFilter} onChange={e=>setMvSubFilter(e.target.value)}><option value="all">Todas</option>{Array.from(new Set(data.categories.flatMap(c=>c.subcategories))).sort().map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="">Sin subcategoría</option></select>
               </div>
               <p className="text-xs text-[var(--dim)] mt-2">{filteredMovs.length} movimientos · Entradas {money(filteredMovs.filter(m=>m.type==="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))} · Salidas {money(filteredMovs.filter(m=>m.type!=="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))}</p>
               {revMv.error && <p className="text-sm text-[var(--red)] mt-2">{String(revMv.error)}</p>}
               {revMv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">Movimiento reversado.</p>}
               <div className="divide-y divide-[var(--border)] mt-2">
-                {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-3 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-3"><div><p className="font-semibold text-sm">{m.concept}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
-                {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-[11px] text-[var(--dim)]">Ya no se considera en los totales.</span></p>}
+                {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div><p className="font-semibold text-sm">{m.concept}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
+                {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-[11px] text-[var(--dim)]">Fuera de los totales.</span></p>}
                 {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-[11px] text-[var(--dim)]">Anula «{data.movements.find(x=>x.id===m.reversalOfId)?.concept||""}».</span></p>}
-                </div><div className="text-right shrink-0"><p className={`font-display font-bold ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-12 h-12 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
+                </div><div className="text-right shrink-0"><p className={`font-display font-bold ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
                 {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>delMv.mutate(m.id)}>Eliminar</button></>}
                 </div></div>
-                {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{m.concept}» por <b>{money2(m.amount)}</b>? Se crea un registro contrario y ambos quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
+                {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{m.concept}» por <b>{money2(m.amount)}</b>? Ambos quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
                 </div>; })}
               </div>
-              {filteredMovs.length===0 && <Empty title="Sin movimientos con ese filtro" body="Cambie el filtro o registre el primer movimiento con el formulario." />}
+              {filteredMovs.length===0 && <Empty title="Sin movimientos con ese filtro" body="Cambie el filtro o registre el primero." />}
             </div>
           </section>
         )}
 
         {effTab==="cuentas" && (
-          <section className="grid md:grid-cols-[360px_1fr] gap-4 items-start">
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAcc.mutate();}}>
-              <h2 className="font-display font-bold text-lg">{editingAcc?"Editar cuenta":"Nueva cuenta"}</h2>
-              <Help>El saldo inicial se captura una sola vez.</Help>
+          <section className="grid md:grid-cols-[320px_1fr] gap-3 items-start">
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAcc.mutate();}}>
+              <h2 className="font-display font-bold text-base">{editingAcc?"Editar cuenta":"Nueva cuenta"}</h2>
+              <Help>Se captura una sola vez.</Help>
               <div><Label htmlFor="acc-name">Nombre</Label><input id="acc-name" aria-label="Nombre de la cuenta" required className={inputCls} value={accFormName} onChange={e=>setAccFormName(e.target.value)} placeholder="Ej. Nómina Banorte" /></div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div><Label htmlFor="acc-type">Tipo</Label><select id="acc-type" aria-label="Tipo de cuenta" className={inputCls} value={accType} onChange={e=>setAccType(e.target.value as typeof accType)}><option value="bank">Bancaria</option><option value="cash">Efectivo</option><option value="credit">Tarjeta de crédito</option><option value="investment">Inversión</option><option value="loan">Préstamo</option></select></div>
                 <div><Label htmlFor="acc-vis">Visibilidad</Label><select id="acc-vis" aria-label="Visibilidad de la cuenta" className={inputCls} value={accVis} onChange={e=>setAccVis(e.target.value as "private"|"shared")}><option value="shared">Compartida</option><option value="private">Privada</option></select></div>
               </div>
@@ -793,98 +793,98 @@ export function App(){
               <button className={btnPrimary+" w-full"} disabled={saveAcc.isPending}>{editingAcc?"Guardar cambios":"Crear cuenta"}</button>
               {editingAcc && <button type="button" className={btnGhost+" w-full"} onClick={()=>setEditingAcc(null)}>Cancelar</button>}
             </form>
-            <div className="grid sm:grid-cols-2 gap-3">
-              {data.accounts.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">{a.name}</p><p className="text-xs text-[var(--dim)]">{TYPE_LABEL[a.type]||a.type} · {a.visibility==="shared"?"Compartida":"Privada"} · Inicial {money(a.initialBalance)}</p><p className="font-display text-2xl font-extrabold mt-2">{money2(a.balance)}</p><div className="mt-2 flex gap-3"><button aria-label={`Editar cuenta ${a.name}`} className="text-xs underline" onClick={()=>{setEditingAcc(a.id);setAccFormName(a.name);setAccType(a.type as typeof accType);setAccVis(a.visibility as "private"|"shared");setAccInit(String(a.initialBalance));}}>Editar</button><button aria-label={`Eliminar cuenta ${a.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delAcc.mutate(a.id)}>Eliminar</button></div></div>)}
-              {data.accounts.length===0 && <Empty title="Sin cuentas" body="Cree su primera cuenta: nómina, efectivo o tarjeta." />}
+            <div className="grid sm:grid-cols-2 gap-2">
+              {data.accounts.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">{a.name}</p><p className="text-xs text-[var(--dim)]">{TYPE_LABEL[a.type]||a.type} · {a.visibility==="shared"?"Compartida":"Privada"} · Inicial {money(a.initialBalance)}</p><p className="font-display text-xl font-extrabold mt-2">{money2(a.balance)}</p><div className="mt-2 flex gap-2"><button aria-label={`Editar cuenta ${a.name}`} className="text-xs underline" onClick={()=>{setEditingAcc(a.id);setAccFormName(a.name);setAccType(a.type as typeof accType);setAccVis(a.visibility as "private"|"shared");setAccInit(String(a.initialBalance));}}>Editar</button><button aria-label={`Eliminar cuenta ${a.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delAcc.mutate(a.id)}>Eliminar</button></div></div>)}
+              {data.accounts.length===0 && <Empty title="Sin cuentas" body="Cree su primera cuenta." />}
             </div>
           </section>
         )}
 
         {effTab==="presupuestos" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 grid md:grid-cols-5 gap-3 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveBud.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveBud.mutate();}}>
               <div><Label htmlFor="bud-cat">Categoría de gasto</Label><select id="bud-cat" aria-label="Categoría del presupuesto" required className={inputCls} value={budCat} onChange={e=>setBudCat(e.target.value)}><option value="">Seleccione…</option>{data.categories.filter(c=>c.kind==="expense").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
               <div><Label htmlFor="bud-month">Mes</Label><input id="bud-month" aria-label="Mes del presupuesto" type="month" required className={inputCls} value={budMonth} onChange={e=>setBudMonth(e.target.value)} /></div>
               <div><Label htmlFor="bud-amount">Presupuestado ($)</Label><input id="bud-amount" aria-label="Monto presupuestado" type="number" min="0" required className={inputCls} value={budAmount} onChange={e=>setBudAmount(e.target.value)} /></div>
               <div><Label htmlFor="bud-vis">Visibilidad</Label><select id="bud-vis" aria-label="Visibilidad del presupuesto" className={inputCls} value={budVis} onChange={e=>setBudVis(e.target.value as "private"|"shared")}><option value="shared">Compartido</option><option value="private">Privado</option></select></div>
               <button className={btnPrimary} disabled={saveBud.isPending}>Crear presupuesto</button>
             </form>
-            <Help>El gasto se calcula desde sus movimientos. Lo compartido suma solo movimientos compartidos; lo privado, solo privados.</Help>
-            <div className="grid sm:grid-cols-2 gap-3 mt-4">
-              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado {money(b.amount)} · Gastado {money(b.spent)} · <b>Restan {money(b.remaining)}</b></p><div className="h-2.5 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado {b.remaining<0?"· Presupuesto excedido":""}</p><button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
-              {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Crea uno por categoría y mes para ver el avance en Inicio." />}
+            <Help>Se calcula desde sus movimientos.</Help>
+            <div className="grid sm:grid-cols-2 gap-2 mt-3">
+              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado {money(b.amount)} · Gastado {money(b.spent)} · <b>Restan {money(b.remaining)}</b></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado {b.remaining<0?"· Presupuesto excedido":""}</p><button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
+              {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Uno por categoría y mes." />}
             </div>
           </section>
         )}
 
         {effTab==="fondos" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 flex flex-wrap gap-3 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveFund.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex flex-wrap gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveFund.mutate();}}>
               <div className="flex-1 min-w-[180px]"><Label htmlFor="fund-name">Nombre del fondo</Label><input id="fund-name" aria-label="Nombre del fondo" required className={inputCls} value={fundName} onChange={e=>setFundName(e.target.value)} placeholder="Ej. Fondo de emergencia" /></div>
-              <div><Label htmlFor="fund-target">Meta del fondo ($, opcional)</Label><input id="fund-target" aria-label="Meta del fondo" type="number" min="0" className={inputCls} value={fundTarget} onChange={e=>setFundTarget(e.target.value)} /></div>
+              <div><Label htmlFor="fund-target">Meta ($, opcional)</Label><input id="fund-target" aria-label="Meta del fondo" type="number" min="0" className={inputCls} value={fundTarget} onChange={e=>setFundTarget(e.target.value)} /></div>
               <button className={btnPrimary}>Crear fondo</button>
             </form>
-            <div className="mt-3"><Help>Apartados virtuales: el dinero sigue en su cuenta, pero no cuenta como disponible libre.</Help></div>
-            <div className="grid sm:grid-cols-2 gap-3 mt-4">
-              {data.funds.map(f=><div key={f.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">{f.name}</p><p className="font-display text-2xl font-extrabold mt-1">{money2(f.balance)}</p>{f.targetAmount && <p className="text-xs text-[var(--dim)]">Meta {money(f.targetAmount)} · {Math.min(100,Math.round(f.balance/f.targetAmount*100))}%</p>}<div className="flex gap-2 mt-3"><input aria-label={`Monto para ${f.name}`} type="number" min="0" placeholder="$ Monto" className={inputCls} value={fundAmt[f.id]||""} onChange={e=>setFundAmt({...fundAmt,[f.id]:e.target.value})} /><button aria-label={`Aportar a ${f.name}`} className={btnPrimary} onClick={()=>fundMove.mutate({fundId:f.id,type:"contribution",amount:Number(fundAmt[f.id])||0})}>Aportar</button><button aria-label={`Retirar de ${f.name}`} className={btnGhost} onClick={()=>fundMove.mutate({fundId:f.id,type:"withdrawal",amount:Number(fundAmt[f.id])||0})}>Retirar</button></div><button aria-label={`Eliminar fondo ${f.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>delFund.mutate(f.id)}>Eliminar fondo</button></div>)}
-              {data.funds.length===0 && <Empty title="Sin fondos" body="Cree primero el fondo de emergencia." />}
+            <div className="mt-3"><Help>El dinero sigue en su cuenta; no cuenta como disponible.</Help></div>
+            <div className="grid sm:grid-cols-2 gap-2 mt-3">
+              {data.funds.map(f=><div key={f.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">{f.name}</p><p className="font-display text-xl font-extrabold mt-1">{money2(f.balance)}</p>{f.targetAmount && <p className="text-xs text-[var(--dim)]">Meta {money(f.targetAmount)} · {Math.min(100,Math.round(f.balance/f.targetAmount*100))}%</p>}<div className="flex gap-2 mt-3"><input aria-label={`Monto para ${f.name}`} type="number" min="0" placeholder="$ Monto" className={inputCls} value={fundAmt[f.id]||""} onChange={e=>setFundAmt({...fundAmt,[f.id]:e.target.value})} /><button aria-label={`Aportar a ${f.name}`} className={btnPrimary} onClick={()=>fundMove.mutate({fundId:f.id,type:"contribution",amount:Number(fundAmt[f.id])||0})}>Aportar</button><button aria-label={`Retirar de ${f.name}`} className={btnGhost} onClick={()=>fundMove.mutate({fundId:f.id,type:"withdrawal",amount:Number(fundAmt[f.id])||0})}>Retirar</button></div><button aria-label={`Eliminar fondo ${f.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>delFund.mutate(f.id)}>Eliminar fondo</button></div>)}
+              {data.funds.length===0 && <Empty title="Sin fondos" body="Cree el fondo de emergencia." />}
             </div>
           </section>
         )}
 
         {effTab==="aportaciones" && (
           <section className="max-w-2xl">
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
-              <h2 className="font-display font-bold text-lg">Reparto del gasto compartido — {s.currentMonth}</h2>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+              <h2 className="font-display font-bold text-base">Reparto del gasto — {s.currentMonth}</h2>
               <p className="text-sm text-[var(--dim)] mt-1">Base del reparto: <b className="text-[var(--text)]">{money2(s.sharedExpenseMonth)}</b> · Regla: {hh.contributionRule==="equal"?"Partes iguales":"Proporcional al ingreso"}</p>
               <div className="bg-[var(--surface2)] rounded-2xl p-3 mt-3 text-sm">{s.contributionsNote}</div>
               <div className="divide-y divide-[var(--border)] mt-3">
-                {s.contributions.map(c=><div key={c.profileId} className="py-3 flex justify-between gap-3"><div><p className="font-semibold">{c.name}</p><p className="text-xs text-[var(--dim)]">Ingreso {money(c.income)} · Capacidad de pago {money(c.capacity)} (ingreso − compromisos fijos){hh.contributionRule==="proportional"?` · ${c.pctShare}% del ingreso conjunto`:""}</p>{c.shouldPay>c.capacity && c.capacity>=0 && <p className="text-xs text-[var(--red)]">La parte asignada supera su capacidad de pago.</p>}</div><p className="font-display font-extrabold text-lg">{money2(c.shouldPay)}</p></div>)}
+                {s.contributions.map(c=><div key={c.profileId} className="py-2 flex justify-between gap-2"><div><p className="font-semibold">{c.name}</p><p className="text-xs text-[var(--dim)]">Ingreso {money(c.income)} · Capacidad {money(c.capacity)}{hh.contributionRule==="proportional"?` · ${c.pctShare}% del ingreso conjunto`:""}</p>{c.shouldPay>c.capacity && c.capacity>=0 && <p className="text-xs text-[var(--red)]">Supera su capacidad de pago.</p>}</div><p className="font-display font-extrabold text-base">{money2(c.shouldPay)}</p></div>)}
               </div>
-              {s.contributions.length===0 && <Empty title="Sin adultos para repartir" body="Cree los perfiles de los adultos en Perfiles." />}
-              <Help><b>Capacidad de pago</b> = ingreso − compromisos fijos.</Help>
+              {s.contributions.length===0 && <Empty title="Sin adultos para repartir" body="Agregue adultos en Perfiles." />}
+              <Help><b>Capacidad</b> = ingreso − compromisos.</Help>
             </div>
           </section>
         )}
 
         {effTab==="metas" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 grid md:grid-cols-5 gap-3 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveGoal.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveGoal.mutate();}}>
               <div><Label htmlFor="goal-name">Nombre de la meta</Label><input id="goal-name" aria-label="Nombre de la meta" required className={inputCls} value={goalName} onChange={e=>setGoalName(e.target.value)} placeholder="Ej. Vacaciones" /></div>
               <div><Label htmlFor="goal-target">Monto objetivo ($)</Label><input id="goal-target" aria-label="Monto objetivo de la meta" type="number" min="1" required className={inputCls} value={goalTarget} onChange={e=>setGoalTarget(e.target.value)} /></div>
               <div><Label htmlFor="goal-saved">Ya ahorrado ($)</Label><input id="goal-saved" aria-label="Ya ahorrado en la meta" type="number" min="0" className={inputCls} value={goalSaved} onChange={e=>setGoalSaved(e.target.value)} /></div>
               <div><Label htmlFor="goal-date">Fecha objetivo</Label><input id="goal-date" aria-label="Fecha objetivo de la meta" type="date" className={inputCls} value={goalDate} onChange={e=>setGoalDate(e.target.value)} /></div>
               <button className={btnPrimary}>Crear meta</button>
             </form>
-            <div className="grid sm:grid-cols-2 gap-3 mt-4">
-              {data.goals.map(g=>{ const monthsLeft=g.targetDate?Math.max(1,Math.round((new Date(g.targetDate).getTime()-Date.now())/(1000*60*60*24*30))):null; const need=monthsLeft?Math.ceil((g.targetAmount-g.savedAmount)/monthsLeft):null; return <div key={g.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">{g.name} <span className="text-xs font-normal text-[var(--dim)]">{g.visibility==="shared"?"Compartida":"Privada"}</span></p><p className="font-display text-xl font-extrabold mt-1">{money(g.savedAmount)} <span className="text-sm font-semibold text-[var(--dim)]">de {money(g.targetAmount)} · {g.pct}%</span></p><div className="h-2.5 bg-[var(--surface2)] rounded-full mt-2"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div>{g.targetDate && <p className="text-xs text-[var(--dim)] mt-1">Fecha objetivo {fmtDate(g.targetDate)}{need!==null && need>0?` · faltan ${money(need)}/mes para llegar`:""}</p>}<div className="flex gap-2 mt-3"><input aria-label={`Abonar a ${g.name}`} type="number" placeholder="$ Abonar" className={inputCls} value={goalAdd[g.id]||""} onChange={e=>setGoalAdd({...goalAdd,[g.id]:e.target.value})} /><button aria-label={`Abonar a la meta ${g.name}`} className={btnPrimary} onClick={()=>addGoal.mutate({id:g.id,amount:Number(goalAdd[g.id])||0})}>Abonar</button></div><button aria-label={`Eliminar meta ${g.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>delGoal.mutate(g.id)}>Eliminar</button></div>; })}
+            <div className="grid sm:grid-cols-2 gap-2 mt-3">
+              {data.goals.map(g=>{ const monthsLeft=g.targetDate?Math.max(1,Math.round((new Date(g.targetDate).getTime()-Date.now())/(1000*60*60*24*30))):null; const need=monthsLeft?Math.ceil((g.targetAmount-g.savedAmount)/monthsLeft):null; return <div key={g.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">{g.name} <span className="text-xs font-normal text-[var(--dim)]">{g.visibility==="shared"?"Compartida":"Privada"}</span></p><p className="font-display text-xl font-extrabold mt-1">{money(g.savedAmount)} <span className="text-sm font-semibold text-[var(--dim)]">de {money(g.targetAmount)} · {g.pct}%</span></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div>{g.targetDate && <p className="text-xs text-[var(--dim)] mt-1">Meta {fmtDate(g.targetDate)}{need!==null && need>0?` · faltan ${money(need)}/mes`:""}</p>}<div className="flex gap-2 mt-3"><input aria-label={`Abonar a ${g.name}`} type="number" placeholder="$ Abonar" className={inputCls} value={goalAdd[g.id]||""} onChange={e=>setGoalAdd({...goalAdd,[g.id]:e.target.value})} /><button aria-label={`Abonar a la meta ${g.name}`} className={btnPrimary} onClick={()=>addGoal.mutate({id:g.id,amount:Number(goalAdd[g.id])||0})}>Abonar</button></div><button aria-label={`Eliminar meta ${g.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>delGoal.mutate(g.id)}>Eliminar</button></div>; })}
               {data.goals.length===0 && <Empty title="Sin metas" body="Cree su primera meta." />}
             </div>
           </section>
         )}
 
         {effTab==="acuerdos" && (
-          <section className="grid md:grid-cols-[360px_1fr] gap-4 items-start">
-            <div className="space-y-3">
-              <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAg.mutate();}}>
+          <section className="grid md:grid-cols-[320px_1fr] gap-3 items-start">
+            <div className="space-y-2">
+              <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAg.mutate();}}>
                 <h2 className="font-display font-bold">Nueva propuesta</h2>
                 <div><Label htmlFor="ag-title">Título del acuerdo</Label><input id="ag-title" aria-label="Título del acuerdo" required className={inputCls} value={agTitle} onChange={e=>setAgTitle(e.target.value)} placeholder="Ej. Toda deuda nueva requiere aviso previo" /></div>
                 <div><Label htmlFor="ag-desc">Descripción</Label><textarea id="ag-desc" aria-label="Descripción del acuerdo" className={inputCls} rows={3} value={agDesc} onChange={e=>setAgDesc(e.target.value)} /></div>
                 <button className={btnPrimary+" w-full"}>Proponer acuerdo</button>
               </form>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <Label htmlFor="vote-profile">Voto como</Label>
                 <select id="vote-profile" aria-label="Votar como perfil" className={inputCls} value={voteProfile} onChange={e=>setVoteProfile(e.target.value)}><option value="">Seleccione su perfil…</option>{data.profiles.filter(p=>p.kind==="adult").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
                 <p className="text-xs text-[var(--dim)] mt-2">Regla del hogar: <b>{hh.approvalRule==="unanimous"?"Unánime":"Mayoría"}</b>.</p>
               </div>
               <div className="flex gap-2 text-center text-sm">
-                <div className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-2xl py-3"><b className="font-display block text-lg">{data.agreements.filter(a=>a.status==="proposal").length}</b>Propuestas</div>
-                <div className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-2xl py-3"><b className="font-display block text-lg">{data.agreements.filter(a=>a.status==="approved").length}</b>Aprobados</div>
-                <div className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-2xl py-3"><b className="font-display block text-lg">{data.agreements.filter(a=>a.status==="rejected").length}</b>Rechazados</div>
+                <div className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-2xl py-2"><b className="font-display block text-lg">{data.agreements.filter(a=>a.status==="proposal").length}</b>Propuestas</div>
+                <div className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-2xl py-2"><b className="font-display block text-lg">{data.agreements.filter(a=>a.status==="approved").length}</b>Aprobados</div>
+                <div className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-2xl py-2"><b className="font-display block text-lg">{data.agreements.filter(a=>a.status==="rejected").length}</b>Rechazados</div>
               </div>
             </div>
-            <div className="space-y-3">
-              {data.agreements.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><div className="flex justify-between gap-2"><b className="font-display">{a.title}</b><span className={`text-xs rounded-full px-2.5 py-1 font-bold shrink-0 ${a.status==="approved"?"bg-green-100 text-green-800":a.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</span></div>{a.description && <p className="text-sm text-[var(--dim)] mt-1">{a.description}</p>}<p className="text-xs text-[var(--dim)] mt-2">Votos: {a.votes.length===0?"ninguno hasta el momento":a.votes.map(v=>`${data.profiles.find(p=>p.id===v.profileId)?.name||"Perfil"}: ${v.vote==="approve"?"Sí":"No"}`).join(" · ")}</p><div className="flex gap-2 mt-3"><button aria-label={`Aprobar acuerdo ${a.title}`} className={btnPrimary} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"approve"})}>Votar Sí</button><button aria-label={`Rechazar acuerdo ${a.title}`} className={btnGhost} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"reject"})}>Votar No</button><button aria-label={`Eliminar acuerdo ${a.title}`} className="text-xs underline text-[var(--red)] ml-auto" onClick={()=>delAg.mutate(a.id)}>Eliminar</button></div>{!voteProfile && <p className="text-xs text-[var(--dim)] mt-1">Seleccione su perfil en “Voto como” para votar.</p>}</div>)}
+            <div className="space-y-2">
+              {data.agreements.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><div className="flex justify-between gap-2"><b className="font-display">{a.title}</b><span className={`text-xs rounded-full px-2.5 py-1 font-bold shrink-0 ${a.status==="approved"?"bg-green-100 text-green-800":a.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</span></div>{a.description && <p className="text-sm text-[var(--dim)] mt-1">{a.description}</p>}<p className="text-xs text-[var(--dim)] mt-2">Votos: {a.votes.length===0?"sin votos":a.votes.map(v=>`${data.profiles.find(p=>p.id===v.profileId)?.name||"Perfil"}: ${v.vote==="approve"?"Sí":"No"}`).join(" · ")}</p><div className="flex gap-2 mt-3"><button aria-label={`Aprobar acuerdo ${a.title}`} className={btnPrimary} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"approve"})}>Votar Sí</button><button aria-label={`Rechazar acuerdo ${a.title}`} className={btnGhost} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"reject"})}>Votar No</button><button aria-label={`Eliminar acuerdo ${a.title}`} className="text-xs underline text-[var(--red)] ml-auto" onClick={()=>delAg.mutate(a.id)}>Eliminar</button></div>{!voteProfile && <p className="text-xs text-[var(--dim)] mt-1">Seleccione su perfil para votar.</p>}</div>)}
               {data.agreements.length===0 && <Empty title="Sin acuerdos registrados" body="Proponga la primera regla del hogar." />}
             </div>
           </section>
@@ -892,22 +892,22 @@ export function App(){
 
         {effTab==="patrimonio" && (
           <section>
-            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-3xl p-5 flex flex-wrap gap-6">
-              <div><p className="text-sm opacity-80">Patrimonio neto</p><p className="font-display text-3xl font-extrabold">{money2(s.netWorth)}</p></div>
-              <div><p className="text-sm opacity-80">Activos ({data.patrimony.filter(p=>p.kind==="asset").length} partidas)</p><p className="font-display text-xl font-bold">{money2(s.totalAssets)}</p></div>
-              <div><p className="text-sm opacity-80">Pasivos ({data.patrimony.filter(p=>p.kind==="liability").length} partidas)</p><p className="font-display text-xl font-bold">{money2(s.totalLiabilities)}</p></div>
+            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3.5 flex flex-wrap gap-6">
+              <div><p className="text-sm opacity-80">Patrimonio neto</p><p className="font-display text-2xl font-extrabold">{money2(s.netWorth)}</p></div>
+              <div><p className="text-sm opacity-80">Activos ({data.patrimony.filter(p=>p.kind==="asset").length})</p><p className="font-display text-xl font-bold">{money2(s.totalAssets)}</p></div>
+              <div><p className="text-sm opacity-80">Pasivos ({data.patrimony.filter(p=>p.kind==="liability").length})</p><p className="font-display text-xl font-bold">{money2(s.totalLiabilities)}</p></div>
                           </div>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 grid md:grid-cols-6 gap-3 items-end mt-4" onSubmit={(e:FormEvent)=>{e.preventDefault();savePat.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-6 gap-2 items-end mt-3" onSubmit={(e:FormEvent)=>{e.preventDefault();savePat.mutate();}}>
               <div><Label htmlFor="pat-name">Nombre</Label><input id="pat-name" aria-label="Nombre de la partida de patrimonio" required className={inputCls} value={patName} onChange={e=>setPatName(e.target.value)} placeholder="Ej. Casa, Auto, Hipoteca" /></div>
-              <div><Label htmlFor="pat-kind">Tipo</Label><select id="pat-kind" aria-label="Tipo de partida" className={inputCls} value={patKind} onChange={e=>setPatKind(e.target.value as "asset"|"liability")}><option value="asset">Activo (bien o derecho)</option><option value="liability">Pasivo (obligación)</option></select></div>
+              <div><Label htmlFor="pat-kind">Tipo</Label><select id="pat-kind" aria-label="Tipo de partida" className={inputCls} value={patKind} onChange={e=>setPatKind(e.target.value as "asset"|"liability")}><option value="asset">Activo</option><option value="liability">Pasivo</option></select></div>
               <div><Label htmlFor="pat-cat">Categoría</Label><input id="pat-cat" aria-label="Categoría de la partida" className={inputCls} value={patCat} onChange={e=>setPatCat(e.target.value)} placeholder="Inmueble, Vehículo…" /></div>
               <div><Label htmlFor="pat-value">Valor ($)</Label><input id="pat-value" aria-label="Valor de la partida" type="number" min="0" required className={inputCls} value={patValue} onChange={e=>setPatValue(e.target.value)} /></div>
               <div><Label htmlFor="pat-owner">Propietario</Label><input id="pat-owner" aria-label="Propietario de la partida" className={inputCls} value={patOwner} onChange={e=>setPatOwner(e.target.value)} placeholder="Compartido / nombre" /></div>
               <button className={btnPrimary}>Agregar</button>
             </form>
-            <div className="grid md:grid-cols-2 gap-4 mt-4">
+            <div className="grid md:grid-cols-2 gap-3 mt-3">
               {(["asset","liability"] as const).map(k=>(
-                <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><h3 className="font-display font-bold">{k==="asset"?"Activos":"Pasivos"}</h3>
+                <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><h3 className="font-display font-bold">{k==="asset"?"Activos":"Pasivos"}</h3>
                   {data.patrimony.filter(p=>p.kind===k).map(p=><div key={p.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{p.name}<span className="block text-xs text-[var(--dim)]">{p.category}{p.owner?` · ${p.owner}`:""}</span></span><span className="text-right"><b>{money2(p.value)}</b><br/><button aria-label={`Eliminar ${p.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delPat.mutate(p.id)}>Eliminar</button></span></div>)}
                   {data.patrimony.filter(p=>p.kind===k).length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin {k==="asset"?"activos":"pasivos"} registrados.</p>}
                   <p className="font-display font-bold mt-2 text-right">Total: {money2(k==="asset"?s.totalAssets:s.totalLiabilities)}</p>
@@ -919,16 +919,16 @@ export function App(){
 
         {effTab==="categorias" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 grid md:grid-cols-4 gap-3 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveCat.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-4 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveCat.mutate();}}>
               <div><Label htmlFor="cat-name">Nueva categoría</Label><input id="cat-name" aria-label="Nombre de la nueva categoría" required className={inputCls} value={catFormName} onChange={e=>setCatFormName(e.target.value)} /></div>
               <div><Label htmlFor="cat-kind">Tipo</Label><select id="cat-kind" aria-label="Tipo de categoría" className={inputCls} value={catKind} onChange={e=>setCatKind(e.target.value as "income"|"expense")}><option value="expense">Gasto</option><option value="income">Ingreso</option></select></div>
-              <div><Label htmlFor="cat-subs">Subcategorías (separadas por coma)</Label><input id="cat-subs" aria-label="Subcategorías separadas por coma" className={inputCls} value={catSubs} onChange={e=>setCatSubs(e.target.value)} placeholder="Súper, Mercado, Tienda" /></div>
+              <div><Label htmlFor="cat-subs">Subcategorías (coma)</Label><input id="cat-subs" aria-label="Subcategorías separadas por coma" className={inputCls} value={catSubs} onChange={e=>setCatSubs(e.target.value)} placeholder="Súper, Mercado, Tienda" /></div>
               <button className={btnPrimary}>Crear categoría</button>
             </form>
-            <div className="mt-3"><Help>Agregue o elimine subcategorías con la × de cada etiqueta.</Help></div>
-            <div className="grid md:grid-cols-2 gap-4 mt-4">
+            <div className="mt-3"><Help>Toque la × para quitar una subcategoría.</Help></div>
+            <div className="grid md:grid-cols-2 gap-3 mt-3">
               {(["income","expense"] as const).map(k=>(
-                <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><h3 className="font-display font-bold">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>
+                <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><h3 className="font-display font-bold">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>
                   {data.categories.filter(c=>c.kind===k).map(c=><div key={c.id} className="py-2.5 border-b border-[var(--border)] last:border-0"><p className="text-sm font-semibold">{c.name} {c.isSystem===1 && <span className="text-[11px] text-[var(--dim)] font-normal">· del sistema</span>}</p>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
                       {c.subcategories.map(sb=><span key={sb} className="inline-flex items-center gap-1 bg-[var(--surface2)] rounded-full pl-2.5 pr-1 py-1 text-xs font-semibold">{sb}<button type="button" aria-label={`Eliminar subcategoría ${sb} de ${c.name}`} className="w-5 h-5 rounded-full bg-[var(--surface)] border border-[var(--border)] leading-none" onClick={()=>removeSub.mutate({categoryId:c.id,name:sb})}>×</button></span>)}
@@ -944,35 +944,35 @@ export function App(){
         )}
 
         {effTab==="perfiles" && (
-          <section className="grid md:grid-cols-[360px_1fr] gap-4 items-start">
-            <div style={{gridColumn:"1 / -1"}} className="bg-[var(--accent)] text-[var(--accent-text)] rounded-3xl p-4 flex flex-wrap items-center gap-3">
-              <div className="flex-1 min-w-[200px]"><p className="font-display font-bold">Perfil en uso en este dispositivo</p><p className="text-xs opacity-80">Define qué puede consultar en este dispositivo.</p></div>
+          <section className="grid md:grid-cols-[320px_1fr] gap-3 items-start">
+            <div style={{gridColumn:"1 / -1"}} className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3 flex flex-wrap items-center gap-2">
+              <div className="flex-1 min-w-[200px]"><p className="font-display font-bold">Perfil en uso</p><p className="text-xs opacity-80">Lo que ve en este dispositivo.</p></div>
               <select aria-label="Perfil actual en este dispositivo" className="rounded-xl bg-white text-black px-3 py-2.5 font-semibold" value={me?me.id:""} onChange={e=>pickProfile(Number(e.target.value))}>
                 {data.profiles.map(x=><option key={x.id} value={x.id}>{fullName(x)} — {x.role==="admin"?"Administrador":"Integrante"}</option>)}
               </select>
-              <span className="text-sm font-bold">{isAdmin?"Administrador: ve todo lo compartido.":"Integrante: ve lo compartido y sus privados."}</span>
+              <span className="text-sm font-bold">{isAdmin?"Ve todo lo compartido.":"Ve lo compartido y sus privados."}</span>
             </div>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveProf.mutate();}}>
-              <h2 className="font-display font-bold text-lg">Agregar persona</h2>
-              <div className="grid grid-cols-2 gap-3"><div><Label htmlFor="prof-name">Nombre</Label><input id="prof-name" aria-label="Nombre de la persona" required className={inputCls} value={profName} onChange={e=>setProfName(e.target.value)} /></div><div><Label htmlFor="prof-last">Apellido</Label><input id="prof-last" aria-label="Apellido de la persona" className={inputCls} value={profLast} onChange={e=>setProfLast(e.target.value)} /></div></div>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveProf.mutate();}}>
+              <h2 className="font-display font-bold text-base">Agregar persona</h2>
+              <div className="grid grid-cols-2 gap-2"><div><Label htmlFor="prof-name">Nombre</Label><input id="prof-name" aria-label="Nombre de la persona" required className={inputCls} value={profName} onChange={e=>setProfName(e.target.value)} /></div><div><Label htmlFor="prof-last">Apellido</Label><input id="prof-last" aria-label="Apellido de la persona" className={inputCls} value={profLast} onChange={e=>setProfLast(e.target.value)} /></div></div>
               <p className="text-[11px] text-[var(--dim)]">El nombre no se toma del correo.</p>
-              <div><Label htmlFor="prof-kind">Tipo de perfil</Label><select id="prof-kind" aria-label="Tipo de perfil" className={inputCls} value={profKind} onChange={e=>setProfKind(e.target.value as "adult"|"dependent")}><option value="adult">Adulto (aporta y vota)</option><option value="dependent">Dependiente (no aporta)</option></select></div>
+              <div><Label htmlFor="prof-kind">Tipo de perfil</Label><select id="prof-kind" aria-label="Tipo de perfil" className={inputCls} value={profKind} onChange={e=>setProfKind(e.target.value as "adult"|"dependent")}><option value="adult">Adulto</option><option value="dependent">Dependiente</option></select></div>
               {profKind==="dependent" && <div><Label htmlFor="prof-type">Relación</Label><select id="prof-type" aria-label="Relación del dependiente" className={inputCls} value={profType} onChange={e=>setProfType(e.target.value)}><option>Hijo/a menor</option><option>Hijo/a adulto</option><option>Padre/Madre</option><option>Otro dependiente</option></select></div>}
               {profKind==="adult" && <>
-                <div><Label htmlFor="prof-email">Correo (para invitar al hogar)</Label><input id="prof-email" aria-label="Correo de la persona" type="email" className={inputCls} value={profEmail} onChange={e=>setProfEmail(e.target.value)} placeholder="pareja@correo.com" /></div>
-                <div className="grid grid-cols-2 gap-3">
+                <div><Label htmlFor="prof-email">Correo (para invitar)</Label><input id="prof-email" aria-label="Correo de la persona" type="email" className={inputCls} value={profEmail} onChange={e=>setProfEmail(e.target.value)} placeholder="pareja@correo.com" /></div>
+                <div className="grid grid-cols-2 gap-2">
                   <div><Label htmlFor="prof-income">Ingreso neto mensual ($)</Label><input id="prof-income" aria-label="Ingreso neto mensual" type="number" min="0" className={inputCls} value={profIncome} onChange={e=>setProfIncome(e.target.value)} /></div>
                   <div><Label htmlFor="prof-fixed">Compromisos fijos ($)</Label><input id="prof-fixed" aria-label="Compromisos fijos mensuales" type="number" min="0" className={inputCls} value={profFixed} onChange={e=>setProfFixed(e.target.value)} /></div>
                 </div>
-                <Help><b>Capacidad de pago</b> = ingreso − compromisos fijos.</Help>
+                <Help><b>Capacidad</b> = ingreso − compromisos.</Help>
               </>}
               <button className={btnPrimary+" w-full"}>Agregar persona</button>
             </form>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {data.profiles.map(p=>(
-                <div key={p.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 flex justify-between gap-3">
+                <div key={p.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex justify-between gap-2">
                   <div className="flex-1"><p className="font-display font-bold">{fullName(p)} <span className="text-xs font-normal bg-[var(--surface2)] rounded-full px-2 py-0.5">{p.kind==="adult"?"Adulto":`Dependiente · ${p.dependentType||""}`}</span> <span className={`text-xs font-bold rounded-full px-2 py-0.5 ${p.role==="admin"?"bg-[var(--gold)] text-white":"bg-[var(--surface2)]"}`}>{p.role==="admin"?"Administrador del hogar":"Integrante"}</span></p>
-                  {p.kind==="adult" ? <p className="text-sm text-[var(--dim)]">Ingreso {money(p.monthlyIncome)} · Compromisos {money(p.fixedCommitments)} · <b className="text-[var(--text)]">Capacidad {money(p.capacity)}</b>{p.email?` · ${p.email}`:""}</p> : <p className="text-sm text-[var(--dim)]">No aporta al reparto ni vota acuerdos.</p>}</div>
+                  {p.kind==="adult" ? <p className="text-sm text-[var(--dim)]">Ingreso {money(p.monthlyIncome)} · Compromisos {money(p.fixedCommitments)} · <b className="text-[var(--text)]">Capacidad {money(p.capacity)}</b>{p.email?` · ${p.email}`:""}</p> : <p className="text-sm text-[var(--dim)]">No aporta ni vota.</p>}</div>
                   <div className="shrink-0 text-right space-y-1">
                     <button aria-label={`Editar nombre de ${fullName(p)}`} className="text-xs underline block" onClick={()=>{setEditProfId(p.id);setEditProfName(p.name);setEditProfLast(p.lastName||"");}}>Editar nombre</button>
                     {isAdmin && <button aria-label={`Eliminar perfil de ${fullName(p)}`} className="text-xs underline text-[var(--red)] block" onClick={()=>delProf.mutate(p.id)}>Eliminar</button>}
@@ -981,16 +981,16 @@ export function App(){
                 </div>
               ))}
               {data.profiles.length===0 && <Empty title="Sin perfiles" body="Agregue a los adultos del hogar." />}
-              <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-3xl p-4">
+              <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3">
                 <h3 className="font-display font-bold">Invitaciones al hogar</h3>
-                <p className="text-sm text-[var(--dim)] mt-1">El correo se envía con un enlace directo (un solo uso, 7 días). Si el envío no está configurado, se mostrará el enlace para copiarlo.</p>
+                <p className="text-sm text-[var(--dim)] mt-1">Enlace directo, un solo uso, 7 días.</p>
                 {isAdmin ? <div className="flex flex-wrap gap-2 mt-3"><input aria-label="Correo del invitado" type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={invEmail2} onChange={e=>setInvEmail2(e.target.value)} /><input aria-label="Nombre del invitado opcional" placeholder="Nombre (opcional, lo confirma él/ella)" className={inputCls+" flex-1 min-w-[160px]"} value={invName2} onChange={e=>setInvName2(e.target.value)} /><button aria-label="Enviar invitación al hogar" className={btnPrimary} onClick={()=>createInv.mutate()} disabled={!invEmail2 || createInv.isPending}>Invitar</button></div> : <p className="text-sm mt-2">Solo el administrador envía invitaciones.</p>}
-                {createInv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">{(createInv.data as {reused?:boolean})?.reused?"Ya tenía una invitación pendiente; se reutilizó.":"Invitación creada y en estado pendiente."}</p>}
+                {createInv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">{(createInv.data as {reused?:boolean})?.reused?"Se reutilizó la invitación pendiente.":"Invitación pendiente."}</p>}
                 {hhInvResult && (
                   <div className="text-sm space-y-2 mt-2">
                     {hhInvResult.emailSent
-                      ? <p className="text-[var(--green)]">Correo de invitación enviado. La persona recibirá el enlace directo para entrar a este hogar.</p>
-                      : <><p className="text-[var(--red)]">El correo no se envió automáticamente. Copie el enlace y envíelo por el medio que prefiera:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{hhInvResult.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(hhInvResult.inviteUrl)}>{copiedLink===hhInvResult.inviteUrl?"Enlace copiado":"Copiar enlace de invitación"}</button></>}
+                      ? <p className="text-[var(--green)]">Correo enviado.</p>
+                      : <><p className="text-[var(--red)]">Copie el enlace y envíelo usted:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{hhInvResult.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(hhInvResult.inviteUrl)}>{copiedLink===hhInvResult.inviteUrl?"Enlace copiado":"Copiar enlace"}</button></>}
                   </div>
                 )}
                 {createInv.error && <p className="text-sm text-[var(--red)] mt-2">{String(createInv.error)}</p>}
@@ -998,53 +998,53 @@ export function App(){
                   {data.invitations.map(iv=>(
                     <div key={iv.id} className="py-2.5 text-sm">
                       <div className="flex justify-between gap-2 flex-wrap"><span><b>{iv.email}</b>{iv.invitedName?` · ${iv.invitedName}`:""}</span><span className={`text-xs font-bold rounded-full px-2 py-0.5 ${iv.status==="accepted"?"bg-green-100 text-green-800":iv.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{iv.status==="accepted"?"Aceptada":iv.status==="rejected"?"Rechazada":"Pendiente"}</span></div>
-                      {iv.status==="pending" && <div className="mt-2 space-y-2"><div className="grid grid-cols-2 gap-2"><input aria-label={`Nombre de quien acepta ${iv.email}`} placeholder="Su nombre" className={inputCls} value={acceptFirst[iv.id]||iv.invitedName||""} onChange={e=>setAcceptFirst({...acceptFirst,[iv.id]:e.target.value})} /><input aria-label={`Apellido de quien acepta ${iv.email}`} placeholder="Su apellido" className={inputCls} value={acceptLast[iv.id]||""} onChange={e=>setAcceptLast({...acceptLast,[iv.id]:e.target.value})} /></div><div className="flex gap-2 flex-wrap"><button aria-label={`Aceptar invitación de ${iv.email}`} className={btnPrimary} onClick={()=>respondInv2.mutate({id:iv.id,accept:true})}>Aceptar e ingresar a este hogar</button><button aria-label={`Rechazar invitación de ${iv.email}`} className={btnGhost} onClick={()=>respondInv2.mutate({id:iv.id,accept:false})}>Rechazar</button>{isAdmin && <><button aria-label={`Reenviar invitación a ${iv.email}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"household",invitationId:iv.id})}>Reenviar correo</button><button aria-label={`Borrar invitación de ${iv.email}`} className="text-xs underline text-[var(--red)]" onClick={()=>delInv.mutate(iv.id)}>Borrar</button></>}</div></div>}
+                      {iv.status==="pending" && <div className="mt-2 space-y-2"><div className="grid grid-cols-2 gap-2"><input aria-label={`Nombre de quien acepta ${iv.email}`} placeholder="Su nombre" className={inputCls} value={acceptFirst[iv.id]||iv.invitedName||""} onChange={e=>setAcceptFirst({...acceptFirst,[iv.id]:e.target.value})} /><input aria-label={`Apellido de quien acepta ${iv.email}`} placeholder="Su apellido" className={inputCls} value={acceptLast[iv.id]||""} onChange={e=>setAcceptLast({...acceptLast,[iv.id]:e.target.value})} /></div><div className="flex gap-2 flex-wrap"><button aria-label={`Aceptar invitación de ${iv.email}`} className={btnPrimary} onClick={()=>respondInv2.mutate({id:iv.id,accept:true})}>Aceptar y entrar</button><button aria-label={`Rechazar invitación de ${iv.email}`} className={btnGhost} onClick={()=>respondInv2.mutate({id:iv.id,accept:false})}>Rechazar</button>{isAdmin && <><button aria-label={`Reenviar invitación a ${iv.email}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"household",invitationId:iv.id})}>Reenviar correo</button><button aria-label={`Borrar invitación de ${iv.email}`} className="text-xs underline text-[var(--red)]" onClick={()=>delInv.mutate(iv.id)}>Borrar</button></>}</div></div>}
                     </div>
                   ))}
                   {data.invitations.length===0 && <p className="text-sm text-[var(--dim)] py-2">Sin invitaciones registradas.</p>}
                 </div>
               </div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><h3 className="font-display font-bold">Fecha de corte del hogar: día {hh.cutoffDay}</h3><p className="text-sm text-[var(--dim)] mt-1">El mes financiero se consulta por mes calendario y la fecha de corte queda registrada en las reglas del hogar (editable en la sección Hogar). Los movimientos conservan la fecha exacta capturada, sin desfase por zona horaria.</p></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><h3 className="font-display font-bold">Fecha de corte del hogar: día {hh.cutoffDay}</h3><p className="text-sm text-[var(--dim)] mt-1">El mes se consulta por calendario; la fecha de corte está en Hogar.</p></div>
             </div>
           </section>
         )}
 
         
         {effTab==="personal" && (
-          <section className="space-y-4">
-            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-3xl p-5">
+          <section className="space-y-3">
+            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3.5">
               <p className="text-sm opacity-80">Restante de su sueldo · {s.currentMonth}</p>
-              <p className="font-display text-4xl font-extrabold mt-1">{money2(data.personal.remaining)}</p>
-              <p className="text-sm opacity-80 mt-1">Sueldo {money2(data.personal.salary)} − gastado este mes {money2(data.personal.monthSpent)} = saldo restante.</p>
-              <div className="grid grid-cols-3 gap-2 mt-4 text-center">
-                <div className="bg-white/10 rounded-2xl py-3"><p className="text-xs opacity-80">Sueldo mensual</p><p className="font-display font-bold">{money(data.personal.salary)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-3"><p className="text-xs opacity-80">Total gastado</p><p className="font-display font-bold">{money(data.personal.monthSpent)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-3"><p className="text-xs opacity-80">Gastos de hoy</p><p className="font-display font-bold">{money(data.personal.todaySpent)}</p></div>
+              <p className="font-display text-3xl font-extrabold mt-1">{money2(data.personal.remaining)}</p>
+              <p className="text-sm opacity-80 mt-1">Sueldo {money2(data.personal.salary)} − gastado {money2(data.personal.monthSpent)}.</p>
+              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Sueldo mensual</p><p className="font-display font-bold">{money(data.personal.salary)}</p></div>
+                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Total gastado</p><p className="font-display font-bold">{money(data.personal.monthSpent)}</p></div>
+                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Gastos de hoy</p><p className="font-display font-bold">{money(data.personal.todaySpent)}</p></div>
               </div>
             </div>
-            <div className="grid md:grid-cols-2 gap-4 items-start">
-              <div className="space-y-4">
-                <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveSalary.mutate();}}>
-                  <h2 className="font-display font-bold">Su sueldo / ingreso mensual</h2>
+            <div className="grid md:grid-cols-2 gap-3 items-start">
+              <div className="space-y-3">
+                <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveSalary.mutate();}}>
+                  <h2 className="font-display font-bold">Su sueldo mensual</h2>
                   <div><Label htmlFor="salary">Sueldo mensual ($)</Label><input id="salary" aria-label="Sueldo mensual personal" type="number" min="0" className={inputCls} placeholder={String(data.personal.salary||"")} value={salaryInput} onChange={e=>setSalaryInput(e.target.value)} /></div>
                   <button className={btnPrimary+" w-full"} disabled={saveSalary.isPending || !salaryInput}>Guardar sueldo</button>
                   {data.personal.salary===0 && <Help>Registre su sueldo para ver su saldo restante.</Help>}
                 </form>
-                <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();savePersExp.mutate();}}>
+                <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();savePersExp.mutate();}}>
                   <h2 className="font-display font-bold">Gasto del día</h2>
-                  <div><Label htmlFor="pers-amt">Importe ($)</Label><input id="pers-amt" aria-label="Importe del gasto del día" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-3"} value={persAmt} onChange={e=>setPersAmt(e.target.value)} /></div>
+                  <div><Label htmlFor="pers-amt">Importe ($)</Label><input id="pers-amt" aria-label="Importe del gasto del día" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={persAmt} onChange={e=>setPersAmt(e.target.value)} /></div>
                   <div><Label htmlFor="pers-concept">Concepto del gasto</Label><input id="pers-concept" aria-label="Concepto del gasto del día" className={inputCls} value={persConcept} onChange={e=>setPersConcept(e.target.value)} placeholder="Ej. Alimentos, transporte, café…" /></div>
                   <div><Label htmlFor="pers-cat">Categoría</Label><select id="pers-cat" aria-label="Categoría del gasto del día" className={inputCls} value={persCat} onChange={e=>setPersCat(e.target.value)}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                   <div>
-                    <button type="button" aria-expanded={persMore} aria-label={persMore?"Ocultar más opciones del gasto del día":"Mostrar más opciones del gasto del día"} onClick={()=>setPersMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{persMore?"▾ Ocultar más opciones":"▸ Más opciones: foto del comprobante y lectura automática"}</button>
-                    {persMore && (<div className="space-y-3 mt-3">
-                  <div><Label htmlFor="pers-receipt">Foto del comprobante (opcional)</Label><input id="pers-receipt" aria-label="Adjuntar foto del comprobante del gasto del día" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setPersReceipt); }} />{persReceipt && <img src={persReceipt.preview} alt="Vista previa del comprobante del gasto del día" className="w-14 h-14 object-cover rounded-xl border border-[var(--border)] mt-2" />}<p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante visual del gasto.</p></div>
+                    <button type="button" aria-expanded={persMore} aria-label={persMore?"Ocultar más opciones del gasto del día":"Mostrar más opciones del gasto del día"} onClick={()=>setPersMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{persMore?"▾ Ocultar más opciones":"▸ Más opciones: comprobante"}</button>
+                    {persMore && (<div className="space-y-2 mt-3">
+                  <div><Label htmlFor="pers-receipt">Foto del comprobante (opcional)</Label><input id="pers-receipt" aria-label="Adjuntar foto del comprobante del gasto del día" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setPersReceipt); }} />{persReceipt && <img src={persReceipt.preview} alt="Vista previa del comprobante del gasto del día" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)] mt-2" />}<p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante.</p></div>
                   <div className="border-2 border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
                     <p className="font-display font-bold text-sm">Leer el comprobante</p>
-                    <p className="text-[11px] text-[var(--dim)] mt-1">Suba la foto y los gastos se registrarán automáticamente.</p>
+                    <p className="text-[11px] text-[var(--dim)] mt-1">Los gastos se registran solos.</p>
                     <input aria-label="Fotografía del comprobante para lectura automática en Personal" type="file" accept="image/*" className="w-full text-sm mt-2" onChange={e=>{ const f=e.target.files?.[0]; if(f) void imageFileToJpeg(f).then(setScanPersImg).catch(()=>setScanPersImg(null)); e.target.value=""; }} />
-                    {scanPersImg && <div className="mt-2 space-y-2"><img src={scanPersImg.preview} alt="Vista previa del comprobante que se leerá en Personal" className="w-full max-h-40 object-contain rounded-xl border border-[var(--border)] bg-white" /><button type="button" aria-label="Leer el comprobante y registrar los gastos del día" className={btnPrimary+" w-full"} disabled={scanRcpt.isPending} onClick={()=>scanRcpt.mutate({img:{dataBase64:scanPersImg.dataBase64,mimeType:scanPersImg.mimeType},visibility:"private"})}>{scanRcpt.isPending?"Leyendo el comprobante…":"Leer comprobante y registrar los gastos"}</button></div>}
-                    {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Se registraron {scanRcpt.data.created} gasto(s){scanRcpt.data.store?` de ${scanRcpt.data.store}`:""} por {money2(scanRcpt.data.totalDetected)}.</p>}
+                    {scanPersImg && <div className="mt-2 space-y-2"><img src={scanPersImg.preview} alt="Vista previa del comprobante que se leerá en Personal" className="w-full max-h-32 object-contain rounded-xl border border-[var(--border)] bg-white" /><button type="button" aria-label="Leer el comprobante y registrar los gastos del día" className={btnPrimary+" w-full"} disabled={scanRcpt.isPending} onClick={()=>scanRcpt.mutate({img:{dataBase64:scanPersImg.dataBase64,mimeType:scanPersImg.mimeType},visibility:"private"})}>{scanRcpt.isPending?"Leyendo el comprobante…":"Leer comprobante y registrar los gastos"}</button></div>}
+                    {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Se registraron {scanRcpt.data.created} gasto(s) por {money2(scanRcpt.data.totalDetected)}.</p>}
                     {scanRcpt.error && <p className="text-sm text-[var(--red)] mt-2">{String(scanRcpt.error)}</p>}
                   </div>
                     </div>)}
@@ -1053,23 +1053,23 @@ export function App(){
                   <p className="text-xs text-[var(--dim)]">Se guarda hoy, en privado.</p>
                 </form>
               </div>
-              <div className="space-y-4">
-                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+              <div className="space-y-3">
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gasto por categoría</h2>
                   <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total}))} />
                   {data.personal.byCategory.map(c=>(
                     <div key={String(c.categoryId)} className="flex justify-between text-sm mt-1.5"><span>{c.name}</span><b>{money(c.total)} · {c.pct}%</b></div>
                   ))}
-                  <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Total gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante de su sueldo: <b>{money2(data.personal.remaining)}</b></p>
+                  <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante: <b>{money2(data.personal.remaining)}</b></p>
                 </div>
-                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Ingresos vs gastos</h2>
                   <MonthlyChart series={s.monthlySeries} />
                   <p className="text-xs text-[var(--dim)]">Últimos 6 meses.</p>
                 </div>
-                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Mis tandas</h2>
-                                    {data.tandas.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Aún no tiene tandas. Cree la primera o acepte una invitación en la pestaña Tandas.</p>}
+                                    {data.tandas.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Aún no tiene tandas.</p>}
                   {data.tandas.map(td=>{
                     const next = td.calendar.find(c=>c.date>=todayISO()) || td.calendar[td.calendar.length-1];
                     const myPend = td.payments.filter(p=>p.status!=="paid").length;
@@ -1077,16 +1077,16 @@ export function App(){
                     return <div key={td.id} className="border border-[var(--border)] rounded-2xl p-3 mt-3">
                       <p className="font-display font-bold text-sm">{td.name}</p>
                       <p className="text-xs text-[var(--dim)]">Organiza {td.organizerName||"—"} {td.organizerRating.count>0 && <span>· <Stars value={td.organizerRating.avg} size="text-xs" /> {td.organizerRating.avg} ({td.organizerRating.count})</span>} · {money(td.amountPerQuincena)} cada {td.cadenceDays} días · {td.participants.length}/{td.participantCount} participantes</p>
-                      {next && <p className="text-sm mt-1">Siguiente entrega: <b>{next.receiverName?`recibe ${next.receiverName}`:"pendiente de sorteo"}</b> · {fmtDate(next.date)} · monto total {money(next.amount)}</p>}
-                      <p className="text-xs text-[var(--dim)]">{unverified>0?`${unverified} comprobante(s) por verificar · `:""}{myPend>0?`${myPend} pago(s) marcados pendientes en total`:"Sin pendientes marcados"}</p>
+                      {next && <p className="text-sm mt-1">Siguiente: <b>{next.receiverName?`recibe ${next.receiverName}`:"pendiente de sorteo"}</b> · {fmtDate(next.date)} · {money(next.amount)}</p>}
+                      <p className="text-xs text-[var(--dim)]">{unverified>0?`${unverified} comprobante(s) por verificar · `:""}{myPend>0?`${myPend} pago(s) pendientes`:"Sin pendientes"}</p>
                     </div>;
                   })}
                   <button type="button" aria-label="Ir a la pestaña Tandas desde Personal" className={btnPrimary+" mt-3"} onClick={()=>goTab("tandas")}>Ir a Tandas</button>
                 </div>
-                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gastos del día ({data.personal.todayCount})</h2>
                   {data.personal.todayMovements.map(m=>{ const full=data.movements.find(x=>x.id===m.id); return (
-                    <div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{m.concept}<span className="block text-xs text-[var(--dim)]">{getCatName(m.categoryId)}</span>{full?.receiptUrl && <button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>setReceiptView(full.receiptUrl)}>Ver comprobante</button>}<button aria-label={`Reversar el gasto ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>{setConfirmReverseId(m.id);setMvFilter("all");setMvSearch("");setMvSubFilter("all");goTab("movimientos");}}>Reversar</button></span><span className="flex items-center gap-2">{full?.receiptUrl && <img src={full.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)]" />}<b>−{money2(m.amount)}</b></span></div>
+                    <div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{m.concept}<span className="block text-xs text-[var(--dim)]">{getCatName(m.categoryId)}</span>{full?.receiptUrl && <button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>setReceiptView(full.receiptUrl)}>Ver comprobante</button>}<button aria-label={`Reversar el gasto ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>{setConfirmReverseId(m.id);setMvFilter("all");setMvSearch("");setMvSubFilter("all");goTab("movimientos");}}>Reversar</button></span><span className="flex items-center gap-2">{full?.receiptUrl && <img src={full.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-8 h-8 object-cover rounded-lg border border-[var(--border)]" />}<b>−{money2(m.amount)}</b></span></div>
                   ); })}
                   {data.personal.todayMovements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Hoy no se han registrado gastos.</p>}
                   <p className="text-sm mt-2">Total de hoy: <b>{money2(data.personal.todaySpent)}</b></p>
@@ -1097,26 +1097,26 @@ export function App(){
         )}
 
         {effTab==="tandas" && (
-          <section className="space-y-4">
-            <div className="bg-amber-50 border-2 border-[var(--gold)] rounded-3xl p-4 text-amber-900">
-              <p className="font-display font-bold">Tandas con verificación de pagos — sin cobro automático</p>
-              <p className="text-sm mt-1">Sin cobro automático: cada participante sube su comprobante y el organizador lo verifica.</p>
+          <section className="space-y-3">
+            <div className="bg-amber-50 border-2 border-[var(--gold)] rounded-2xl p-3 text-amber-900">
+              <p className="font-display font-bold">Tandas con pagos verificados</p>
+              <p className="text-sm mt-1">Cada participante sube su comprobante; el organizador lo verifica.</p>
             </div>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 grid md:grid-cols-3 gap-3 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveTanda.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-3 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveTanda.mutate();}}>
               <div><Label htmlFor="tanda-name">Nombre de la tanda</Label><input id="tanda-name" aria-label="Nombre de la tanda" required className={inputCls} value={tandaName} onChange={e=>setTandaName(e.target.value)} placeholder="Ej. Tanda de la oficina" /></div>
-              <div><Label htmlFor="tanda-count">Nº de participantes</Label><input id="tanda-count" aria-label="Número de participantes de la tanda" type="number" min="2" max="30" required className={inputCls} value={tandaCount} onChange={e=>setTandaCount(e.target.value)} /></div>
+              <div><Label htmlFor="tanda-count">Participantes</Label><input id="tanda-count" aria-label="Número de participantes de la tanda" type="number" min="2" max="30" required className={inputCls} value={tandaCount} onChange={e=>setTandaCount(e.target.value)} /></div>
               <div><Label htmlFor="tanda-amount">Monto por periodo ($)</Label><input id="tanda-amount" aria-label="Monto por periodo de la tanda" type="number" min="1" required className={inputCls} value={tandaAmount} onChange={e=>setTandaAmount(e.target.value)} /></div>
               <div><Label htmlFor="tanda-start">Fecha de inicio</Label><input id="tanda-start" aria-label="Fecha de inicio de la tanda" type="date" required className={inputCls} value={tandaStart} onChange={e=>setTandaStart(e.target.value)} /></div>
-              <div><Label htmlFor="tanda-freq">¿Con qué frecuencia se recaudan las aportaciones?</Label><select id="tanda-freq" aria-label="Frecuencia de cobro de la tanda" className={inputCls} value={tandaFreq} onChange={e=>setTandaFreq(e.target.value as "semanal"|"quincenal"|"mensual")}><option value="semanal">Semanal (cada 7 días)</option><option value="quincenal">Quincenal (cada 15 días)</option><option value="mensual">Mensual (cada 30 días)</option></select></div>
-              <div><Label htmlFor="tanda-drawmode">Modo de sorteo de números</Label><select id="tanda-drawmode" aria-label="Modo de sorteo de la tanda" className={inputCls} value={tandaDrawMode} onChange={e=>setTandaDrawMode(e.target.value as "random"|"weighted")}><option value="random">Al azar</option><option value="weighted">Por cumplimiento (ponderado)</option></select></div>
-              <p className="text-xs text-[var(--dim)] md:col-span-2">Organizador: <b>{me?fullName(me):"usted"}</b>. Al azar: misma probabilidad para todos. Por cumplimiento: más probabilidad a quien paga puntual.</p>
+              <div><Label htmlFor="tanda-freq">Frecuencia de cobro</Label><select id="tanda-freq" aria-label="Frecuencia de cobro de la tanda" className={inputCls} value={tandaFreq} onChange={e=>setTandaFreq(e.target.value as "semanal"|"quincenal"|"mensual")}><option value="semanal">Semanal</option><option value="quincenal">Quincenal</option><option value="mensual">Mensual</option></select></div>
+              <div><Label htmlFor="tanda-drawmode">Sorteo</Label><select id="tanda-drawmode" aria-label="Modo de sorteo de la tanda" className={inputCls} value={tandaDrawMode} onChange={e=>setTandaDrawMode(e.target.value as "random"|"weighted")}><option value="random">Al azar</option><option value="weighted">Por cumplimiento</option></select></div>
+              <p className="text-xs text-[var(--dim)] md:col-span-2">Organizador: <b>{me?fullName(me):"usted"}</b>.</p>
               <button className={btnPrimary} disabled={saveTanda.isPending}>Crear tanda</button>
             </form>
             {data.tandas.map(td=>(
-              <div key={td.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-4">
+              <div key={td.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-3">
                 <div className="flex justify-between flex-wrap gap-2">
                   <div>
-                    <h3 className="font-display font-bold text-lg">{td.name}</h3>
+                    <h3 className="font-display font-bold text-base">{td.name}</h3>
                     <p className="text-xs text-[var(--dim)]">{td.participantCount} participantes · {money(td.amountPerQuincena)} por {td.frequency==="semanal"?"semana":td.frequency==="mensual"?"mes":"quincena"} · recaudación cada {td.cadenceDays} días · inicio {fmtDate(td.startDate)} · en cada periodo se entrega el monto total de <b>{money(td.potPerQuincena)}</b></p>
                     <p className="text-sm mt-1.5">Organiza <b>{td.organizerName||"—"}</b> {td.organizerRating.count>0 ? <span><Stars value={td.organizerRating.avg} /> <b>{td.organizerRating.avg} de 5</b> · {td.organizerRating.count} calificación(es) otorgadas por los participantes{td.organizerRating.avg>=4.5 && td.organizerRating.count>=2 ? <> · <span className="bg-[var(--gold)] text-white text-[11px] font-bold rounded-full px-2 py-0.5">RECOMENDADO POR LOS PARTICIPANTES</span></> : ""}</span> : <span className="text-[var(--dim)]">· Aún sin calificaciones.</span>}</p>
                   </div>
@@ -1125,13 +1125,13 @@ export function App(){
                   </div>
                 </div>
                 <div className="bg-[var(--surface2)] rounded-2xl p-3">
-                  <h4 className="font-display font-bold text-sm">Sorteo de números</h4>
+                  <h4 className="font-display font-bold text-sm">Sorteo</h4>
                   <div className="flex flex-wrap gap-2 items-center mt-2">
                     <select aria-label={`Modo de sorteo de ${td.name}`} className={inputCls+" w-auto"} value={drawSel[td.id]||td.drawMode} onChange={e=>setDrawSel({...drawSel,[td.id]:e.target.value as "random"|"weighted"})}><option value="random">Al azar</option><option value="weighted">Por cumplimiento</option></select>
                     <button aria-label={`Hacer sorteo de ${td.name}`} className={btnPrimary} onClick={()=>drawTanda.mutate({id:td.id,mode:(drawSel[td.id]||td.drawMode) as "random"|"weighted"})} disabled={td.participants.length<2 || drawTanda.isPending}>Hacer sorteo</button>
                     <span className="text-xs text-[var(--dim)]">Modo guardado: <b>{td.drawMode==="weighted"?"Por cumplimiento":"Al azar"}</b></span>
                   </div>
-                  <p className="text-xs text-[var(--dim)] mt-2"><b>Al azar:</b> misma probabilidad para todos. <b>Por cumplimiento:</b> más probabilidad a quien paga puntual.</p>
+                  <p className="text-xs text-[var(--dim)] mt-2"><b>Al azar:</b> igual para todos. <b>Por cumplimiento:</b> premia la puntualidad.</p>
                   {drawTanda.error && <p className="text-sm text-[var(--red)] mt-1">{String(drawTanda.error)}</p>}
                 </div>
                 <div>
@@ -1140,23 +1140,23 @@ export function App(){
                     {[...td.participants].sort((a,b)=>(a.drawOrder??999)-(b.drawOrder??999)).map(pt=>(
                       <span key={pt.id} className="bg-[var(--surface2)] rounded-2xl px-3 py-2 text-sm">
                         <b>{pt.drawOrder?`#${pt.drawOrder} · `:""}{pt.name}</b>
-                        <span className="block text-xs">{pt.cardLast4?`Tarjeta simulada •••• ${pt.cardLast4} registrada`:"Sin tarjeta registrada"}</span>
+                        <span className="block text-xs">{pt.cardLast4?`•••• ${pt.cardLast4} registrada`:"Sin tarjeta registrada"}</span>
                         <span className="block text-xs mt-0.5">Puntaje: <b>{pt.stats.score}/100</b> · {pt.stats.paidCount}/{pt.stats.dueCount} pagos · {pt.stats.onTimePct}% puntuales</span>
                         {!pt.cardLast4 && <span className="flex gap-1 mt-1"><input aria-label={`Últimos 4 dígitos de la tarjeta de ${pt.name}`} maxLength={4} inputMode="numeric" placeholder="Últ. 4 dígitos" className={inputCls+" w-28"} value={cardInput[pt.id]||""} onChange={e=>setCardInput({...cardInput,[pt.id]:e.target.value.replace(/[^0-9]/g,"")})} /><button aria-label={`Registrar tarjeta simulada de ${pt.name}`} className="text-xs underline font-bold" onClick={()=>setCard.mutate({id:pt.id,cardLast4:cardInput[pt.id]||""})}>Registrar</button></span>}
                         <button aria-label={`Quitar a ${pt.name} de ${td.name}`} className="text-xs underline text-[var(--red)] block mt-0.5" onClick={()=>removePart.mutate(pt.id)}>Quitar</button>
                       </span>
                     ))}
                   </div>
-                  {setCard.error && <p className="text-sm text-[var(--red)] mt-1">La tarjeta simulada solo acepta exactamente los últimos 4 dígitos.</p>}
+                  {setCard.error && <p className="text-sm text-[var(--red)] mt-1">Solo los últimos 4 dígitos.</p>}
                   {td.participants.length<td.participantCount && <div className="flex flex-wrap gap-2 mt-3">
                     <input aria-label={`Nombre del nuevo participante en ${td.name}`} placeholder="Nombre del participante" className={inputCls+" flex-1 min-w-[160px]"} value={partName[td.id]||""} onChange={e=>setPartName({...partName,[td.id]:e.target.value})} />
-                    <input aria-label={`Tarjeta simulada últimos 4 dígitos en ${td.name}`} placeholder="Últ. 4 díg. tarjeta (opcional)" maxLength={4} inputMode="numeric" className={inputCls+" w-44"} value={partCard[td.id]||""} onChange={e=>setPartCard({...partCard,[td.id]:e.target.value.replace(/[^0-9]/g,"")})} />
+                    <input aria-label={`Tarjeta simulada últimos 4 dígitos en ${td.name}`} placeholder="Últ. 4 díg. (opcional)" maxLength={4} inputMode="numeric" className={inputCls+" w-44"} value={partCard[td.id]||""} onChange={e=>setPartCard({...partCard,[td.id]:e.target.value.replace(/[^0-9]/g,"")})} />
                     <button aria-label={`Agregar participante a ${td.name}`} className={btnGhost} onClick={()=>addPart.mutate({tandaId:td.id,name:partName[td.id]||"",cardLast4:partCard[td.id]||undefined})} disabled={!partName[td.id]}>Agregar participante</button>
                   </div>}
                   {addPart.error && <p className="text-sm text-[var(--red)] mt-1">{String(addPart.error)}</p>}
                   <div className="border border-dashed border-[var(--gold)] rounded-2xl p-3 mt-3">
-                    <p className="text-sm font-bold">Invite a esta tanda por correo electrónico</p>
-                    <p className="text-xs text-[var(--dim)] mt-0.5">Enlace directo (un solo uso, 7 días). Si el envío no está configurado, se mostrará el enlace para copiarlo.</p>
+                    <p className="text-sm font-bold">Invitar por correo</p>
+                    <p className="text-xs text-[var(--dim)] mt-0.5">Enlace directo, un solo uso, 7 días.</p>
                     <div className="flex flex-wrap gap-2 mt-2">
                       <input aria-label={`Correo para invitar a ${td.name}`} type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={tInvEmail[td.id]||""} onChange={e=>setTInvEmail({...tInvEmail,[td.id]:e.target.value})} />
                       <input aria-label={`Nombre de la persona invitada a ${td.name}`} placeholder="Nombre (opcional)" className={inputCls+" w-44"} value={tInvName[td.id]||""} onChange={e=>setTInvName({...tInvName,[td.id]:e.target.value})} />
@@ -1166,8 +1166,8 @@ export function App(){
                     {(() => { const tRes = tInvResult[td.id]; if (!tRes) return null; return (
                       <div className="text-sm space-y-2 mt-2">
                         {tRes.emailSent
-                          ? <p className="text-[var(--green)]">Correo de invitación enviado. La persona recibirá el enlace directo para participar en esta tanda.</p>
-                          : <><p className="text-[var(--red)]">El correo no se envió automáticamente. Copie el enlace y envíelo por el medio que prefiera:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{tRes.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(tRes.inviteUrl)}>{copiedLink===tRes.inviteUrl?"Enlace copiado":"Copiar enlace de invitación"}</button></>}
+                          ? <p className="text-[var(--green)]">Correo enviado.</p>
+                          : <><p className="text-[var(--red)]">Copie el enlace y envíelo usted:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{tRes.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(tRes.inviteUrl)}>{copiedLink===tRes.inviteUrl?"Enlace copiado":"Copiar enlace"}</button></>}
                       </div>
                     ); })()}
                     {td.invitations.filter(iv=>iv.status==="pending").map(iv=>(
@@ -1182,7 +1182,7 @@ export function App(){
                       </div>
                     ))}
                     {respondTandaInv.error && <p className="text-sm text-[var(--red)] mt-1">{String(respondTandaInv.error)}</p>}
-                    {td.invitations.filter(iv=>iv.status!=="pending").length>0 && <p className="text-xs text-[var(--dim)] mt-2">{td.invitations.filter(iv=>iv.status==="accepted").length} invitación(es) aceptada(s) · {td.invitations.filter(iv=>iv.status==="rejected").length} rechazada(s).</p>}
+                    {td.invitations.filter(iv=>iv.status!=="pending").length>0 && <p className="text-xs text-[var(--dim)] mt-2">{td.invitations.filter(iv=>iv.status==="accepted").length} aceptada(s) · {td.invitations.filter(iv=>iv.status==="rejected").length} rechazada(s).</p>}
                   </div>
                 </div>
                 <div>
@@ -1199,8 +1199,8 @@ export function App(){
                 </div>
                 <div>
                   <h4 className="font-display font-bold text-sm">Pagos por participante</h4>
-                  <p className="text-xs text-[var(--dim)]">El participante sube su comprobante; el organizador lo verifica.</p>
-                  <div className="space-y-3 mt-2">
+                  <p className="text-xs text-[var(--dim)]">Comprobante verificado por el organizador.</p>
+                  <div className="space-y-2 mt-2">
                     {td.calendar.map(c=>{
                       const pendCount = td.participants.filter(pt=> (td.payments.find(pay=>pay.participantId===pt.id&&pay.quincenaIndex===c.index)?.status||"pending")!=="paid").length;
                       const unverified = td.participants.filter(pt=>{ const pay=td.payments.find(pay=>pay.participantId===pt.id&&pay.quincenaIndex===c.index); return pay?.status==="paid" && pay.verified!==1; }).length;
@@ -1226,7 +1226,7 @@ export function App(){
                               </span>
                             );
                           })}
-                          {td.participants.length===0 && <span className="text-xs text-[var(--dim)]">Agrega participantes para controlar pagos.</span>}
+                          {td.participants.length===0 && <span className="text-xs text-[var(--dim)]">Agregue participantes.</span>}
                         </div>
                       </div>
                     );})}
@@ -1235,7 +1235,7 @@ export function App(){
                 </div>
                 <div className="border-t border-[var(--border)] pt-3">
                   <h4 className="font-display font-bold text-sm">Calificación del organizador</h4>
-                  <p className="text-xs text-[var(--dim)]">Cada participante califica al organizador de 1 a 5 estrellas.</p>
+                  <p className="text-xs text-[var(--dim)]">Califique al organizador de 1 a 5.</p>
                   <div className="flex flex-wrap gap-2 mt-2 items-end">
                     <div><Label htmlFor={`rate-name-${td.id}`}>Tu nombre</Label><input id={`rate-name-${td.id}`} aria-label={`Tu nombre para calificar al organizador de ${td.name}`} placeholder="Ej. Participante" className={inputCls+" w-44"} value={rateName[td.id]||""} onChange={e=>setRateName({...rateName,[td.id]:e.target.value})} /></div>
                     <div><Label htmlFor={`rate-stars-${td.id}`}>Calificación de confiabilidad</Label><select id={`rate-stars-${td.id}`} aria-label={`Estrellas para el organizador de ${td.name}`} className={inputCls+" w-auto"} value={rateStars[td.id]||"5"} onChange={e=>setRateStars({...rateStars,[td.id]:e.target.value})}><option value="5">★★★★★ 5 · Muy confiable</option><option value="4">★★★★ 4 · Confiable</option><option value="3">★★★ 3 · Regular</option><option value="2">★★ 2 · Con incidencias</option><option value="1">★ 1 · No cumplió con lo acordado</option></select></div>
@@ -1247,32 +1247,32 @@ export function App(){
                 </div>
               </div>
             ))}
-            {data.tandas.length===0 && <Empty title="Sin tandas" body="Cree la primera con el formulario." />}
+            {data.tandas.length===0 && <Empty title="Sin tandas" body="Cree la primera." />}
           </section>
         )}
 
         {effTab==="guia" && (
-          <section className="space-y-4">
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
-              <h2 className="font-display font-bold text-lg">Instalación en el celular</h2>
+          <section className="space-y-3">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
+              <h2 className="font-display font-bold text-base">Instalación en el celular</h2>
               <p className="text-sm text-[var(--dim)] mt-1">Queda un icono en su pantalla principal.</p>
               <button type="button" className={btnPrimary+" mt-3"} onClick={handleInstallClick}>Cómo instalar</button>
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
-              <h2 className="font-display font-bold text-lg">Video explicativo de SyncFinanzas (10 segundos)</h2>
-              <p className="text-sm text-[var(--dim)] mt-1">Un recorrido de diez segundos por la aplicación.</p>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
+              <h2 className="font-display font-bold text-base">Video explicativo (10 segundos)</h2>
+              <p className="text-sm text-[var(--dim)] mt-1">Recorrido de 10 segundos.</p>
               <video controls preload="auto" playsInline src={guiaVideo} className="w-full rounded-2xl mt-3 border border-[var(--border)]" aria-label="Video explicativo de SyncFinanzas" />
               <div className="mt-3"><a href={guiaVideo} download="video-explicativo-syncfinanzas.mp4" className={btnGhost} aria-label="Descargar el video explicativo de SyncFinanzas">Descargar el video</a></div>
             </div>
-            <div className="grid sm:grid-cols-3 gap-3">
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">Gastos del día con comprobante leído</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto del comprobante y los gastos se registran solos.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">Gráficas de ingresos vs gastos</p><p className="text-sm text-[var(--dim)] mt-1">Montos visibles por mes y por categoría.</p><button type="button" aria-label="Ir a Inicio para ver las gráficas" className={btnGhost+" mt-2"} onClick={()=>goTab("inicio")}>Ver gráficas</button></div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">Tandas, una tradición mexicana</p><p className="text-sm text-[var(--dim)] mt-1">Cree su tanda, invite por correo y verifique cada pago.</p><button type="button" aria-label="Ir a Tandas desde la guía" className={btnGhost+" mt-2"} onClick={()=>goTab("tandas")}>Ir a Tandas</button></div>
+            <div className="grid sm:grid-cols-3 gap-2">
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto y los gastos se registran solos.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gráficas ingresos vs gastos</p><p className="text-sm text-[var(--dim)] mt-1">Por mes y por categoría.</p><button type="button" aria-label="Ir a Inicio para ver las gráficas" className={btnGhost+" mt-2"} onClick={()=>goTab("inicio")}>Ver gráficas</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Tandas</p><p className="text-sm text-[var(--dim)] mt-1">Cree su tanda e invite por correo.</p><button type="button" aria-label="Ir a Tandas desde la guía" className={btnGhost+" mt-2"} onClick={()=>goTab("tandas")}>Ir a Tandas</button></div>
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
-              <h2 className="font-display font-bold text-lg">Guías por segmento, en PDF</h2>
-              <p className="text-sm text-[var(--dim)] mt-1">Cada segmento tiene su guía en PDF.</p>
-              <div className="space-y-4 mt-3">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
+              <h2 className="font-display font-bold text-base">Guías por segmento</h2>
+              <p className="text-sm text-[var(--dim)] mt-1">Una guía por segmento.</p>
+              <div className="space-y-3 mt-3">
                 {MODULE_GROUPS.map(g=>(
                   <div key={g.title}>
                     <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1280,7 +1280,7 @@ export function App(){
                       <button type="button" aria-label={`Leer la guía en PDF del segmento ${g.title}`} className={btnGhost+" shrink-0"} onClick={()=>setGuidePdf({title:g.title,src:GUIDE_PDF_BY_GROUP[g.title]||""})}>Guía en PDF</button>
                     </div>
                     <div className="divide-y divide-[var(--border)]">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible libre, gráficas, presupuestos y actividad reciente.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro completo, con filtros y comprobantes.", cuentas:"Sus cuentas reales, con saldo automático.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados dentro de sus cuentas.", aportaciones:"Reparto del gasto compartido del mes.", metas:"Objetivos de ahorro con fecha.", acuerdos:"Votación de gastos mayores.", patrimonio:"Activos y pasivos; patrimonio neto.", tandas:"Sorteo, calendario y comprobantes verificados.", categorias:"Categorías con subcategorías modificables.", perfiles:"Las personas del hogar.", hogar:"Nombre, modo, día de corte y reglas del hogar.", guia:"Instalación en el celular, video y guías en PDF." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-3"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y actividad.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Sorteo y comprobantes.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", guia:"Instalación, video y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
                     </div>
                   </div>
                 ))}
@@ -1290,57 +1290,57 @@ export function App(){
         )}
 
 {effTab==="hogar" && (
-          <section className="max-w-2xl space-y-4">
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5 space-y-4" onSubmit={(e:FormEvent)=>{e.preventDefault();saveHh.mutate();}}>
-              <h2 className="font-display font-bold text-lg">Hogar y ajustes</h2>
-              <p className="text-sm text-[var(--dim)]">Las reglas se pueden cambiar en cualquier momento.</p>
+          <section className="max-w-2xl space-y-3">
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveHh.mutate();}}>
+              <h2 className="font-display font-bold text-base">Hogar y ajustes</h2>
+              <p className="text-sm text-[var(--dim)]">Cambie las reglas cuando quiera.</p>
               <div><Label htmlFor="edit-name">Nombre del hogar</Label><input id="edit-name" aria-label="Nombre del hogar editable" className={inputCls} defaultValue={hh.name} value={editName||undefined} placeholder={hh.name} onChange={e=>setEditName(e.target.value)} /></div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <div><Label htmlFor="edit-cutoff">Día de corte</Label><input id="edit-cutoff" aria-label="Día de corte editable" type="number" min="1" max="28" className={inputCls} defaultValue={hh.cutoffDay} onChange={e=>{setEditCutoff(e.target.value);}} /></div>
                 <div><Label htmlFor="edit-threshold">Umbral de aprobación ($)</Label><input id="edit-threshold" aria-label="Umbral de aprobación editable" type="number" min="0" className={inputCls} defaultValue={hh.approvalThreshold} onChange={e=>setEditThreshold(e.target.value)} /></div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label htmlFor="edit-mode">Modo del espacio</Label><select id="edit-mode" aria-label="Modo Personal o Familiar editable" className={inputCls} defaultValue={hh.mode} onChange={e=>setEditMode(e.target.value as "personal"|"familiar")}><option value="familiar">Familiar — hogar compartido, aportaciones y tandas</option><option value="personal">Personal: únicamente su sueldo y sus gastos</option></select></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label htmlFor="edit-mode">Modo del espacio</Label><select id="edit-mode" aria-label="Modo Personal o Familiar editable" className={inputCls} defaultValue={hh.mode} onChange={e=>setEditMode(e.target.value as "personal"|"familiar")}><option value="familiar">Familiar</option><option value="personal">Personal</option></select></div>
                 <div><Label htmlFor="edit-contrib">Regla de aportación</Label><select id="edit-contrib" aria-label="Regla de aportación editable" className={inputCls} defaultValue={hh.contributionRule} onChange={e=>setEditContrib(e.target.value as "equal"|"proportional")}><option value="equal">Partes iguales</option><option value="proportional">Proporcional al ingreso</option></select></div>
                 <div><Label htmlFor="edit-approval">Regla de aprobación</Label><select id="edit-approval" aria-label="Regla de aprobación editable" className={inputCls} defaultValue={hh.approvalRule} onChange={e=>setEditApproval(e.target.value as "unanimous"|"majority")}><option value="unanimous">Unánime</option><option value="majority">Mayoría</option></select></div>
               </div>
               <Help>Moneda: <b>MXN</b>.</Help>
-              {!isAdmin && <p className="text-sm text-[var(--red)]">Su perfil actual es de integrante: las reglas del hogar solo pueden ser modificadas por el administrador.</p>}
-              <button className={btnPrimary} disabled={saveHh.isPending || !isAdmin} onClick={()=>{ if(!editName) setEditName(hh.name); }}>{saveHh.isPending?"Guardando…":"Guardar reglas del hogar"}</button>
+              {!isAdmin && <p className="text-sm text-[var(--red)]">Solo el administrador cambia las reglas.</p>}
+              <button className={btnPrimary} disabled={saveHh.isPending || !isAdmin} onClick={()=>{ if(!editName) setEditName(hh.name); }}>{saveHh.isPending?"Guardando…":"Guardar reglas"}</button>
               {saveHh.isSuccess && <p className="text-sm text-[var(--green)]">Reglas guardadas.</p>}
             </form>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
               <h3 className="font-display font-bold">Miembros del hogar ({data.profiles.length})</h3>
               {data.profiles.map(p=><p key={p.id} className="text-sm py-1.5 border-b border-[var(--border)] last:border-0">{fullName(p)} · {p.role==="admin"?"Administrador del hogar":"Integrante"} · {p.kind==="adult"?"Adulto":"Dependiente"}{p.email?` · ${p.email}`:""}</p>)}
-              <p className="text-xs text-[var(--dim)] mt-2">Para incorporar a una persona, invítela en Perfiles → Invitaciones.</p>
+              <p className="text-xs text-[var(--dim)] mt-2">Invite en Perfiles → Invitaciones.</p>
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
               <h3 className="font-display font-bold">Seguridad de su información</h3>
               <ul className="list-disc ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
-                <li>Contraseña de mínimo 12 caracteres; bloqueo de 15 minutos tras 5 intentos fallidos.</li>
+                <li>Contraseña de 12 caracteres; bloqueo 15 min tras 5 intentos.</li>
                 <li>Cada registro se valida en el servidor.</li>
-                <li>Cada registro pertenece a su hogar; lo privado solo lo ve su autor.</li>
-                <li>Límite de peticiones por minuto en operaciones sensibles.</li>
-                <li>Sin claves ni datos bancarios en el código.</li>
-                <li>«Cerrar sesión» sale en este dispositivo.</li>
-                <li><button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-4 py-2 text-sm font-bold" onClick={()=>{ void supabase.auth.signOut(); }}>Cerrar sesión en este dispositivo</button></li>
+                <li>Lo privado solo lo ve su autor.</li>
+                <li>Límite de peticiones por minuto.</li>
+                <li>Sin claves en el código.</li>
+                <li>Cierre de sesión en este dispositivo.</li>
+                <li><button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-3 py-2 text-sm font-bold" onClick={()=>{ void supabase.auth.signOut(); }}>Cerrar sesión en este dispositivo</button></li>
               </ul>
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
               <h3 className="font-display font-bold">Registro de actividad reciente</h3>
-              <p className="text-xs text-[var(--dim)] mt-1">Se muestran las 30 más recientes.</p>
+              <p className="text-xs text-[var(--dim)] mt-1">Últimas 30.</p>
               {data.activity.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Aún no hay operaciones registradas.</p> : <div className="divide-y divide-[var(--border)] mt-2">
                 {data.activity.map(a=><div key={a.id} className="py-2 text-sm"><p><b>{a.action}</b>{a.detail?` — ${a.detail}`:""}</p><p className="text-xs text-[var(--dim)]">{new Date(a.createdAt).toLocaleString("es-MX",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</p></div>)}
               </div>}
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
-              <h3 className="font-display font-bold">Guía rápida de inicio</h3>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+              <h3 className="font-display font-bold">Guía rápida</h3>
               <ol className="list-decimal ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
-                <li>Cree sus cuentas reales en <b>Cuentas</b>, con el saldo a la fecha.</li>
-                <li>Agregue a su pareja en <b>Perfiles</b>, con su ingreso y compromisos.</li>
-                <li>Registre ingresos y gastos en <b>Movimientos</b>, con visibilidad privada o compartida.</li>
-                <li>Cree los <b>Presupuestos</b> del mes y consulte <b>Aportaciones</b>.</li>
-                <li>Realice apartados en <b>Fondos</b>, defina una <b>Meta</b> y registre su <b>Patrimonio</b> real.</li>
+                <li>Cree sus cuentas en <b>Cuentas</b>, con el saldo actual.</li>
+                <li>Agregue a su pareja en <b>Perfiles</b>.</li>
+                <li>Registre ingresos y gastos en <b>Movimientos</b>.</li>
+                <li>Cree los <b>Presupuestos</b> del mes.</li>
+                <li>Aparte en <b>Fondos</b>, defina una <b>Meta</b> y registre su <b>Patrimonio</b>.</li>
               </ol>
             </div>
           </section>
@@ -1348,20 +1348,20 @@ export function App(){
       </main>
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
-        <div className="bg-[var(--surface)] text-[var(--text)] rounded-3xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)]">
-            <div className="min-w-0"><p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">GUÍA DE USO · DOCUMENTO PDF</p><p className="font-display font-bold leading-tight truncate">{guidePdf.title}</p></div>
-            <button type="button" aria-label="Cerrar la guía en PDF" onClick={()=>setGuidePdf(null)} className="shrink-0 w-10 h-10 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-2xl leading-none font-bold">×</button>
+        <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">
+            <div className="min-w-0"><p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">GUÍA DE USO · PDF</p><p className="font-display font-bold leading-tight truncate">{guidePdf.title}</p></div>
+            <button type="button" aria-label="Cerrar la guía en PDF" onClick={()=>setGuidePdf(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
           </div>
           <div className="overflow-y-auto p-3">
             <PdfViewer src={guidePdf.src} ariaLabel={`Guía en PDF del segmento ${guidePdf.title}`} labels={{loading:"Cargando la guía…",loadError:"No fue posible cargar la guía. Verifique su conexión e inténtelo de nuevo.",pageError:"No fue posible mostrar esta página de la guía.",previousPage:"Página anterior",nextPage:"Página siguiente",pageIndicator:(p,t)=>`Página ${p} de ${t}`,navigationAriaLabel:"Navegación de páginas de la guía",pageAriaLabel:(p,t)=>`Página ${p} de ${t} de la guía`}} />
           </div>
-          <p className="px-4 py-2.5 border-t border-[var(--border)] text-xs text-[var(--dim)]">Cierre con la × de la esquina superior.</p>
+          <p className="px-3 py-2.5 border-t border-[var(--border)] text-xs text-[var(--dim)]">Cierre con la ×.</p>
         </div>
       </div>}
-      {receiptView && <div className="fixed inset-0 z-50 bg-black/85 flex flex-col items-center justify-center p-4" role="dialog" aria-label="Fotografía del comprobante en tamaño completo">
+      {receiptView && <div className="fixed inset-0 z-50 bg-black/85 flex flex-col items-center justify-center p-3" role="dialog" aria-label="Fotografía del comprobante en tamaño completo">
         <img src={receiptView} alt="Fotografía del comprobante adjunta al gasto, en tamaño completo" className="max-h-[78vh] w-auto rounded-2xl object-contain" />
-        <p className="text-white/80 text-xs mt-3">Comprobante guardado del gasto, en tamaño completo.</p>
+        <p className="text-white/80 text-xs mt-3">Comprobante del gasto.</p>
         <button aria-label="Cerrar fotografía del comprobante" className="mt-3 bg-white text-black font-bold rounded-full px-6 py-2.5" onClick={()=>setReceiptView(null)}>Cerrar</button>
       </div>}
     </div>
