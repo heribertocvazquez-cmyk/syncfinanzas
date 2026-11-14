@@ -19,7 +19,7 @@ export function getDb(): Db {
   if (dbInstance) return dbInstance;
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("Falta la variable de entorno DATABASE_URL (cadena del pooler de Supabase).");
-  client = postgres(url, { prepare: false, max: 1 });
+  client = postgres(url, { prepare: false, max: 1, ssl: "require" });
   dbInstance = drizzle(client, { schema });
   return dbInstance;
 }
