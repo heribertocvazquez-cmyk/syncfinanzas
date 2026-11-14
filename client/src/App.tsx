@@ -51,8 +51,8 @@ function fmtDate(iso:string){ const [y=2026,m=1,d=1]=iso.split("-").map(Number);
 function todayISO(){ const t=new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`; }
 function monthNow(){ return todayISO().slice(0,7); }
 const TYPE_LABEL: Record<string,string> = { income:"Ingreso", expense:"Gasto", transfer:"Transferencia", debt_payment:"Pago de deuda", bank:"Bancaria", cash:"Efectivo", credit:"Tarjeta de crédito", investment:"Inversión", loan:"Préstamo" };
-// Iconos de línea (SVG, sin emojis) por categoría: se ven junto al nombre al elegir la
-// categoría en el formulario y en cada movimiento de las listas, para distinguirla de un vistazo.
+// Iconos de línea (SVG, sin emojis) por categoría, con fondo transparente:
+// solo se ven en las gráficas y sus leyendas, con el trazo sobre el fondo de la app.
 const CATEGORY_ICONS: Record<string, ReactNode> = {
   "Salario": <><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></>,
   "Negocio": <><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M2 13h20"/></>,
@@ -77,10 +77,8 @@ const CATEGORY_ICONS: Record<string, ReactNode> = {
   "Otro gasto": <><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.2"/></>,
   "__otro__": <><path d="M5 3h14v18l-2.3-1.5L14.4 21l-2.4-1.5L9.6 21l-2.3-1.5L5 21V3z"/><path d="M9 8h6M9 12h6"/></>,
 };
-function CatIcon({name, size="md", bare=false}:{name:string; size?:"sm"|"md"; bare?:boolean}){
-  const svg = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={size==="sm"?"w-3.5 h-3.5":"w-4 h-4"} aria-hidden="true">{CATEGORY_ICONS[name] ?? CATEGORY_ICONS["__otro__"]}</svg>;
-  if (bare) return svg;
-  return <span aria-hidden="true" className={`shrink-0 inline-flex items-center justify-center rounded-full bg-[var(--surface2)] text-[var(--gold)] ${size==="sm"?"w-5 h-5":"w-7 h-7"}`}>{svg}</span>;
+function CatIcon({name, size="md", className=""}:{name:string; size?:"sm"|"md"; className?:string}){
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 ${size==="sm"?"w-3.5 h-3.5":"w-4 h-4"} ${className||"text-[var(--gold)]"}`} aria-hidden="true">{CATEGORY_ICONS[name] ?? CATEGORY_ICONS["__otro__"]}</svg>;
 }
 // Convierte cualquier foto (incluida WebP) a JPEG reducido para la lectura automática del comprobante.
 async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:string;preview:string}>{
@@ -125,7 +123,7 @@ function MonthlyChart({series}:{series:{label:string;income:number;expense:numbe
         <XAxis dataKey="label" tick={{fontSize:12, fill:"var(--text)"}} axisLine={{stroke:"var(--border)"}} tickLine={false} />
         <YAxis tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize:11, fill:"var(--dim)"}} width={64} axisLine={false} tickLine={false} />
         <Tooltip cursor={{fill:"rgba(0,0,0,0.04)"}} formatter={(v,name)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,name]} />
-        <Legend />
+        <Legend content={()=>(<div className="flex justify-center gap-4 text-xs mt-1"><span className="inline-flex items-center gap-1"><CatIcon name="Otro ingreso" size="sm" className="text-[var(--green)]" />Ingresos</span><span className="inline-flex items-center gap-1"><CatIcon name="Otro gasto" size="sm" className="text-[var(--red)]" />Gastos</span></div>)} />
         <Bar dataKey="Ingresos" fill="#1B7A4D" radius={[6,6,0,0]} maxBarSize={30} />
         <Bar dataKey="Gastos" fill="#B42318" radius={[6,6,0,0]} maxBarSize={30} />
       </BarChart>
@@ -212,6 +210,100 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
         <button type="button" className={btnPrimary + " mt-3 w-full"} onClick={onClose}>Entendido</button>
       </div>
     </div>
+  );
+}
+
+// ---- Ayudante de uso (respuestas preparadas, sin servicios externos) ----
+// Botón flotante con signo de interrogación, visible en toda la app. Al tocarlo
+// abre una ventanita de chat que responde dudas de uso con una base de
+// respuestas preparadas por palabras clave (sin claves ni servicios de pago).
+// Cada respuesta es corta, en tono formal de usted, y trae un botón que lleva
+// directo al lugar cuando la vista ya tiene navegación (onGo).
+type HelpMsg = { from: "user" | "bot"; text: string; go?: Tab; goLabel?: string };
+type HelpFaq = { keys: string[]; q: string; a: string; go?: Tab; goLabel?: string };
+const HELP_FAQS: HelpFaq[] = [
+  { keys: ["gast", "registr"], q: "¿Cómo registro un gasto?", a: "En Movimientos, escriba el importe, elija el tipo de gasto y pulse Registrar. En modo Personal también puede usar Gasto del día en Personal.", go: "movimientos", goLabel: "Ir a Movimientos" },
+  { keys: ["ingres", "registr"], q: "¿Cómo registro un ingreso?", a: "En Movimientos, elija Ingreso, escriba el importe y pulse Registrar.", go: "movimientos", goLabel: "Ir a Movimientos" },
+  { keys: ["cuenta", "agreg", "banc", "efectivo"], q: "¿Cómo agrego una cuenta?", a: "En Cuentas, pulse Nueva cuenta, escriba el nombre, el tipo y el saldo inicial.", go: "cuentas", goLabel: "Ir a Cuentas" },
+  { keys: ["tanda"], q: "¿Cómo creo una tanda?", a: "En Tandas, escriba el nombre, el monto y el número de participantes, y pulse Crear tanda. Después invite por correo a los participantes.", go: "tandas", goLabel: "Ir a Tandas" },
+  { keys: ["invit", "persona", "pareja", "agreg", "unir"], q: "¿Cómo invito a alguien?", a: "En Perfiles, escriba el correo de la persona y pulse Invitar. Recibirá un enlace directo para entrar a su hogar.", go: "perfiles", goLabel: "Ir a Perfiles" },
+  { keys: ["espacio", "hogar", "inici", "empez", "crear"], q: "¿Cómo creo mi espacio?", a: "Para crear su espacio, elija Personal o Familiar, escriba el nombre de su hogar y sus datos, y pulse Crear hogar.", go: "hogar", goLabel: "Ir a Hogar" },
+  { keys: ["instal", "celular", "pantalla", "descarg"], q: "¿Cómo instalo la app en mi celular?", a: "En iPhone, abra la app en Safari, toque Compartir y seleccione Agregar a pantalla de inicio. En Android, mantenga presionado el icono y toque Instalar app.", go: "guia", goLabel: "Ir a Guía de uso" },
+  { keys: ["reinici", "borrar todo", "borrar los datos", "empezar de nuevo", "reset"], q: "¿Cómo reinicio todo?", a: "En el menú, al final, pulse Reiniciar todo y borrar los datos y escriba REINICIAR. Se borra el hogar completo y la app vuelve al inicio." },
+  { keys: ["sueldo", "salario"], q: "¿Cómo registro mi sueldo?", a: "En Personal, escriba su sueldo mensual y pulse Guardar sueldo.", go: "personal", goLabel: "Ir a Personal" },
+  { keys: ["presupuest", "limite"], q: "¿Cómo creo un presupuesto?", a: "En Presupuestos, elija la categoría, escriba el límite del mes y pulse Guardar.", go: "presupuestos", goLabel: "Ir a Presupuestos" },
+  { keys: ["comprobante", "foto", "ticket", "escanear", "leer el comprobante"], q: "¿Cómo leo un comprobante?", a: "En Movimientos, en Más opciones, suba la foto del comprobante. Si la lectura automática está configurada, los gastos se crean solos; si no, registre el gasto manualmente.", go: "movimientos", goLabel: "Ir a Movimientos" },
+  { keys: ["revers", "revertir", "deshacer", "corregir", "eliminar", "borrar un"], q: "¿Cómo reverso un movimiento?", a: "En Movimientos, pulse Reversar junto al movimiento. El registro queda, pero ya no cuenta en los totales.", go: "movimientos", goLabel: "Ir a Movimientos" },
+  { keys: ["categor", "subcategor", "tipo de gasto"], q: "¿Cómo agrego una categoría?", a: "En Categorías puede ver, agregar y quitar categorías y subcategorías.", go: "categorias", goLabel: "Ir a Categorías" },
+  { keys: ["perfil", "pareja", "familiar"], q: "¿Cómo agrego a mi pareja?", a: "En Perfiles puede ver a las personas del hogar y agregar a su pareja o familiares.", go: "perfiles", goLabel: "Ir a Perfiles" },
+  { keys: ["saldo", "disponible", "cuanto me queda", "restante", "queda"], q: "¿Cuánto me queda?", a: "Su saldo disponible está en Inicio, en la tarjeta de arriba.", go: "inicio", goLabel: "Ir a Inicio" },
+  { keys: ["grafic", "ingresos vs gastos"], q: "¿Dónde veo las gráficas?", a: "Las gráficas están en Inicio y aparecen cuando hay movimientos.", go: "inicio", goLabel: "Ir a Inicio" },
+  { keys: ["modo", "cambi", "personal"], q: "¿Cómo cambio el modo?", a: "El modo se elige al crear el espacio y se cambia en Hogar.", go: "hogar", goLabel: "Ir a Hogar" },
+  { keys: ["contrase", "clave", "correo"], q: "¿Cómo es mi cuenta?", a: "Su cuenta se crea con su correo y una contraseña de al menos 12 caracteres." },
+  { keys: ["fondo", "apart"], q: "¿Cómo creo un fondo?", a: "En Fondos, cree un apartado con su meta y agregue dinero desde sus cuentas.", go: "fondos", goLabel: "Ir a Fondos" },
+  { keys: ["meta", "ahorr"], q: "¿Cómo creo una meta?", a: "En Metas, escriba su meta, el monto y la fecha, y registre su ahorro.", go: "metas", goLabel: "Ir a Metas" },
+  { keys: ["acuerdo", "vot", "aprobaci", "gasto mayor"], q: "¿Cómo se aprueba un gasto mayor?", a: "En Acuerdos se votan los gastos mayores al umbral de su hogar.", go: "acuerdos", goLabel: "Ir a Acuerdos" },
+  { keys: ["patrimonio", "activo", "pasivo", "neto"], q: "¿Cómo registro mi patrimonio?", a: "En Patrimonio registre sus activos y pasivos para ver su patrimonio neto.", go: "patrimonio", goLabel: "Ir a Patrimonio" },
+  { keys: ["demo", "demostraci", "ejemplo", "probar"], q: "¿Cómo pruebo con datos de ejemplo?", a: "Pulse Demo, arriba a la derecha, para cargar datos de ejemplo. Solo funciona sin movimientos." },
+  { keys: ["aportaci", "reparto", "compartido"], q: "¿Dónde veo las aportaciones?", a: "Las aportaciones se calculan solas desde Movimientos y se ven en Aportaciones.", go: "aportaciones", goLabel: "Ir a Aportaciones" },
+];
+const HELP_SUGGESTED = ["¿Cómo registro un gasto?", "¿Cómo agrego una cuenta?", "¿Cómo creo una tanda?", "¿Cómo invito a alguien?"];
+function normHelp(s: string){ return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
+function findHelpAnswer(input: string): HelpFaq | null {
+  const n = normHelp(input);
+  if (!n) return null;
+  let best: HelpFaq | null = null; let bestScore = 0;
+  for (const f of HELP_FAQS) {
+    let score = 0;
+    for (const k of f.keys) if (n.includes(normHelp(k))) score += 1;
+    if (score > bestScore) { bestScore = score; best = f; }
+  }
+  return bestScore > 0 ? best : null;
+}
+function HelpAssistant({ onGo }: { onGo?: (tab: Tab) => void }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "¿En qué puedo ayudarle? Pregunte cómo registrar, agregar o iniciar algo en SyncFinanzas." }]);
+  const ask = (text: string) => {
+    const q = text.trim(); if (!q) return;
+    const found = findHelpAnswer(q);
+    const reply: HelpMsg = found
+      ? { from: "bot", text: found.a, go: found.go, goLabel: found.goLabel }
+      : { from: "bot", text: "No encontré la respuesta a eso. Pruebe con una de las preguntas sugeridas o revise la Guía de uso.", go: onGo ? "guia" : undefined, goLabel: "Ir a Guía de uso" };
+    setMsgs(m => [...m, { from: "user", text: q }, reply]);
+    setInput("");
+  };
+  return (
+    <>
+      <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full bg-[var(--gold)] text-white font-display font-extrabold text-2xl shadow-lg flex items-center justify-center">?</button>
+      {open && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Ayudante de uso" onClick={()=>setOpen(false)}>
+          <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[82vh] flex flex-col overflow-hidden" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-2 px-3 py-2.5 border-b border-[var(--border)]">
+              <div><h2 className="font-display font-bold text-base">Ayudante de uso</h2><p className="text-xs text-[var(--dim)]">Pregunte cómo usar la app.</p></div>
+              <button type="button" aria-label="Cerrar el ayudante de uso" onClick={()=>setOpen(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {msgs.map((m,i)=>(
+                <div key={i} className={`flex ${m.from==="user"?"justify-end":"justify-start"}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.from==="user"?"bg-[var(--gold)] text-white":"bg-[var(--surface2)]"}`}>
+                    <p>{m.text}</p>
+                    {m.from==="bot" && m.go && onGo && <button type="button" className={btnGhost+" mt-2"} onClick={()=>{ setOpen(false); onGo(m.go!); }}>{m.goLabel || "Ir"}</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-3 pb-2 flex flex-wrap gap-1.5">
+              {HELP_SUGGESTED.map(s=><button key={s} type="button" className="rounded-full border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-semibold" onClick={()=>ask(s)}>{s}</button>)}
+            </div>
+            <form className="flex gap-2 p-3 border-t border-[var(--border)]" onSubmit={(e:FormEvent)=>{ e.preventDefault(); ask(input); }}>
+              <input aria-label="Escriba su duda sobre el uso de la aplicación" className={inputCls+" flex-1 min-w-0"} placeholder="Escriba su duda…" value={input} onChange={e=>setInput(e.target.value)} />
+              <button type="submit" className={btnPrimary} disabled={!input.trim()}>Enviar</button>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -305,8 +397,8 @@ export function App(){
   const [tInvResult,setTInvResult]=useState<Record<number,InviteSend>>({});
 
   // movement form
-  const [mvType,setMvType]=useState<"income"|"expense"|"transfer"|"debt_payment">("expense"); const [mvAmount,setMvAmount]=useState(""); const [mvConcept,setMvConcept]=useState(""); const [mvAccount,setMvAccount]=useState(""); const [mvToAccount,setMvToAccount]=useState(""); const [mvCat,setMvCat]=useState(""); const [mvSub,setMvSub]=useState(""); const [mvDate,setMvDate]=useState(todayISO()); const [mvVis,setMvVis]=useState<"private"|"shared">("shared"); const [mvSearch,setMvSearch]=useState(""); const [mvFilter,setMvFilter]=useState("all"); const [editingMv,setEditingMv]=useState<number|null>(null);
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();setMvAmount("");setMvConcept("");setEditingMv(null);setReceipt(null);}});
+  const [mvType,setMvType]=useState<"income"|"expense"|"transfer"|"debt_payment">("expense"); const [mvStep,setMvStep]=useState(1); const [mvAmount,setMvAmount]=useState(""); const [mvConcept,setMvConcept]=useState(""); const [mvAccount,setMvAccount]=useState(""); const [mvToAccount,setMvToAccount]=useState(""); const [mvCat,setMvCat]=useState(""); const [mvSub,setMvSub]=useState(""); const [mvDate,setMvDate]=useState(todayISO()); const [mvVis,setMvVis]=useState<"private"|"shared">("shared"); const [mvSearch,setMvSearch]=useState(""); const [mvFilter,setMvFilter]=useState("all"); const [editingMv,setEditingMv]=useState<number|null>(null);
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();setMvAmount("");setMvConcept("");setEditingMv(null);setReceipt(null);setMvStep(1);}});
   const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:inv});
   const [confirmReverseId,setConfirmReverseId]=useState<number|null>(null);
   const revMv=useMutation({mutationFn:async(id:number)=>await api.reverseMovement({id}),onSuccess:()=>{inv();setConfirmReverseId(null);}});
@@ -361,9 +453,9 @@ export function App(){
   const [resetConfirm,setResetConfirm]=useState(false); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false);
   const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetConfirm(false); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
   // personal
-  const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState("");
+  const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setPersStep(1);}});
   // Acceso directo para registrar un gasto rápido (?accion=nuevo-gasto):
   // al entrar con ese parámetro, después de iniciar sesión y con el espacio
   // creado, se abre el formulario de gasto con el importe listo para escribir.
@@ -374,7 +466,7 @@ export function App(){
     setQuickExpense(false);
     try{ const u=new URL(window.location.href); u.searchParams.delete("accion"); window.history.replaceState(null,"",u.pathname+u.search+u.hash); }catch{}
     const personal=data.household.mode==="personal";
-    setTabChosen(true); setTab(personal?"personal":"movimientos"); setMvType("expense"); setMenuOpen(false);
+    setTabChosen(true); setTab(personal?"personal":"movimientos"); setMvType("expense"); setMvStep(1); setPersStep(1); setMenuOpen(false);
     window.setTimeout(()=>{ const el=document.getElementById(personal?"pers-amt":"mv-amount"); el?.scrollIntoView({block:"center",behavior:"smooth"}); (el as HTMLInputElement|null)?.focus({preventScroll:true}); },250);
   },[quickExpense,data?.household]);
   // tandas
@@ -575,6 +667,7 @@ export function App(){
             )}
           </form>
           <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
+          <HelpAssistant />
         </main>
       </div>
     );
@@ -707,6 +800,9 @@ export function App(){
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
                 <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total}))} />
+                {data.personal.byCategory.map(c=>(
+                  <div key={String(c.categoryId)} className="flex justify-between text-sm mt-1.5"><span className="inline-flex items-center gap-2"><CatIcon name={c.name} size="sm" />{c.name}</span><b>{money(c.total)} · {c.pct}%</b></div>
+                ))}
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Ingresos vs gastos</h2>
@@ -720,7 +816,7 @@ export function App(){
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Presupuestos</h2>
                 {data.budgets.filter(b=>b.month===s.currentMonth).length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin presupuestos este mes.</p> : data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
-                  <div key={b.id} className="mt-3"><div className="flex justify-between text-sm"><span className="inline-flex items-center gap-1.5"><CatIcon name={getCatName(b.categoryId)} size="sm" />{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><b>{money(b.spent)} / {money(b.amount)}</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--gold)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p></div>
+                  <div key={b.id} className="mt-3"><div className="flex justify-between text-sm"><span>{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><b>{money(b.spent)} / {money(b.amount)}</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--gold)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p></div>
                 ))}
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
@@ -734,7 +830,7 @@ export function App(){
 
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 mt-3">
               <h2 className="font-display font-bold">Actividad reciente</h2>
-              {visibleMovs.slice(0,6).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="flex gap-2 items-start min-w-0"><CatIcon name={getCatName(m.categoryId)} /><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
+              {visibleMovs.slice(0,6).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
               {data.movements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>}
               {data.movements.length>0 && <button type="button" aria-label="Ver todos los movimientos del hogar" className={btnGhost+" mt-2"} onClick={()=>goTab("movimientos")}>Ver todos los movimientos</button>}
             </div>
@@ -743,23 +839,28 @@ export function App(){
 
         {effTab==="movimientos" && (
           <section className="grid md:grid-cols-[340px_1fr] gap-3 items-start">
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveMv.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(mvStep<3){ if(mvStep===1 && !mvAmount) return; setMvStep(mvStep+1); } else saveMv.mutate();}}>
               <h2 className="font-display font-bold text-base">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
+              <p className="text-xs text-[var(--dim)]">Paso {mvStep} de 3</p>
+              <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${mvStep*33.33}%`}} /></div>
+              {mvStep===1 && <>
               <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
                 {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
               </div>
               <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
-              <div><Label htmlFor="mv-concept">Concepto</Label><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls} value={mvConcept} onChange={e=>setMvConcept(e.target.value)} placeholder="Ej. Súper semanal" /></div>
+              <button type="button" className={btnPrimary+" w-full"} disabled={!mvAmount} onClick={()=>setMvStep(2)}>Siguiente</button>
+              </>}
+              {mvStep===2 && <>
               {mvType!=="transfer" && <>
-                <div>
-                  <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">Categoría</span>
-                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Categoría del movimiento">
-                    {catsForType.map(c=>(<button key={c.id} type="button" aria-pressed={mvCat===String(c.id)} onClick={()=>{setMvCat(String(c.id));setMvSub("");}} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[13px] font-semibold ${mvCat===String(c.id)?"bg-[var(--gold)] text-white border-[var(--gold)]":"bg-[var(--surface)] border-[var(--border)]"}`}><CatIcon name={c.name} size="sm" bare />{c.name}</button>))}
-                  </div>
-                </div>
+                <div><Label htmlFor="mv-cat">{mvType==="income"?"Tipo de ingreso":"Tipo de gasto"}</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");}}><option value="">Sin categoría</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                 <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Nueva subcategoría…</option></select>                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Agregar “{newSubName||"…"}” a {selectedCat.name}?</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
                 </div>
               </>}
+              {mvType==="transfer" && <p className="text-sm text-[var(--dim)]">Las transferencias no llevan categoría.</p>}
+              <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>setMvStep(1)}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>setMvStep(3)}>Siguiente</button></div>
+              </>}
+              {mvStep===3 && <>
+              <div><Label htmlFor="mv-concept">Concepto</Label><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls} value={mvConcept} onChange={e=>setMvConcept(e.target.value)} placeholder="Ej. Súper semanal" /></div>
               <div>
                 <button type="button" aria-expanded={mvMore} aria-label={mvMore?"Ocultar más opciones del movimiento":"Mostrar más opciones del movimiento"} onClick={()=>setMvMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{mvMore?"▾ Ocultar más opciones":"▸ Más opciones"}</button>
                 {mvMore && (<div className="space-y-2 mt-3">
@@ -779,7 +880,7 @@ export function App(){
                                 <p className="text-[11px] text-[var(--dim)] mt-1">Los gastos se crean solos.</p>
                 <input aria-label="Fotografía del comprobante para lectura automática" type="file" accept="image/*" className="w-full text-sm mt-2" onChange={e=>{ const f=e.target.files?.[0]; if(f) void imageFileToJpeg(f).then(setScanImg).catch(()=>setScanImg(null)); e.target.value=""; }} />
                 {scanImg && <div className="mt-2 space-y-2"><img src={scanImg.preview} alt="Vista previa del comprobante que se leerá automáticamente" className="w-full max-h-36 object-contain rounded-xl border border-[var(--border)] bg-white" />
-                  <div><Label htmlFor="scan-cat">Categoría (opcional)</Label><div className="flex items-center gap-2">{scanCat && <CatIcon name={data.categories.find(c=>String(c.id)===scanCat)?.name||""} />}<select id="scan-cat" aria-label="Categoría para los productos leídos del comprobante" className={inputCls+" flex-1"} value={scanCat} onChange={e=>setScanCat(e.target.value)}><option value="">Automática</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div></div>
+                  <div><Label htmlFor="scan-cat">Categoría (opcional)</Label><select id="scan-cat" aria-label="Categoría para los productos leídos del comprobante" className={inputCls} value={scanCat} onChange={e=>setScanCat(e.target.value)}><option value="">Automática</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                   <button type="button" aria-label="Leer el comprobante y crear los gastos automáticamente" className={btnPrimary+" w-full"} disabled={scanRcpt.isPending} onClick={()=>scanRcpt.mutate({img:{dataBase64:scanImg.dataBase64,mimeType:scanImg.mimeType},visibility:mvVis,categoryId:scanCat?Number(scanCat):null})}>{scanRcpt.isPending?"Leyendo el comprobante…":"Leer comprobante y crear los gastos"}</button>
                 </div>}
                 {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Se crearon {scanRcpt.data.created} gasto(s) por {money2(scanRcpt.data.totalDetected)}.</p>}
@@ -798,9 +899,10 @@ export function App(){
               </div>
               {Number(mvAmount)>=hh.approvalThreshold && mvVis==="shared" && mvType==="expense" && <Help>Supera el umbral de {money(hh.approvalThreshold)}: requiere un Acuerdo.</Help>}
               {saveMv.error && <p className="text-sm text-[var(--red)]">{String(saveMv.error)}</p>}
-              <button className={btnPrimary+" w-full"} disabled={saveMv.isPending || !mvAmount || !mvConcept}>{saveMv.isPending?"Guardando…":editingMv?"Guardar cambios":"Registrar"}</button>
-              {editingMv && <button type="button" className={btnGhost+" w-full"} onClick={()=>setEditingMv(null)}>Cancelar edición</button>}
+              <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>setMvStep(2)}>Atrás</button><button className={btnPrimary+" flex-1"} disabled={saveMv.isPending || !mvAmount || !mvConcept}>{saveMv.isPending?"Guardando…":editingMv?"Guardar cambios":"Finalizar"}</button></div>
+              {editingMv && <button type="button" className={btnGhost+" w-full"} onClick={()=>{setEditingMv(null);setMvStep(1);}}>Cancelar edición</button>}
               {data.accounts.length===0 && <Help>Cree primero una cuenta.</Help>}
+              </>}
             </form>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
               <div className="flex gap-2 flex-wrap" role="group" aria-label="Mostrar movimientos por tipo">
@@ -816,11 +918,11 @@ export function App(){
               {revMv.error && <p className="text-sm text-[var(--red)] mt-2">{String(revMv.error)}</p>}
               {revMv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">Movimiento reversado.</p>}
               <div className="divide-y divide-[var(--border)] mt-2">
-                {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="flex gap-2 items-start min-w-0"><CatIcon name={getCatName(m.categoryId)} /><div className="min-w-0"><p className="font-semibold text-sm">{m.concept}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
+                {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm">{m.concept}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
                 {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-[11px] text-[var(--dim)]">Fuera de los totales.</span></p>}
                 {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-[11px] text-[var(--dim)]">Anula «{data.movements.find(x=>x.id===m.reversalOfId)?.concept||""}».</span></p>}
-                </div></div><div className="text-right shrink-0"><p className={`font-display font-bold ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
-                {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>delMv.mutate(m.id)}>Eliminar</button></>}
+                </div><div className="text-right shrink-0"><p className={`font-display font-bold ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
+                {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setMvStep(1);setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>delMv.mutate(m.id)}>Eliminar</button></>}
                 </div></div>
                 {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{m.concept}» por <b>{money2(m.amount)}</b>? Ambos quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
                 </div>; })}
@@ -862,7 +964,7 @@ export function App(){
             </form>
             <Help>Se calcula desde sus movimientos.</Help>
             <div className="grid sm:grid-cols-2 gap-2 mt-3">
-              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><div className="flex justify-between"><b className="font-display inline-flex items-center gap-1.5"><CatIcon name={getCatName(b.categoryId)} size="sm" />{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado {money(b.amount)} · Gastado {money(b.spent)} · <b>Restan {money(b.remaining)}</b></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado {b.remaining<0?"· Presupuesto excedido":""}</p><button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
+              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado {money(b.amount)} · Gastado {money(b.spent)} · <b>Restan {money(b.remaining)}</b></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado {b.remaining<0?"· Presupuesto excedido":""}</p><button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
               {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Uno por categoría y mes." />}
             </div>
           </section>
@@ -980,7 +1082,7 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               {(["income","expense"] as const).map(k=>(
                 <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><h3 className="font-display font-bold">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>
-                  {data.categories.filter(c=>c.kind===k).map(c=><div key={c.id} className="py-2.5 border-b border-[var(--border)] last:border-0"><p className="text-sm font-semibold flex items-center gap-2"><CatIcon name={c.name} />{c.name} {c.isSystem===1 && <span className="text-[11px] text-[var(--dim)] font-normal">· del sistema</span>}</p>
+                  {data.categories.filter(c=>c.kind===k).map(c=><div key={c.id} className="py-2.5 border-b border-[var(--border)] last:border-0"><p className="text-sm font-semibold">{c.name} {c.isSystem===1 && <span className="text-[11px] text-[var(--dim)] font-normal">· del sistema</span>}</p>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
                       {c.subcategories.map(sb=><span key={sb} className="inline-flex items-center gap-1 bg-[var(--surface2)] rounded-full pl-2.5 pr-1 py-1 text-xs font-semibold">{sb}<button type="button" aria-label={`Eliminar subcategoría ${sb} de ${c.name}`} className="w-5 h-5 rounded-full bg-[var(--surface)] border border-[var(--border)] leading-none" onClick={()=>removeSub.mutate({categoryId:c.id,name:sb})}>×</button></span>)}
                       {c.subcategories.length===0 && <span className="text-xs text-[var(--dim)]">Sin subcategorías</span>}
@@ -1081,11 +1183,20 @@ export function App(){
                   <button className={btnPrimary+" w-full"} disabled={saveSalary.isPending || !salaryInput}>Guardar sueldo</button>
                   {data.personal.salary===0 && <Help>Registre su sueldo para ver su saldo restante.</Help>}
                 </form>
-                <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();savePersExp.mutate();}}>
+                <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(persStep<3){ if(persStep===1 && !persAmt) return; setPersStep(persStep+1); } else savePersExp.mutate();}}>
                   <h2 className="font-display font-bold">Gasto del día</h2>
+                  <p className="text-xs text-[var(--dim)]">Paso {persStep} de 3</p>
+                  <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${persStep*33.33}%`}} /></div>
+                  {persStep===1 && <>
                   <div><Label htmlFor="pers-amt">Importe ($)</Label><input id="pers-amt" aria-label="Importe del gasto del día" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={persAmt} onChange={e=>setPersAmt(e.target.value)} /></div>
+                  <button type="button" className={btnPrimary+" w-full"} disabled={!persAmt} onClick={()=>setPersStep(2)}>Siguiente</button>
+                  </>}
+                  {persStep===2 && <>
+                  <div><Label htmlFor="pers-cat">Tipo de gasto</Label><select id="pers-cat" aria-label="Tipo de gasto del día" className={inputCls} value={persCat} onChange={e=>setPersCat(e.target.value)}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>setPersStep(1)}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>setPersStep(3)}>Siguiente</button></div>
+                  </>}
+                  {persStep===3 && <>
                   <div><Label htmlFor="pers-concept">Concepto del gasto</Label><input id="pers-concept" aria-label="Concepto del gasto del día" className={inputCls} value={persConcept} onChange={e=>setPersConcept(e.target.value)} placeholder="Ej. Alimentos, transporte, café…" /></div>
-                  <div><Label htmlFor="pers-cat">Categoría</Label><div className="flex items-center gap-2">{persCat && <CatIcon name={data.categories.find(c=>String(c.id)===persCat)?.name||""} />}<select id="pers-cat" aria-label="Categoría del gasto del día" className={inputCls+" flex-1"} value={persCat} onChange={e=>setPersCat(e.target.value)}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div></div>
                   <div>
                     <button type="button" aria-expanded={persMore} aria-label={persMore?"Ocultar más opciones del gasto del día":"Mostrar más opciones del gasto del día"} onClick={()=>setPersMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{persMore?"▾ Ocultar más opciones":"▸ Más opciones: comprobante"}</button>
                     {persMore && (<div className="space-y-2 mt-3">
@@ -1100,8 +1211,9 @@ export function App(){
                   </div>
                     </div>)}
                   </div>
-                  <button className={btnPrimary+" w-full"} disabled={savePersExp.isPending || !persAmt}>Registrar gasto de hoy</button>
+                  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>setPersStep(2)}>Atrás</button><button className={btnPrimary+" flex-1"} disabled={savePersExp.isPending || !persAmt}>Finalizar</button></div>
                   <p className="text-xs text-[var(--dim)]">Se guarda hoy, en privado.</p>
+                  </>}
                 </form>
               </div>
               <div className="space-y-3">
@@ -1137,7 +1249,7 @@ export function App(){
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gastos del día ({data.personal.todayCount})</h2>
                   {data.personal.todayMovements.map(m=>{ const full=data.movements.find(x=>x.id===m.id); return (
-                    <div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="flex gap-2 items-start min-w-0"><CatIcon name={getCatName(m.categoryId)} /><span className="min-w-0">{m.concept}<span className="block text-xs text-[var(--dim)]">{getCatName(m.categoryId)}</span>{full?.receiptUrl && <button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>setReceiptView(full.receiptUrl)}>Ver comprobante</button>}<button aria-label={`Reversar el gasto ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>{setConfirmReverseId(m.id);setMvFilter("all");setMvSearch("");setMvSubFilter("all");goTab("movimientos");}}>Reversar</button></span></span><span className="flex items-center gap-2">{full?.receiptUrl && <img src={full.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-8 h-8 object-cover rounded-lg border border-[var(--border)]" />}<b>−{money2(m.amount)}</b></span></div>
+                    <div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="block text-xs text-[var(--dim)]">{getCatName(m.categoryId)}</span>{full?.receiptUrl && <button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>setReceiptView(full.receiptUrl)}>Ver comprobante</button>}<button aria-label={`Reversar el gasto ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>{setConfirmReverseId(m.id);setMvFilter("all");setMvSearch("");setMvSubFilter("all");goTab("movimientos");}}>Reversar</button></span><span className="flex items-center gap-2">{full?.receiptUrl && <img src={full.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-8 h-8 object-cover rounded-lg border border-[var(--border)]" />}<b>−{money2(m.amount)}</b></span></div>
                   ); })}
                   {data.personal.todayMovements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Hoy no se han registrado gastos.</p>}
                   <p className="text-sm mt-2">Total de hoy: <b>{money2(data.personal.todaySpent)}</b></p>
@@ -1397,6 +1509,7 @@ export function App(){
         )}
       </main>
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
+      <HelpAssistant onGo={goTab} />
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">
