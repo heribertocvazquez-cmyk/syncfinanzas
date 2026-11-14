@@ -19,12 +19,16 @@ export function getDb(): Db {
   if (dbInstance) return dbInstance;
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("Falta la variable de entorno DATABASE_URL (cadena del pooler de Supabase).");
-  // max: 3 porque getOverview lanza ~17 consultas en paralelo (Promise.all):
-  // con una sola conexión, una consulta atascada bloquea todas las demás.
+  // max: 1: una sola conexión por instancia serverless. Vercel congela la
+  // instancia tras responder y los temporizadores de cierre no corren, así
+  // que cada conexión abierta se queda ocupando un lugar en el pooler de
+  // Supabase; con más conexiones por instancia el pool se agota y las
+  // peticiones siguientes esperan una conexión libre para siempre. Las ~17
+  // consultas en paralelo de getOverview se encolan en esa única conexión.
   // statement_timeout: ninguna consulta puede colgarse más de 15 s; si lo
   // hace, Postgres la cancela y devuelve un error claro en lugar de dejar
   // la función de Vercel esperando hasta agotar su tiempo.
-  client = postgres(url, { prepare: false, max: 3, ssl: "require", connect_timeout: 10, idle_timeout: 10, max_lifetime: 60 * 5, options: "-c statement_timeout=15000" });
+  client = postgres(url, { prepare: false, max: 1, ssl: "require", connect_timeout: 10, idle_timeout: 10, max_lifetime: 60 * 5, options: "-c statement_timeout=15000" });
   dbInstance = drizzle(client, { schema });
   return dbInstance;
 }
@@ -39,5 +43,9 @@ export async function closeDb(): Promise<void> {
   const c = client;
   client = null;
   dbInstance = null;
-  if (c) { try { await c.end(); } catch { /* ya cerrada */ } }
+  if (c) {
+    // El cierre no debe retrasar la respuesta: si la conexión está atascada,
+    // se abandona a los 2 s y el runtime la desecha con la instancia.
+    try { await Promise.race([c.end(), new Promise((r) => setTimeout(r, 2000))]); } catch { /* ya cerrada */ }
+  }
 }
