@@ -1,8 +1,8 @@
-import { defineAction, rateLimitDb, z, type ActionsModule, type Ctx } from "./space-shim";
+import { defineAction, rateLimitDb, z, type ActionsModule, type Ctx } from "./space-shim.js";
 import { asc, desc, eq } from "drizzle-orm";
-import * as schema from "./schema";
-import { issueInviteToken, inviteUrl, markToken, markTokensForInvitation, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites";
-import { mailConfigured, sendInviteEmail } from "./mail";
+import * as schema from "./schema.js";
+import { issueInviteToken, inviteUrl, markToken, markTokensForInvitation, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
+import { mailConfigured, sendInviteEmail } from "./mail.js";
 
 const vis = z.enum(["private", "shared"]);
 const okRes = z.object({ ok: z.literal(true), id: z.number().optional() });

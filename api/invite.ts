@@ -5,9 +5,9 @@
 // Nunca devuelve el hash del token ni datos de otros usuarios.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { eq } from "drizzle-orm";
-import { getDb } from "../server/src/db";
-import * as schema from "../server/src/schema";
-import { resolveInviteToken, tokenIsUsable } from "../server/src/invites";
+import { getDb } from "../server/src/db.js";
+import * as schema from "../server/src/schema.js";
+import { resolveInviteToken, tokenIsUsable } from "../server/src/invites.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).json({ error: "Método no permitido." });

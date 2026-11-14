@@ -17,11 +17,11 @@
 
 import { and, eq } from "drizzle-orm";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { Actions } from "../server/src/actions";
-import { getDb } from "../server/src/db";
-import * as schema from "../server/src/schema";
-import { buildCtx } from "../server/src/space-shim";
-import { getUserFromToken } from "../server/src/supabase";
+import { Actions } from "../server/src/actions.js";
+import { getDb } from "../server/src/db.js";
+import * as schema from "../server/src/schema.js";
+import { buildCtx } from "../server/src/space-shim.js";
+import { getUserFromToken } from "../server/src/supabase.js";
 
 type Role = "admin" | "member";
 

@@ -13,10 +13,10 @@
 //  - Las claves (service_role) viven solo en variables de entorno.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getDb } from "../server/src/db";
-import * as schema from "../server/src/schema";
-import { rateLimitDb } from "../server/src/space-shim";
-import { supabaseAnon } from "../server/src/supabase";
+import { getDb } from "../server/src/db.js";
+import * as schema from "../server/src/schema.js";
+import { rateLimitDb } from "../server/src/space-shim.js";
+import { supabaseAnon } from "../server/src/supabase.js";
 import { eq } from "drizzle-orm";
 
 const MAX_ATTEMPTS = 5;

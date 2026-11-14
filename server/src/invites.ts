@@ -7,8 +7,8 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import * as schema from "./schema";
-import type { Db } from "./db";
+import * as schema from "./schema.js";
+import type { Db } from "./db.js";
 
 export type InviteKind = "household" | "tanda" | "general";
 

@@ -10,9 +10,9 @@
 
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { getDb, type Db } from "./db";
-import * as schema from "./schema";
-import { supabaseAdmin } from "./supabase";
+import { getDb, type Db } from "./db.js";
+import * as schema from "./schema.js";
+import { supabaseAdmin } from "./supabase.js";
 
 export { z };
 
