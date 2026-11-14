@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaTopScrim } from "./components/SafeArea";
 import { readInviteToken, type InvitePreview } from "./components/AuthGate";
@@ -51,6 +51,37 @@ function fmtDate(iso:string){ const [y=2026,m=1,d=1]=iso.split("-").map(Number);
 function todayISO(){ const t=new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`; }
 function monthNow(){ return todayISO().slice(0,7); }
 const TYPE_LABEL: Record<string,string> = { income:"Ingreso", expense:"Gasto", transfer:"Transferencia", debt_payment:"Pago de deuda", bank:"Bancaria", cash:"Efectivo", credit:"Tarjeta de crédito", investment:"Inversión", loan:"Préstamo" };
+// Iconos de línea (SVG, sin emojis) por categoría: se ven junto al nombre al elegir la
+// categoría en el formulario y en cada movimiento de las listas, para distinguirla de un vistazo.
+const CATEGORY_ICONS: Record<string, ReactNode> = {
+  "Salario": <><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></>,
+  "Negocio": <><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M2 13h20"/></>,
+  "Inversión": <><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></>,
+  "Renta": <><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 21v-4h6v4M8 7h2M14 7h2M8 11h2M14 11h2"/></>,
+  "Pensión": <><path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></>,
+  "Apoyo familiar": <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
+  "Otro ingreso": <><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></>,
+  "Alimentación": <><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></>,
+  "Vivienda": <><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></>,
+  "Transporte": <><path d="M5 11l1.6-4.2A2 2 0 0 1 8.5 5.5h7a2 2 0 0 1 1.9 1.3L19 11"/><rect x="3" y="11" width="18" height="5" rx="1"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="16.5" cy="18" r="1.8"/></>,
+  "Salud": <><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></>,
+  "Educación": <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></>,
+  "Servicios": <><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></>,
+  "Entretenimiento": <><circle cx="12" cy="12" r="9"/><path d="M10 8.5l6 3.5-6 3.5V8.5z"/></>,
+  "Ropa": <><path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></>,
+  "Mascotas": <><circle cx="6.5" cy="8" r="1.6"/><circle cx="10.5" cy="5.5" r="1.6"/><circle cx="14.5" cy="5.5" r="1.6"/><circle cx="18" cy="8" r="1.6"/><path d="M12 11c-3 0-5.5 2.2-5.5 4.8 0 1.6 1.2 2.7 2.8 2.7 1 0 1.8-.5 2.7-.5s1.7.5 2.7.5c1.6 0 2.8-1.1 2.8-2.7 0-2.6-2.5-4.8-5.5-4.8z"/></>,
+  "Deudas": <><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></>,
+  "Impuestos": <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></>,
+  "Viajes": <><path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></>,
+  "Cuidado personal": <><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"/></>,
+  "Otro gasto": <><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.2"/></>,
+  "__otro__": <><path d="M5 3h14v18l-2.3-1.5L14.4 21l-2.4-1.5L9.6 21l-2.3-1.5L5 21V3z"/><path d="M9 8h6M9 12h6"/></>,
+};
+function CatIcon({name, size="md", bare=false}:{name:string; size?:"sm"|"md"; bare?:boolean}){
+  const svg = <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={size==="sm"?"w-3.5 h-3.5":"w-4 h-4"} aria-hidden="true">{CATEGORY_ICONS[name] ?? CATEGORY_ICONS["__otro__"]}</svg>;
+  if (bare) return svg;
+  return <span aria-hidden="true" className={`shrink-0 inline-flex items-center justify-center rounded-full bg-[var(--surface2)] text-[var(--gold)] ${size==="sm"?"w-5 h-5":"w-7 h-7"}`}>{svg}</span>;
+}
 // Convierte cualquier foto (incluida WebP) a JPEG reducido para la lectura automática del comprobante.
 async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:string;preview:string}>{
   const url=URL.createObjectURL(file);
@@ -674,7 +705,7 @@ export function App(){
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Presupuestos</h2>
                 {data.budgets.filter(b=>b.month===s.currentMonth).length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin presupuestos este mes.</p> : data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
-                  <div key={b.id} className="mt-3"><div className="flex justify-between text-sm"><span>{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><b>{money(b.spent)} / {money(b.amount)}</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--gold)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p></div>
+                  <div key={b.id} className="mt-3"><div className="flex justify-between text-sm"><span className="inline-flex items-center gap-1.5"><CatIcon name={getCatName(b.categoryId)} size="sm" />{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><b>{money(b.spent)} / {money(b.amount)}</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--gold)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p></div>
                 ))}
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
@@ -688,7 +719,7 @@ export function App(){
 
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 mt-3">
               <h2 className="font-display font-bold">Actividad reciente</h2>
-              {visibleMovs.slice(0,6).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
+              {visibleMovs.slice(0,6).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="flex gap-2 items-start min-w-0"><CatIcon name={getCatName(m.categoryId)} /><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
               {data.movements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>}
               {data.movements.length>0 && <button type="button" aria-label="Ver todos los movimientos del hogar" className={btnGhost+" mt-2"} onClick={()=>goTab("movimientos")}>Ver todos los movimientos</button>}
             </div>
@@ -704,11 +735,16 @@ export function App(){
               </div>
               <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
               <div><Label htmlFor="mv-concept">Concepto</Label><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls} value={mvConcept} onChange={e=>setMvConcept(e.target.value)} placeholder="Ej. Súper semanal" /></div>
-              {mvType!=="transfer" && <div className="grid grid-cols-2 gap-2">
-                <div><Label htmlFor="mv-cat">Categoría</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");}}><option value="">Seleccione una categoría…</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+              {mvType!=="transfer" && <>
+                <div>
+                  <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">Categoría</span>
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Categoría del movimiento">
+                    {catsForType.map(c=>(<button key={c.id} type="button" aria-pressed={mvCat===String(c.id)} onClick={()=>{setMvCat(String(c.id));setMvSub("");}} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[13px] font-semibold ${mvCat===String(c.id)?"bg-[var(--gold)] text-white border-[var(--gold)]":"bg-[var(--surface)] border-[var(--border)]"}`}><CatIcon name={c.name} size="sm" bare />{c.name}</button>))}
+                  </div>
+                </div>
                 <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Nueva subcategoría…</option></select>                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Agregar “{newSubName||"…"}” a {selectedCat.name}?</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
                 </div>
-              </div>}
+              </>}
               <div>
                 <button type="button" aria-expanded={mvMore} aria-label={mvMore?"Ocultar más opciones del movimiento":"Mostrar más opciones del movimiento"} onClick={()=>setMvMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{mvMore?"▾ Ocultar más opciones":"▸ Más opciones"}</button>
                 {mvMore && (<div className="space-y-2 mt-3">
@@ -728,7 +764,7 @@ export function App(){
                                 <p className="text-[11px] text-[var(--dim)] mt-1">Los gastos se crean solos.</p>
                 <input aria-label="Fotografía del comprobante para lectura automática" type="file" accept="image/*" className="w-full text-sm mt-2" onChange={e=>{ const f=e.target.files?.[0]; if(f) void imageFileToJpeg(f).then(setScanImg).catch(()=>setScanImg(null)); e.target.value=""; }} />
                 {scanImg && <div className="mt-2 space-y-2"><img src={scanImg.preview} alt="Vista previa del comprobante que se leerá automáticamente" className="w-full max-h-36 object-contain rounded-xl border border-[var(--border)] bg-white" />
-                  <div><Label htmlFor="scan-cat">Categoría (opcional)</Label><select id="scan-cat" aria-label="Categoría para los productos leídos del comprobante" className={inputCls} value={scanCat} onChange={e=>setScanCat(e.target.value)}><option value="">Automática</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  <div><Label htmlFor="scan-cat">Categoría (opcional)</Label><div className="flex items-center gap-2">{scanCat && <CatIcon name={data.categories.find(c=>String(c.id)===scanCat)?.name||""} />}<select id="scan-cat" aria-label="Categoría para los productos leídos del comprobante" className={inputCls+" flex-1"} value={scanCat} onChange={e=>setScanCat(e.target.value)}><option value="">Automática</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div></div>
                   <button type="button" aria-label="Leer el comprobante y crear los gastos automáticamente" className={btnPrimary+" w-full"} disabled={scanRcpt.isPending} onClick={()=>scanRcpt.mutate({img:{dataBase64:scanImg.dataBase64,mimeType:scanImg.mimeType},visibility:mvVis,categoryId:scanCat?Number(scanCat):null})}>{scanRcpt.isPending?"Leyendo el comprobante…":"Leer comprobante y crear los gastos"}</button>
                 </div>}
                 {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Se crearon {scanRcpt.data.created} gasto(s) por {money2(scanRcpt.data.totalDetected)}.</p>}
@@ -765,10 +801,10 @@ export function App(){
               {revMv.error && <p className="text-sm text-[var(--red)] mt-2">{String(revMv.error)}</p>}
               {revMv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">Movimiento reversado.</p>}
               <div className="divide-y divide-[var(--border)] mt-2">
-                {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div><p className="font-semibold text-sm">{m.concept}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
+                {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="flex gap-2 items-start min-w-0"><CatIcon name={getCatName(m.categoryId)} /><div className="min-w-0"><p className="font-semibold text-sm">{m.concept}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
                 {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-[11px] text-[var(--dim)]">Fuera de los totales.</span></p>}
                 {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-[11px] text-[var(--dim)]">Anula «{data.movements.find(x=>x.id===m.reversalOfId)?.concept||""}».</span></p>}
-                </div><div className="text-right shrink-0"><p className={`font-display font-bold ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
+                </div></div><div className="text-right shrink-0"><p className={`font-display font-bold ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
                 {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>delMv.mutate(m.id)}>Eliminar</button></>}
                 </div></div>
                 {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{m.concept}» por <b>{money2(m.amount)}</b>? Ambos quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
@@ -811,7 +847,7 @@ export function App(){
             </form>
             <Help>Se calcula desde sus movimientos.</Help>
             <div className="grid sm:grid-cols-2 gap-2 mt-3">
-              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado {money(b.amount)} · Gastado {money(b.spent)} · <b>Restan {money(b.remaining)}</b></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado {b.remaining<0?"· Presupuesto excedido":""}</p><button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
+              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><div className="flex justify-between"><b className="font-display inline-flex items-center gap-1.5"><CatIcon name={getCatName(b.categoryId)} size="sm" />{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado {money(b.amount)} · Gastado {money(b.spent)} · <b>Restan {money(b.remaining)}</b></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado {b.remaining<0?"· Presupuesto excedido":""}</p><button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
               {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Uno por categoría y mes." />}
             </div>
           </section>
@@ -929,7 +965,7 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               {(["income","expense"] as const).map(k=>(
                 <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><h3 className="font-display font-bold">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>
-                  {data.categories.filter(c=>c.kind===k).map(c=><div key={c.id} className="py-2.5 border-b border-[var(--border)] last:border-0"><p className="text-sm font-semibold">{c.name} {c.isSystem===1 && <span className="text-[11px] text-[var(--dim)] font-normal">· del sistema</span>}</p>
+                  {data.categories.filter(c=>c.kind===k).map(c=><div key={c.id} className="py-2.5 border-b border-[var(--border)] last:border-0"><p className="text-sm font-semibold flex items-center gap-2"><CatIcon name={c.name} />{c.name} {c.isSystem===1 && <span className="text-[11px] text-[var(--dim)] font-normal">· del sistema</span>}</p>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
                       {c.subcategories.map(sb=><span key={sb} className="inline-flex items-center gap-1 bg-[var(--surface2)] rounded-full pl-2.5 pr-1 py-1 text-xs font-semibold">{sb}<button type="button" aria-label={`Eliminar subcategoría ${sb} de ${c.name}`} className="w-5 h-5 rounded-full bg-[var(--surface)] border border-[var(--border)] leading-none" onClick={()=>removeSub.mutate({categoryId:c.id,name:sb})}>×</button></span>)}
                       {c.subcategories.length===0 && <span className="text-xs text-[var(--dim)]">Sin subcategorías</span>}
@@ -1034,7 +1070,7 @@ export function App(){
                   <h2 className="font-display font-bold">Gasto del día</h2>
                   <div><Label htmlFor="pers-amt">Importe ($)</Label><input id="pers-amt" aria-label="Importe del gasto del día" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={persAmt} onChange={e=>setPersAmt(e.target.value)} /></div>
                   <div><Label htmlFor="pers-concept">Concepto del gasto</Label><input id="pers-concept" aria-label="Concepto del gasto del día" className={inputCls} value={persConcept} onChange={e=>setPersConcept(e.target.value)} placeholder="Ej. Alimentos, transporte, café…" /></div>
-                  <div><Label htmlFor="pers-cat">Categoría</Label><select id="pers-cat" aria-label="Categoría del gasto del día" className={inputCls} value={persCat} onChange={e=>setPersCat(e.target.value)}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  <div><Label htmlFor="pers-cat">Categoría</Label><div className="flex items-center gap-2">{persCat && <CatIcon name={data.categories.find(c=>String(c.id)===persCat)?.name||""} />}<select id="pers-cat" aria-label="Categoría del gasto del día" className={inputCls+" flex-1"} value={persCat} onChange={e=>setPersCat(e.target.value)}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div></div>
                   <div>
                     <button type="button" aria-expanded={persMore} aria-label={persMore?"Ocultar más opciones del gasto del día":"Mostrar más opciones del gasto del día"} onClick={()=>setPersMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{persMore?"▾ Ocultar más opciones":"▸ Más opciones: comprobante"}</button>
                     {persMore && (<div className="space-y-2 mt-3">
@@ -1058,7 +1094,7 @@ export function App(){
                   <h2 className="font-display font-bold">Gasto por categoría</h2>
                   <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total}))} />
                   {data.personal.byCategory.map(c=>(
-                    <div key={String(c.categoryId)} className="flex justify-between text-sm mt-1.5"><span>{c.name}</span><b>{money(c.total)} · {c.pct}%</b></div>
+                    <div key={String(c.categoryId)} className="flex justify-between text-sm mt-1.5"><span className="inline-flex items-center gap-2"><CatIcon name={c.name} size="sm" />{c.name}</span><b>{money(c.total)} · {c.pct}%</b></div>
                   ))}
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante: <b>{money2(data.personal.remaining)}</b></p>
                 </div>
@@ -1086,7 +1122,7 @@ export function App(){
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gastos del día ({data.personal.todayCount})</h2>
                   {data.personal.todayMovements.map(m=>{ const full=data.movements.find(x=>x.id===m.id); return (
-                    <div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{m.concept}<span className="block text-xs text-[var(--dim)]">{getCatName(m.categoryId)}</span>{full?.receiptUrl && <button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>setReceiptView(full.receiptUrl)}>Ver comprobante</button>}<button aria-label={`Reversar el gasto ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>{setConfirmReverseId(m.id);setMvFilter("all");setMvSearch("");setMvSubFilter("all");goTab("movimientos");}}>Reversar</button></span><span className="flex items-center gap-2">{full?.receiptUrl && <img src={full.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-8 h-8 object-cover rounded-lg border border-[var(--border)]" />}<b>−{money2(m.amount)}</b></span></div>
+                    <div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="flex gap-2 items-start min-w-0"><CatIcon name={getCatName(m.categoryId)} /><span className="min-w-0">{m.concept}<span className="block text-xs text-[var(--dim)]">{getCatName(m.categoryId)}</span>{full?.receiptUrl && <button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>setReceiptView(full.receiptUrl)}>Ver comprobante</button>}<button aria-label={`Reversar el gasto ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>{setConfirmReverseId(m.id);setMvFilter("all");setMvSearch("");setMvSubFilter("all");goTab("movimientos");}}>Reversar</button></span></span><span className="flex items-center gap-2">{full?.receiptUrl && <img src={full.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-8 h-8 object-cover rounded-lg border border-[var(--border)]" />}<b>−{money2(m.amount)}</b></span></div>
                   ); })}
                   {data.personal.todayMovements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Hoy no se han registrado gastos.</p>}
                   <p className="text-sm mt-2">Total de hoy: <b>{money2(data.personal.todaySpent)}</b></p>
