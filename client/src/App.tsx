@@ -141,7 +141,8 @@ function MonthlyChart({series}:{series:{label:string;income:number;expense:numbe
   </div>;
 }
 function Help({children}:{children:React.ReactNode}){ return <p className="text-[13px] leading-snug text-[var(--dim)] bg-[var(--surface2)] rounded-xl px-3 py-2">{children}</p>; }
-function Empty({title,body}:{title:string;body:string}){ return <div className="border border-dashed border-[var(--border)] rounded-2xl p-3.5 text-center"><p className="font-display font-bold">{title}</p><p className="text-sm text-[var(--dim)] mt-1">{body}</p></div>; }
+function Empty({title,body,action}:{title:string;body:string;action?:{label:string;onClick:()=>void}}){ return <div className="border border-dashed border-[var(--border)] rounded-2xl p-3.5 text-center"><p className="font-display font-bold">{title}</p><p className="text-sm text-[var(--dim)] mt-1">{body}</p>{action && <button type="button" aria-label={action.label} className={btnPrimary+" mt-3"} onClick={action.onClick}>{action.label}</button>}</div>; }
+function focusField(id:string){ const el=document.getElementById(id); el?.scrollIntoView({behavior:"smooth",block:"center"}); (el as HTMLElement|null)?.focus(); }
 function Stars({value,size}:{value:number;size?:string}){ const full=Math.round(value); return <span className={`text-[var(--gold)] ${size||"text-base"}`} role="img" aria-label={`${value} de 5 estrellas`}>{"★★★★★".slice(0,full)}{"☆☆☆☆☆".slice(0,5-full)}</span>; }
 function Label({htmlFor,children}:{htmlFor:string;children:React.ReactNode}){ return <label htmlFor={htmlFor} className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">{children}</label>; }
 const inputCls="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]";
@@ -800,16 +801,17 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Presupuestos</h2>
-                {data.budgets.filter(b=>b.month===s.currentMonth).length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin presupuestos este mes.</p> : data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
+                {data.budgets.filter(b=>b.month===s.currentMonth).length===0 ? <><p className="text-sm text-[var(--dim)] mt-2">Sin presupuestos este mes.</p><button type="button" aria-label="Agregar presupuesto" className={btnPrimary+" mt-2"} onClick={()=>goTab("presupuestos")}>+ Agregar presupuesto</button></> : data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
                   <div key={b.id} className="mt-3"><div className="flex justify-between text-sm"><span>{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><b>{money(b.spent)} / {money(b.amount)}</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--gold)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p></div>
                 ))}
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Metas y patrimonio</h2>
                 {data.goals.slice(0,3).map(g=><div key={g.id} className="mt-3"><div className="flex justify-between text-sm"><span>{g.name}</span><b>{g.pct}%</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">{money(g.savedAmount)} de {money(g.targetAmount)}{g.targetDate?` · meta ${fmtDate(g.targetDate)}`:""}</p></div>)}
-                {data.goals.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin metas registradas.</p>}
+                {data.goals.length===0 && <><p className="text-sm text-[var(--dim)] mt-2">Sin metas registradas.</p><button type="button" aria-label="Agregar meta" className={btnPrimary+" mt-2"} onClick={()=>goTab("metas")}>+ Agregar meta</button></>}
                 <div className="border-t border-[var(--border)] mt-3 pt-3 flex justify-between"><span className="text-sm">Patrimonio neto</span><b className="font-display">{money2(s.netWorth)}</b></div>
                 <p className="text-xs text-[var(--dim)]">Activos {money(s.totalAssets)} − Pasivos {money(s.totalLiabilities)}.</p>
+                {data.patrimony.length===0 && <button type="button" aria-label="Agregar patrimonio" className={btnPrimary+" mt-2"} onClick={()=>goTab("patrimonio")}>+ Agregar patrimonio</button>}
               </div>
             </div>
 
@@ -933,7 +935,7 @@ export function App(){
             </form>
             <div className="grid sm:grid-cols-2 gap-2">
               {data.accounts.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">{a.name}</p><p className="text-xs text-[var(--dim)]">{TYPE_LABEL[a.type]||a.type} · {a.visibility==="shared"?"Compartida":"Privada"} · Inicial {money(a.initialBalance)}</p><p className="font-display text-xl font-extrabold mt-2">{money2(a.balance)}</p><div className="mt-2 flex gap-2"><button aria-label={`Editar cuenta ${a.name}`} className="text-xs underline" onClick={()=>{setEditingAcc(a.id);setAccFormName(a.name);setAccType(a.type as typeof accType);setAccVis(a.visibility as "private"|"shared");setAccInit(String(a.initialBalance));}}>Editar</button><button aria-label={`Eliminar cuenta ${a.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delAcc.mutate(a.id)}>Eliminar</button></div></div>)}
-              {data.accounts.length===0 && <Empty title="Sin cuentas" body="Cree su primera cuenta." />}
+              {data.accounts.length===0 && <Empty title="Sin cuentas" body="Cree su primera cuenta." action={{label:"+ Agregar cuenta",onClick:()=>focusField("acc-name")}} />}
             </div>
           </section>
         )}
@@ -950,7 +952,7 @@ export function App(){
             <Help>Se calcula desde sus movimientos.</Help>
             <div className="grid sm:grid-cols-2 gap-2 mt-3">
               {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado {money(b.amount)} · Gastado {money(b.spent)} · <b>Restan {money(b.remaining)}</b></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado {b.remaining<0?"· Presupuesto excedido":""}</p><button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
-              {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Uno por categoría y mes." />}
+              {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Uno por categoría y mes." action={{label:"+ Agregar presupuesto",onClick:()=>focusField("bud-cat")}} />}
             </div>
           </section>
         )}
@@ -996,7 +998,7 @@ export function App(){
             </form>
             <div className="grid sm:grid-cols-2 gap-2 mt-3">
               {data.goals.map(g=>{ const monthsLeft=g.targetDate?Math.max(1,Math.round((new Date(g.targetDate).getTime()-Date.now())/(1000*60*60*24*30))):null; const need=monthsLeft?Math.ceil((g.targetAmount-g.savedAmount)/monthsLeft):null; return <div key={g.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">{g.name} <span className="text-xs font-normal text-[var(--dim)]">{g.visibility==="shared"?"Compartida":"Privada"}</span></p><p className="font-display text-xl font-extrabold mt-1">{money(g.savedAmount)} <span className="text-sm font-semibold text-[var(--dim)]">de {money(g.targetAmount)} · {g.pct}%</span></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div>{g.targetDate && <p className="text-xs text-[var(--dim)] mt-1">Meta {fmtDate(g.targetDate)}{need!==null && need>0?` · faltan ${money(need)}/mes`:""}</p>}<div className="flex gap-2 mt-3"><input aria-label={`Abonar a ${g.name}`} type="number" placeholder="$ Abonar" className={inputCls} value={goalAdd[g.id]||""} onChange={e=>setGoalAdd({...goalAdd,[g.id]:e.target.value})} /><button aria-label={`Abonar a la meta ${g.name}`} className={btnPrimary} onClick={()=>addGoal.mutate({id:g.id,amount:Number(goalAdd[g.id])||0})}>Abonar</button></div><button aria-label={`Eliminar meta ${g.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>delGoal.mutate(g.id)}>Eliminar</button></div>; })}
-              {data.goals.length===0 && <Empty title="Sin metas" body="Cree su primera meta." />}
+              {data.goals.length===0 && <Empty title="Sin metas" body="Cree su primera meta." action={{label:"+ Agregar meta",onClick:()=>focusField("goal-name")}} />}
             </div>
           </section>
         )}
@@ -1047,7 +1049,7 @@ export function App(){
               {(["asset","liability"] as const).map(k=>(
                 <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><h3 className="font-display font-bold">{k==="asset"?"Activos":"Pasivos"}</h3>
                   {data.patrimony.filter(p=>p.kind===k).map(p=><div key={p.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{p.name}<span className="block text-xs text-[var(--dim)]">{p.category}{p.owner?` · ${p.owner}`:""}</span></span><span className="text-right"><b>{money2(p.value)}</b><br/><button aria-label={`Eliminar ${p.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delPat.mutate(p.id)}>Eliminar</button></span></div>)}
-                  {data.patrimony.filter(p=>p.kind===k).length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin {k==="asset"?"activos":"pasivos"} registrados.</p>}
+                  {data.patrimony.filter(p=>p.kind===k).length===0 && <><p className="text-sm text-[var(--dim)] mt-2">Sin {k==="asset"?"activos":"pasivos"} registrados.</p><button type="button" aria-label="Agregar patrimonio" className={btnPrimary+" mt-2"} onClick={()=>focusField("pat-name")}>+ Agregar patrimonio</button></>}
                   <p className="font-display font-bold mt-2 text-right">Total: {money2(k==="asset"?s.totalAssets:s.totalLiabilities)}</p>
                 </div>
               ))}
