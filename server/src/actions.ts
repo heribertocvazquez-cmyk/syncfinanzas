@@ -1087,4 +1087,19 @@ export const Actions = {
       ctx.invalidateQueries(); return {ok:true};
     },
   }),
+
+  // Opiniones de los testers (segunda etapa): solo el administrador del hogar
+  // las revisa, en la pestaña Hogar. Lee la tabla tester_feedback (creada con
+  // supabase/feedback.sql). Sin edición ni borrado por ahora. El despachador
+  // (api/actions.ts) ya exige membresía por householdId y rol de administrador.
+  listTesterFeedback: defineAction({
+    description: "Lists the testers' feedback for the household administrator, newest first.",
+    request: z.object({ householdId: z.number() }),
+    response: z.object({ feedback: z.array(z.object({ id: z.number(), createdAt: z.string(), nombre: z.string().nullable(), correo: z.string().nullable(), calificacionGeneral: z.number(), facilidadUso: z.number(), queFunciono: z.string().nullable(), queFallo: z.string().nullable(), sugerencia: z.string().nullable(), modulo: z.string().nullable(), dispositivo: z.string().nullable() })) }),
+    async handler(ctx) {
+      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede revisar las opiniones de los testers.");
+      const rows = await ctx.db.select().from(schema.testerFeedback).orderBy(desc(schema.testerFeedback.createdAt)).limit(100);
+      return { feedback: rows.map(r => ({ id: r.id, createdAt: r.createdAt.toISOString(), nombre: r.nombre, correo: r.correo, calificacionGeneral: r.calificacionGeneral, facilidadUso: r.facilidadUso, queFunciono: r.queFunciono, queFallo: r.queFallo, sugerencia: r.sugerencia, modulo: r.modulo, dispositivo: r.dispositivo })) };
+    },
+  }),
 } satisfies ActionsModule;

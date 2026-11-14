@@ -254,3 +254,21 @@ export const authLockouts = pgTable("auth_lockouts", {
   lockedUntil: timestamp("locked_until", { mode: "date" }),
   lastAttemptAt: timestamp("last_attempt_at", { mode: "date" }).notNull().defaultNow(),
 });
+
+// Opiniones de los testers (segunda etapa): se envían desde el formulario
+// público (?feedback=1), sin cuenta. La tabla se crea con
+// supabase/feedback.sql; la lectura pública está denegada por RLS y solo el
+// servidor (service_role) la lee para el administrador del hogar.
+export const testerFeedback = pgTable("tester_feedback", {
+  id: serial("id").primaryKey(),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  nombre: text("nombre"),
+  correo: text("correo"),
+  calificacionGeneral: integer("calificacion_general").notNull(),
+  facilidadUso: integer("facilidad_uso").notNull(),
+  queFunciono: text("que_funciono"),
+  queFallo: text("que_fallo"),
+  sugerencia: text("sugerencia"),
+  modulo: text("modulo"),
+  dispositivo: text("dispositivo"),
+});

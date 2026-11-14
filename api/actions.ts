@@ -65,7 +65,7 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   removeTandaParticipant: { table: "tandaParticipants", idField: "id" },
 };
 
-const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation"]);
+const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation", "listTesterFeedback"]);
 
 async function householdIdForRow(
   db: ReturnType<typeof getDb>,

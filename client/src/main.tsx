@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { App, TesterFeedbackForm } from "./App";
 import { AuthGate } from "./components/AuthGate";
 import "./theme.css";
 import appIcon192 from "./assets/app-icon-192.png";
@@ -76,13 +76,19 @@ if (!rootEl) {
   throw new Error("missing root element");
 }
 
+// Formulario público de opiniones de testers (?feedback=1, segunda etapa):
+// se muestra sin sesión ni cuenta, en lugar de la pantalla de acceso.
+const isFeedbackForm = (()=>{ try{ return new URLSearchParams(window.location.search).get("feedback")==="1"; }catch{ return false; } })();
+
 createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <div>
-        <AuthGate>
-          <App />
-        </AuthGate>
+        {isFeedbackForm ? <TesterFeedbackForm /> : (
+          <AuthGate>
+            <App />
+          </AuthGate>
+        )}
       </div>
     </QueryClientProvider>
   </StrictMode>,
