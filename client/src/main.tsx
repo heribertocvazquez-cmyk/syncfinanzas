@@ -34,6 +34,17 @@ try {
       { src: new URL(appIcon512, base).href, sizes: "512x512", type: "image/png", purpose: "any" },
       { src: new URL(appIcon512, base).href, sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
+    // Atajos del icono (Android: mantener presionado el icono): "Registrar
+    // gasto" abre la aplicación directo en el formulario de gasto.
+    shortcuts: [
+      {
+        name: "Registrar gasto",
+        short_name: "Gasto",
+        description: "Registrar un gasto rápido",
+        url: "/?accion=nuevo-gasto",
+        icons: [{ src: new URL(appIcon192, base).href, sizes: "192x192", type: "image/png" }],
+      },
+    ],
   };
   const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
   const link = document.createElement("link");
