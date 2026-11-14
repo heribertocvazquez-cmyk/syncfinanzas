@@ -13,7 +13,7 @@
 //  - Las claves (service_role) viven solo en variables de entorno.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getDb } from "../server/src/db.js";
+import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { rateLimitDb } from "../server/src/space-shim.js";
 import { supabaseAnon } from "../server/src/supabase.js";
@@ -125,5 +125,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const cause = err instanceof Error ? (err as unknown as { cause?: { message?: string; code?: string } }).cause : undefined;
     console.error("API error:", message, cause);
     return res.status(400).json({ error: message, cause: cause?.message ?? null, code: cause?.code ?? null });
+  } finally {
+    await closeDb();
   }
 }

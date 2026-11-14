@@ -18,7 +18,7 @@
 import { and, eq } from "drizzle-orm";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Actions } from "../server/src/actions.js";
-import { getDb } from "../server/src/db.js";
+import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { buildCtx } from "../server/src/space-shim.js";
 import { getUserFromToken } from "../server/src/supabase.js";
@@ -217,5 +217,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const cause = err instanceof Error ? (err as unknown as { cause?: { message?: string; code?: string } }).cause : undefined;
     console.error("API actions error:", message, cause);
     return res.status(400).json({ error: message, cause: cause?.message ?? null, code: cause?.code ?? null });
+  } finally {
+    await closeDb();
   }
 }
