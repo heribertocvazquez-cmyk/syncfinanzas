@@ -136,25 +136,28 @@ export const Actions = {
         };
       }
       const hid = hh.id;
-      const [profilesR, accountsR, catsR, movsR, budgetsR, fundsR, fundMovsR, goalsR, agR, votesR, patrR, tandasR, tandaPartsR, tandaPaysR, invsR, tandaInvsR, orgRatingsR] = await Promise.all([
-        db.select().from(schema.profiles).where(eq(schema.profiles.householdId, hid)),
-        db.select().from(schema.accounts).where(eq(schema.accounts.householdId, hid)),
-        db.select().from(schema.categories).where(eq(schema.categories.householdId, hid)),
-        db.select().from(schema.movements).where(eq(schema.movements.householdId, hid)).orderBy(desc(schema.movements.date), desc(schema.movements.id)),
-        db.select().from(schema.budgets).where(eq(schema.budgets.householdId, hid)),
-        db.select().from(schema.funds).where(eq(schema.funds.householdId, hid)),
-        db.select().from(schema.fundMovements).where(eq(schema.fundMovements.householdId, hid)).orderBy(desc(schema.fundMovements.date)),
-        db.select().from(schema.goals).where(eq(schema.goals.householdId, hid)),
-        db.select().from(schema.agreements).where(eq(schema.agreements.householdId, hid)).orderBy(desc(schema.agreements.id)),
-        db.select().from(schema.agreementVotes),
-        db.select().from(schema.patrimonyItems).where(eq(schema.patrimonyItems.householdId, hid)),
-        db.select().from(schema.tandas).where(eq(schema.tandas.householdId, hid)).orderBy(desc(schema.tandas.id)),
-        db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.householdId, hid)),
-        db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.householdId, hid)),
-        db.select().from(schema.invitations).where(eq(schema.invitations.householdId, hid)),
-        db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.householdId, hid)).orderBy(desc(schema.tandaInvitations.id)),
-        db.select().from(schema.organizerRatings).where(eq(schema.organizerRatings.householdId, hid)).orderBy(desc(schema.organizerRatings.id)),
-      ]);
+      // Consultas en secuencia, NO en Promise.all: con una sola conexión
+      // Postgres (max: 1, pooler de Supabase en modo transacción), lanzar
+      // 17 consultas a la vez atasca la conexión y la petición se cuelga
+      // hasta agotar el tiempo de la función. En secuencia cada una tarda
+      // milisegundos y el total sigue por debajo de 1 s.
+      const profilesR = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, hid));
+      const accountsR = await db.select().from(schema.accounts).where(eq(schema.accounts.householdId, hid));
+      const catsR = await db.select().from(schema.categories).where(eq(schema.categories.householdId, hid));
+      const movsR = await db.select().from(schema.movements).where(eq(schema.movements.householdId, hid)).orderBy(desc(schema.movements.date), desc(schema.movements.id));
+      const budgetsR = await db.select().from(schema.budgets).where(eq(schema.budgets.householdId, hid));
+      const fundsR = await db.select().from(schema.funds).where(eq(schema.funds.householdId, hid));
+      const fundMovsR = await db.select().from(schema.fundMovements).where(eq(schema.fundMovements.householdId, hid)).orderBy(desc(schema.fundMovements.date));
+      const goalsR = await db.select().from(schema.goals).where(eq(schema.goals.householdId, hid));
+      const agR = await db.select().from(schema.agreements).where(eq(schema.agreements.householdId, hid)).orderBy(desc(schema.agreements.id));
+      const votesR = await db.select().from(schema.agreementVotes);
+      const patrR = await db.select().from(schema.patrimonyItems).where(eq(schema.patrimonyItems.householdId, hid));
+      const tandasR = await db.select().from(schema.tandas).where(eq(schema.tandas.householdId, hid)).orderBy(desc(schema.tandas.id));
+      const tandaPartsR = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.householdId, hid));
+      const tandaPaysR = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.householdId, hid));
+      const invsR = await db.select().from(schema.invitations).where(eq(schema.invitations.householdId, hid));
+      const tandaInvsR = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.householdId, hid)).orderBy(desc(schema.tandaInvitations.id));
+      const orgRatingsR = await db.select().from(schema.organizerRatings).where(eq(schema.organizerRatings.householdId, hid)).orderBy(desc(schema.organizerRatings.id));
 
       // Reversiones: un movimiento reversado y su reversión se anulan entre sí; ninguno de los dos
       // se considera en saldos, totales, presupuestos, gráficas ni reparto. Ambos quedan visibles
