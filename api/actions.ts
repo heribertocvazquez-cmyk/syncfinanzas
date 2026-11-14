@@ -214,7 +214,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json(result ?? { ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido.";
-    // No se exponen trazas ni detalles internos al cliente.
-    return res.status(400).json({ error: message });
+    const cause = err instanceof Error ? (err as unknown as { cause?: { message?: string; code?: string } }).cause : undefined;
+    console.error("API actions error:", message, cause);
+    return res.status(400).json({ error: message, cause: cause?.message ?? null, code: cause?.code ?? null });
   }
 }
