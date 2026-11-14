@@ -1,0 +1,38 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap');
+@import "tailwindcss";
+@import "tailwindcss-safe-area";
+
+@theme {
+  --text-xs: 12px; --text-xs--line-height: 16px;
+  --text-sm: 14px; --text-sm--line-height: 20px;
+  --text-base: 16px; --text-base--line-height: 24px;
+  --text-lg: 18px; --text-lg--line-height: 28px;
+  --text-xl: 20px; --text-xl--line-height: 28px;
+  --text-2xl: 24px; --text-2xl--line-height: 32px;
+  --text-3xl: 30px; --text-3xl--line-height: 36px;
+  --text-4xl: 36px; --text-4xl--line-height: 40px;
+  --font-display: "Manrope", system-ui, sans-serif;
+}
+:root {
+  color-scheme: light dark;
+  --bg: #F4F6F5; --surface: #FFFFFF; --surface2: #EAF0EE;
+  --text: #13262E; --dim: #5B6E73; --border: #DCE6E3;
+  --accent: #0E2F3D; --accent-text: #FFFFFF; --gold: #C5962C; --green: #1B7A4D; --red: #B42318;
+  --radius: 16px;
+  --space-surface: var(--surface); --space-surface-alt: var(--surface2); --space-muted: var(--dim); --space-border: var(--border); --space-accent: var(--accent);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#0C1A20; --surface:#13262E; --surface2:#1A323E; --text:#EFF6F4; --dim:#9AB0B5; --border:#23404C; --accent:#E8B84A; --accent-text:#13262E; }
+}
+@layer base {
+  button, [role="button"], select, summary, input:not([type="checkbox"],[type="radio"]) { min-height: 2.25rem; }
+  body { font-family: system-ui, -apple-system, sans-serif; }
+  h1,h2,h3,.font-display { font-family: var(--font-display); }
+  html { -webkit-tap-highlight-color: transparent; }
+}
+/* Instalada en el celular (pantalla completa, sin barra del navegador):
+   se evita el rebote de desplazamiento propio del navegador. */
+@media (display-mode: standalone) {
+  body { overscroll-behavior-y: none; }
+}
+input,select,textarea { font-size:16px; }

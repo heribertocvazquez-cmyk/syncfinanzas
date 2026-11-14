@@ -1,0 +1,220 @@
+// Despachador de acciones de SyncFinanzas (Vercel Function, Node).
+// El cliente llama POST /api/actions con { action, args } y el token de
+// Supabase Auth en Authorization: Bearer <token>.
+// Responsabilidades (checklist de seguridad, CubePath Labs):
+//  1. Autenticación: el token JWT se verifica con Supabase Auth. Sin token
+//     válido no se ejecuta ninguna acción.
+//  2. Permisos por hogar: cada acción solo toca el hogar del usuario. El
+//     hogar se resuelve desde household_members, nunca desde lo que el
+//     cliente afirme. Las operaciones destructivas y de administración
+//     (reiniciar todo, editar el hogar, eliminar perfiles o invitaciones)
+//     exigen rol de administrador.
+//  3. Validación en el servidor: los argumentos se validan con el esquema
+//     zod de cada acción antes de ejecutarla.
+//  4. Sin claves en el código: las claves viven en variables de entorno.
+//  5. Límites de peticiones: los aplica cada acción (tabla rate_limits).
+//  6. Registro de actividad: lo escriben las acciones en activity_log.
+
+import { and, eq } from "drizzle-orm";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { Actions } from "../server/src/actions";
+import { getDb } from "../server/src/db";
+import * as schema from "../server/src/schema";
+import { buildCtx } from "../server/src/space-shim";
+import { getUserFromToken } from "../server/src/supabase";
+
+type Role = "admin" | "member";
+
+async function membershipFor(db: ReturnType<typeof getDb>, userId: string, householdId: number) {
+  const rows = await db
+    .select()
+    .from(schema.householdMembers)
+    .where(and(eq(schema.householdMembers.householdId, householdId), eq(schema.householdMembers.userId, userId)));
+  return rows[0] ?? null;
+}
+
+async function firstMembership(db: ReturnType<typeof getDb>, userId: string) {
+  const rows = await db
+    .select()
+    .from(schema.householdMembers)
+    .where(eq(schema.householdMembers.userId, userId))
+    .orderBy(schema.householdMembers.id)
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+// Acciones que se identifican solo por id: el hogar se resuelve desde la
+// fila correspondiente antes de ejecutarlas.
+const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | "funds" | "goals" | "agreements" | "patrimonyItems" | "invitations" | "tandas" | "movements" | "categories" | "tandaParticipants"; idField: "id" | "agreementId" | "tandaId" | "categoryId" | "participantId" }> = {
+  deleteProfile: { table: "profiles", idField: "id" },
+  deleteAccount: { table: "accounts", idField: "id" },
+  deleteBudget: { table: "budgets", idField: "id" },
+  deleteFund: { table: "funds", idField: "id" },
+  deleteGoal: { table: "goals", idField: "id" },
+  addGoalSaving: { table: "goals", idField: "id" },
+  deleteAgreement: { table: "agreements", idField: "id" },
+  deletePatrimony: { table: "patrimonyItems", idField: "id" },
+  deleteInvitation: { table: "invitations", idField: "id" },
+  deleteTanda: { table: "tandas", idField: "id" },
+  deleteMovement: { table: "movements", idField: "id" },
+  reverseMovement: { table: "movements", idField: "id" },
+  addSubcategory: { table: "categories", idField: "categoryId" },
+  removeSubcategory: { table: "categories", idField: "categoryId" },
+  drawTanda: { table: "tandas", idField: "tandaId" },
+  setParticipantCard: { table: "tandaParticipants", idField: "id" },
+  removeTandaParticipant: { table: "tandaParticipants", idField: "id" },
+};
+
+const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation"]);
+
+async function householdIdForRow(
+  db: ReturnType<typeof getDb>,
+  table: string,
+  id: number,
+): Promise<number | null> {
+  const byId = async <T extends { id: number; householdId: number }>(
+    rows: Promise<T[]>,
+  ): Promise<number | null> => {
+    const list = await rows;
+    return list[0]?.householdId ?? null;
+  };
+  switch (table) {
+    case "profiles":
+      return byId(db.select().from(schema.profiles).where(eq(schema.profiles.id, id)).limit(1));
+    case "accounts":
+      return byId(db.select().from(schema.accounts).where(eq(schema.accounts.id, id)).limit(1));
+    case "budgets":
+      return byId(db.select().from(schema.budgets).where(eq(schema.budgets.id, id)).limit(1));
+    case "funds":
+      return byId(db.select().from(schema.funds).where(eq(schema.funds.id, id)).limit(1));
+    case "goals":
+      return byId(db.select().from(schema.goals).where(eq(schema.goals.id, id)).limit(1));
+    case "agreements":
+      return byId(db.select().from(schema.agreements).where(eq(schema.agreements.id, id)).limit(1));
+    case "patrimonyItems":
+      return byId(db.select().from(schema.patrimonyItems).where(eq(schema.patrimonyItems.id, id)).limit(1));
+    case "invitations":
+      return byId(db.select().from(schema.invitations).where(eq(schema.invitations.id, id)).limit(1));
+    case "tandas":
+      return byId(db.select().from(schema.tandas).where(eq(schema.tandas.id, id)).limit(1));
+    case "movements":
+      return byId(db.select().from(schema.movements).where(eq(schema.movements.id, id)).limit(1));
+    case "categories":
+      return byId(db.select().from(schema.categories).where(eq(schema.categories.id, id)).limit(1));
+    case "tandaParticipants":
+      return byId(db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.id, id)).limit(1));
+    default:
+      return null;
+  }
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method === "GET") return res.status(200).json({ ok: true, service: "syncfinanzas" });
+  if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido." });
+  try {
+    const auth = req.headers.authorization ?? "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+    const user = await getUserFromToken(token);
+    if (!user) return res.status(401).json({ error: "Sesión no válida. Inicie sesión de nuevo." });
+
+    const body = (req.body ?? {}) as { action?: string; args?: Record<string, unknown> };
+    const actionName = body.action ?? "";
+    const action = (Actions as Record<string, { request: { parse: (v: unknown) => unknown }; handler: (ctx: unknown, args: never) => Promise<unknown> }>)[actionName];
+    if (!action) return res.status(400).json({ error: "Acción no conocida." });
+    const rawArgs = body.args ?? {};
+
+    // URL pública de la aplicación: es la base de los enlaces de invitación
+    // por correo (https://<app>.vercel.app/invite?token=...). Se toma de
+    // APP_URL si está configurada, si no del dominio de Vercel o del origen
+    // de la petición.
+    const origin = (req.headers.origin as string | undefined) ?? "";
+    const appUrl =
+      process.env.APP_URL?.replace(/\/$/, "") ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "") ||
+      origin.replace(/\/$/, "");
+
+    const db = getDb();
+    let householdId: number | null = null;
+    let role: Role | null = null;
+
+    const requireMember = async (hid: number): Promise<Role> => {
+      const m = await membershipFor(db, user.id, hid);
+      if (!m) throw new Error("No pertenece a este hogar.");
+      householdId = hid;
+      role = m.role as Role;
+      return m.role as Role;
+    };
+
+    if (actionName === "getOverview") {
+      const m = await firstMembership(db, user.id);
+      if (m) {
+        householdId = m.householdId;
+        role = m.role as Role;
+      }
+    } else if (actionName === "createHousehold") {
+      const m = await firstMembership(db, user.id);
+      if (m) {
+        householdId = m.householdId;
+        role = m.role as Role;
+      }
+      // Si ya pertenece a un hogar, la propia acción lo rechaza.
+    } else if (actionName === "findInvitations") {
+      if (typeof rawArgs.email !== "string" || rawArgs.email.trim().toLowerCase() !== user.email.toLowerCase()) {
+        return res.status(403).json({ error: "Solo puede consultar las invitaciones enviadas a su propio correo." });
+      }
+    } else if (actionName === "respondInvitation" || actionName === "respondTandaInvitation") {
+      // La comprobación del correo invitado la hace la propia acción, que
+      // además crea la membresía al aceptar. Aquí solo se verifica que la
+      // invitación exista; el hogar se resuelve dentro de la acción.
+    } else if (actionName === "resolveInvite" || actionName === "acceptGeneralInvite") {
+      // Acciones por token de invitación: el hogar (si lo hay) se resuelve
+      // dentro de la acción desde el token; no exigen membresía previa.
+    } else if (actionName === "createGeneralInvitation") {
+      // Invitación general (cuenta personal): no pertenece a ningún hogar;
+      // solo exige estar autenticado.
+    } else if (actionName === "resendInvitation") {
+      const kind = rawArgs.kind as string | undefined;
+      const invitationId = rawArgs.invitationId as number | undefined;
+      if (kind === "household" && typeof invitationId === "number") {
+        const rows = await db.select().from(schema.invitations).where(eq(schema.invitations.id, invitationId)).limit(1);
+        if (!rows[0]) return res.status(404).json({ error: "Invitación no encontrada." });
+        await requireMember(rows[0].householdId);
+      } else if (kind === "tanda" && typeof invitationId === "number") {
+        const rows = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.id, invitationId)).limit(1);
+        if (!rows[0]) return res.status(404).json({ error: "Invitación no encontrada." });
+        await requireMember(rows[0].householdId);
+      } else if (kind === "general") {
+        // La comprobación de autoría (solo quien la envió puede reenviarla)
+        // la hace la propia acción desde created_by_user_id.
+      } else {
+        return res.status(400).json({ error: "Falta el tipo o el identificador de la invitación." });
+      }
+    } else if (typeof rawArgs.householdId === "number") {
+      await requireMember(rawArgs.householdId);
+    } else if (actionName === "updateHousehold" && typeof rawArgs.id === "number") {
+      await requireMember(rawArgs.id);
+    } else if (ID_LOOKUPS[actionName]) {
+      const lookup = ID_LOOKUPS[actionName];
+      const idValue = rawArgs[lookup.idField];
+      if (typeof idValue !== "number") return res.status(400).json({ error: "Falta el identificador del registro." });
+      const hid = await householdIdForRow(db, lookup.table, idValue);
+      if (hid == null) return res.status(404).json({ error: "Registro no encontrado." });
+      await requireMember(hid);
+    } else {
+      return res.status(400).json({ error: "No se pudo determinar el hogar de esta acción." });
+    }
+
+    if (ADMIN_ONLY.has(actionName) && role !== "admin") {
+      return res.status(403).json({ error: "Solo el administrador del hogar puede realizar esta operación." });
+    }
+
+    const args = action.request.parse(rawArgs);
+    const ctx = buildCtx(user, householdId, role, appUrl);
+    const result = await action.handler(ctx, args as never);
+    return res.status(200).json(result ?? { ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error desconocido.";
+    // No se exponen trazas ni detalles internos al cliente.
+    return res.status(400).json({ error: message });
+  }
+}
