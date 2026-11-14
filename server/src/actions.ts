@@ -1,5 +1,5 @@
 import { defineAction, rateLimitDb, z, type ActionsModule, type Ctx } from "./space-shim.js";
-import { asc, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { issueInviteToken, inviteUrl, markToken, markTokensForInvitation, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
 import { mailConfigured, sendInviteEmail } from "./mail.js";
@@ -1002,7 +1002,7 @@ export const Actions = {
   }),
 
   resetAllData: defineAction({
-    description: "Resets the whole application to its exact initial state: permanently deletes every record of the household (movements and their reversals, accounts, budgets, funds and their movements, goals, agreements and their votes, patrimony, tandas with their participants, payments, invitations and organizer ratings, household invitations, all profiles except the initial one, all categories and the activity log) and also deletes the stored receipt and tanda-proof photo files. The household itself (name, mode and rules) and the initial (administrator) profile's identity (name, last name, email, role) are kept, so the user stays in the same initial profile, but the kept profile's monthly income (personal salary) and fixed commitments are reset to zero, so Personal mode opens at zero like a brand-new session, with the default categories re-seeded. Irreversible.",
+    description: "Deletes the household completely and returns the user to the very beginning: permanently deletes every record of the household (movements and their reversals, accounts, budgets, funds and their movements, goals, agreements and their votes, patrimony, tandas with their participants, payments, invitations and organizer ratings, household invitations, all profiles, all categories and the activity log), the stored receipt and tanda-proof photo files, the household memberships and the household itself. The user keeps only their login session and lands again on the onboarding screen to choose Personal or Familiar mode. Irreversible.",
     request: z.object({ householdId: z.number() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
@@ -1011,12 +1011,6 @@ export const Actions = {
       const hid = args.householdId;
       const hhRows = await db.select().from(schema.households).where(eq(schema.households.id, hid));
       if (!hhRows[0]) throw new Error("No se encontró el hogar indicado.");
-
-      // El perfil inicial (el primero creado, el del propietario/administrador) se conserva en su
-      // identidad, para que la persona permanezca en su mismo perfil, sin salir de la sesión; su
-      // sueldo mensual y compromisos fijos se ponen en cero más abajo.
-      const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, hid)).orderBy(asc(schema.profiles.id));
-      const keeper = profs.find(p=>p.role==="admin") ?? profs[0];
 
       // Los votos de acuerdos no llevan householdId: se eliminan por cada acuerdo del hogar.
       const ags = await db.select().from(schema.agreements).where(eq(schema.agreements.householdId, hid));
@@ -1039,12 +1033,6 @@ export const Actions = {
       await db.delete(schema.invitationTokens).where(eq(schema.invitationTokens.householdId, hid));
       await db.delete(schema.categories).where(eq(schema.categories.householdId, hid));
       await db.delete(schema.activityLog).where(eq(schema.activityLog.householdId, hid));
-      for (const p of profs) { if (!keeper || p.id !== keeper.id) await db.delete(schema.profiles).where(eq(schema.profiles.id, p.id)); }
-
-      // El perfil inicial se conserva (nombre, apellido, correo, rol), pero su sueldo mensual y
-      // sus compromisos fijos vuelven a cero: de lo contrario el modo Personal seguiría mostrando
-      // el sueldo y el restante anteriores al reinicio, en lugar de quedar como una sesión nueva.
-      if (keeper) await db.update(schema.profiles).set({ monthlyIncome: 0, fixedCommitments: 0 }).where(eq(schema.profiles.id, keeper.id));
 
       // Las fotografías guardadas (comprobantes de movimientos y comprobantes de pago de tandas)
       // también se eliminan: el reinicio es completo, sin archivos huérfanos.
@@ -1052,13 +1040,13 @@ export const Actions = {
         try { const metas = await ctx.blobs.list(prefix); for (const m of metas) { try { await ctx.blobs.delete(m.key); } catch { /* el archivo ya no existía */ } } } catch { /* sin archivos que eliminar */ }
       }
 
-      // Estado inicial: se restablecen las categorías predeterminadas, igual que al crear el hogar.
-      const cats: { householdId:number; name:string; kind:"income"|"expense"; isSystem:number; isActive:number; subcategories:string }[] = [];
-      for (const [name, subs] of INCOME_CATS) cats.push({ householdId: hid, name, kind: "income", isSystem: 1, isActive: 1, subcategories: JSON.stringify(subs) });
-      for (const [name, subs] of EXPENSE_CATS) cats.push({ householdId: hid, name, kind: "expense", isSystem: 1, isActive: 1, subcategories: JSON.stringify(subs) });
-      for (const c of cats) await db.insert(schema.categories).values(c);
+      // Al final se borra el hogar completo: todos los perfiles, la membresía
+      // y el hogar. El usuario conserva solo su sesión y vuelve a la pantalla
+      // inicial para elegir de nuevo Personal o Familiar.
+      await db.delete(schema.profiles).where(eq(schema.profiles.householdId, hid));
+      await db.delete(schema.householdMembers).where(eq(schema.householdMembers.householdId, hid));
+      await db.delete(schema.households).where(eq(schema.households.id, hid));
 
-      await logActivity(ctx, hid, "Aplicación reiniciada", "Se eliminaron todos los datos y la aplicación volvió a su estado inicial. Se conservaron el hogar y el perfil inicial, con su sueldo mensual y compromisos fijos en cero.");
       ctx.invalidateQueries();
       return { ok: true, id: hid };
     },

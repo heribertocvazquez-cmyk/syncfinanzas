@@ -86,7 +86,7 @@ function CategoryChart({data}:{data:{name:string;total:number}[]}){
 function MonthlyChart({series}:{series:{label:string;income:number;expense:number}[]}){
   const data=series.map(x=>({label:x.label, Ingresos:x.income, Gastos:x.expense}));
   const allZero=data.every(d=>d.Ingresos===0&&d.Gastos===0);
-  if(allZero) return <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos registrados en los últimos 6 meses.</p>;
+  if(allZero) return <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>;
   return <div className="mt-2 rounded-2xl bg-[var(--surface2)] p-2" role="img" aria-label="Gráfica de ingresos contra gastos por mes">
     <ResponsiveContainer width="100%" height={230}>
       <BarChart data={data} margin={{left:0,right:8,top:10,bottom:4}} barCategoryGap="26%" barGap={6}>
@@ -310,7 +310,7 @@ export function App(){
   const demo=useMutation({mutationFn:async()=>await api.loadDemo({householdId:data!.household!.id}),onSuccess:inv});
   // Reinicio completo de la aplicación (botón dentro del menú desplegable de módulos)
   const [resetConfirm,setResetConfirm]=useState(false); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false);
-  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetConfirm(false); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab(data!.household!.mode==="personal"?"personal":"inicio"); pickProfile(null); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.setItem("sf-first-guide-pending","1"); }catch{} }});
+  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetConfirm(false); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); }catch{} }});
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState("");
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
@@ -372,15 +372,16 @@ export function App(){
       <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
         <SafeAreaTopScrim backgroundColor="var(--bg)" />
         <main className="max-w-xl mx-auto px-4 pb-10 pt-6">
+          {resetDone && <div className="mb-4 bg-[var(--surface)] border-2 border-[var(--green)] rounded-3xl p-4 flex items-start gap-3" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
           <p className="text-[var(--gold)] font-display font-extrabold tracking-wide text-sm">SYNCFINANZAS · VERSIÓN GRANDE</p>
           <h1 className="font-display text-3xl font-extrabold mt-2 leading-tight">Un solo hogar,<br/>cuentas claras.</h1>
           <p className="text-[var(--dim)] mt-3">Registre sus gastos e ingresos y vea cuánto le queda, solo o en familia.</p>
           <div className="mt-6"><InstallCard promptEvent={installPrompt} installed={appInstalled} onInstall={doInstall} /></div>
           <div className="bg-[var(--surface)] rounded-3xl border-2 border-[var(--gold)] p-5 mt-6 space-y-3">
-            <h2 className="font-display font-bold text-lg">¿Recibió una invitación a un hogar? Ingrese directamente, sin crear uno nuevo</h2>
-            <p className="text-sm text-[var(--dim)]">Escriba el correo al que fue invitado y pulse Buscar invitación. Si tiene una pendiente, podrá aceptarla aquí.</p>
+            <h2 className="font-display font-bold text-lg">¿Recibió una invitación?</h2>
+            <p className="text-sm text-[var(--dim)]">Escriba su correo y pulse Buscar invitación.</p>
             <div className="flex gap-2"><input aria-label="Correo para buscar invitación" type="email" placeholder="tu@correo.com" className={inputCls} value={invEmail} onChange={e=>setInvEmail(e.target.value)} /><button type="button" className={btnPrimary} onClick={()=>findInv.mutate()} disabled={!invEmail || findInv.isPending}>Buscar invitación</button></div>
-            {invSearched && invFound.length===0 && <p className="text-sm text-[var(--dim)]">No se encontró una invitación pendiente para ese correo. Solicite a la persona que lo invitó que la cree en Perfiles → Invitar, o cree su propio espacio a continuación.</p>}
+            {invSearched && invFound.length===0 && <p className="text-sm text-[var(--dim)]">No hay invitación pendiente para ese correo.</p>}
             {invFound.map(iv=>(
               <div key={iv.id} className="border border-[var(--border)] rounded-2xl p-3 space-y-2">
                 <p className="text-sm"><b>Invitación pendiente</b> para unirse a <b>“{iv.householdName}”</b>{iv.invitedName?` · fue registrado como ${iv.invitedName}; confirme su nombre a continuación:`:" · confirme su nombre a continuación:"}</p>
@@ -399,10 +400,10 @@ export function App(){
           {tokenInvite && !tokenDone && (
             <div className="bg-[var(--surface)] rounded-3xl border-2 border-[var(--gold)] p-5 mt-6 space-y-3" role="status">
               <h2 className="font-display font-bold text-lg">Invitación recibida por correo</h2>
-              {tokenInvite.kind==="household" && <p className="text-sm">Usted fue invitado a unirse al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, ingresará directamente a ese hogar como integrante, sin crear uno nuevo.</p>}
-              {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a participar en la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante visible para todos.</p>}
-              {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, podrá crear su espacio personal, sin unirse al hogar de otra persona.</p>}
-              {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Esta invitación ya fue utilizada o venció (vigencia de 7 días). Solicite una invitación nueva a la persona que lo invitó.</p>}
+              {tokenInvite.kind==="household" && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará directamente a ese hogar.</p>}
+              {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante.</p>}
+              {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
+              {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Esta invitación ya se usó o venció. Solicite una nueva.</p>}
               {tokenInvite.usable && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
@@ -421,7 +422,7 @@ export function App(){
           {tokenDone && <p className="text-sm text-[var(--green)] mt-6" role="status">Invitación respondida. Ya puede continuar en la aplicación.</p>}
           <div className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 mt-6 space-y-3">
             <h2 className="font-display font-bold text-lg">Invitar a una persona a crear su cuenta personal</h2>
-            <p className="text-sm text-[var(--dim)]">La persona recibirá un enlace directo para crear su cuenta personal, sin unirse a su hogar.</p>
+            <p className="text-sm text-[var(--dim)]">La persona recibirá un enlace directo.</p>
             <div className="flex flex-wrap gap-2">
               <input aria-label="Correo para invitar a crear una cuenta personal" type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={genEmail} onChange={e=>setGenEmail(e.target.value)} />
               <input aria-label="Nombre de la persona invitada a crear una cuenta personal" placeholder="Nombre (opcional)" className={inputCls+" flex-1 min-w-[160px]"} value={genName} onChange={e=>setGenName(e.target.value)} />
@@ -432,7 +433,7 @@ export function App(){
               <div className="text-sm space-y-2">
                 {genResult.emailSent
                   ? <p className="text-[var(--green)]">Correo de invitación enviado. La persona recibirá el enlace directo para crear su cuenta.</p>
-                  : <><p className="text-[var(--red)]">El correo no se envió automáticamente (el envío de correo no está configurado en este despliegue). Copie el enlace y envíelo por el medio que prefiera:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{genResult.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(genResult.inviteUrl)}>{copiedLink===genResult.inviteUrl?"Enlace copiado":"Copiar enlace de invitación"}</button></>}
+                  : <><p className="text-[var(--red)]">El correo no se envió automáticamente. Copie el enlace y envíelo por el medio que prefiera:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{genResult.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(genResult.inviteUrl)}>{copiedLink===genResult.inviteUrl?"Enlace copiado":"Copiar enlace de invitación"}</button></>}
                 {genResult.id && <p><button type="button" className="underline font-semibold text-sm" onClick={()=>resendGenInv.mutate(genResult.id as number)} disabled={resendGenInv.isPending}>Reenviar invitación con un enlace nuevo</button></p>}
               </div>
             )}
@@ -482,7 +483,7 @@ export function App(){
                   <div><Label htmlFor="owner-last">Su apellido</Label><input id="owner-last" aria-label="Su apellido" className={inputCls} value={ownerLast} onChange={e=>setOwnerLast(e.target.value)} placeholder="Ej. Téllez" /></div>
                   <div><Label htmlFor="owner-income">{planMode==="personal"?"Su sueldo / ingreso mensual ($)":"Su ingreso neto mensual ($)"}</Label><input id="owner-income" aria-label="Su ingreso neto mensual" type="number" min="0" className={inputCls} value={ownerIncome} onChange={e=>setOwnerIncome(e.target.value)} placeholder="0" /></div>
                 </div>
-                <p className="text-xs text-[var(--dim)]">Su nombre lo captura usted mismo; nunca se toma de su correo electrónico. Puede editarlo después en Perfiles.</p>
+                <p className="text-xs text-[var(--dim)]">Su nombre no se toma de su correo.</p>
                 {obError && <p className="text-sm text-[var(--red)]">{obError}</p>}
                 <div className="flex gap-2">
                   <button type="button" className={btnGhost+" flex-1"} onClick={()=>{setObError("");setObStep(0);}}>Atrás</button>
@@ -501,13 +502,13 @@ export function App(){
                   <div><Label htmlFor="contrib-rule">Reparto del gasto compartido</Label><select id="contrib-rule" aria-label="Reparto del gasto compartido" className={inputCls} value={contribRule} onChange={e=>setContribRule(e.target.value as "equal"|"proportional")}><option value="equal">Partes iguales</option><option value="proportional">Proporcional al ingreso</option></select></div>
                   <div><Label htmlFor="approval-rule">Aprobación de acuerdos</Label><select id="approval-rule" aria-label="Aprobación de acuerdos" className={inputCls} value={approvalRule} onChange={e=>setApprovalRule(e.target.value as "unanimous"|"majority")}><option value="unanimous">Unánime (se requiere el voto favorable de todos)</option><option value="majority">Mayoría</option></select></div>
                 </div>
-                <Help><b>Día de corte:</b> día del mes en que concluye su periodo financiero. <b>Umbral de aprobación:</b> los gastos compartidos superiores a ese monto requieren un Acuerdo.</Help>
+                <Help><b>Día de corte:</b> día en que cierra su mes. <b>Umbral:</b> los gastos mayores requieren un Acuerdo.</Help>
                 {createHh.error && <p className="text-sm text-[var(--red)]">{String(createHh.error)}</p>}
                 <div className="flex gap-2">
                   <button type="button" className={btnGhost+" flex-1"} onClick={()=>setObStep(1)}>Atrás</button>
                   <button type="submit" className={btnPrimary+" flex-1"} disabled={createHh.isPending}>{createHh.isPending?"Creando…":planMode==="personal"?"Crear mi espacio personal":"Crear hogar y empezar"}</button>
                 </div>
-                <p className="text-xs text-[var(--dim)] text-center">Se crean automáticamente 7 categorías de ingreso y 14 de gasto. Todo se puede editar después en Hogar.</p>
+                <p className="text-xs text-[var(--dim)] text-center">Se crean 7 categorías de ingreso y 14 de gasto.</p>
               </div>
             )}
           </form>
@@ -552,7 +553,7 @@ export function App(){
         {menuOpen && (
           <nav id="menu-modulos" aria-label="Módulos agrupados por función" className="border-t border-[var(--border)] bg-[var(--surface)] max-h-[70vh] overflow-y-auto">
             <div className="max-w-5xl mx-auto px-4 py-3 space-y-2">
-              <p className="text-xs text-[var(--dim)]">Los módulos están agrupados por función. Seleccione un segmento para desplegar los módulos que lo integran; el segmento del módulo actual se abre de forma automática.</p>
+              <p className="text-xs text-[var(--dim)]">Seleccione un segmento para ver sus módulos.</p>
               {MODULE_GROUPS.map(g=>{ const isOpen = expandedGroup===g.title; const hasCurrent = g.tabs.includes(effTab); return (
                 <div key={g.title} className="border border-[var(--border)] rounded-2xl overflow-hidden">
                   <button type="button" aria-label={`${isOpen?"Contraer":"Desplegar"} el segmento ${g.title}`} aria-expanded={isOpen} onClick={()=>setOpenGroup(isOpen?"":g.title)} className={`w-full flex items-center justify-between gap-2 px-4 py-3 text-left ${hasCurrent?"bg-[var(--surface2)]":"bg-[var(--surface)]"}`}>
@@ -569,13 +570,12 @@ export function App(){
               <div className="border-2 border-[var(--red)] rounded-2xl overflow-hidden">
                 <div className="px-4 py-3 bg-[var(--surface)]">
                   <p className="text-[13px] font-bold tracking-wide text-[var(--red)]">REINICIAR LA APLICACIÓN</p>
-                  <p className="text-[11px] text-[var(--dim)] mt-0.5">Elimina todos los datos y deja la aplicación como una sesión nueva, sin salir de su perfil inicial.</p>
+                  <p className="text-[11px] text-[var(--dim)] mt-0.5">Borra todo, incluido su hogar. Después elija de nuevo Personal o Familiar.</p>
                   {!resetConfirm ? (
                     <button type="button" aria-label="Reiniciar todo y borrar todos los datos" onClick={()=>{ setResetConfirm(true); setResetWord(""); }} className="mt-2 w-full rounded-full bg-[var(--red)] text-white font-bold px-4 py-2.5 text-sm">Reiniciar todo y borrar los datos</button>
                   ) : (
                     <div className="mt-2 border border-dashed border-[var(--red)] rounded-xl p-3 bg-[var(--surface2)]">
-                      <p className="text-xs">Esta acción <b>elimina de forma permanente y no se puede deshacer</b>: todos los movimientos (incluidas las reversiones), cuentas, presupuestos, fondos y sus movimientos, metas, acuerdos y sus votos, patrimonio, tandas con sus participantes, pagos, invitaciones y calificaciones, las invitaciones al hogar, los perfiles adicionales, las categorías personalizadas y el registro de actividad, así como las fotografías guardadas de comprobantes. <b>También se borra el sueldo mensual y los compromisos fijos registrados en su perfil</b>, de modo que el modo Personal queda en cero.</p>
-                      <p className="text-xs mt-2">Se conservan únicamente su hogar (nombre, modo y reglas) y <b>su perfil inicial, con su nombre tal como lo registró</b>: usted permanece en el mismo perfil, sin crear uno nuevo. Las categorías vuelven a ser las predeterminadas (7 de ingreso y 14 de gasto) y todos los totales —incluidos el sueldo mensual y el saldo restante del modo Personal— quedan en cero, exactamente como al crear el hogar.</p>
+                      <p className="text-xs">Esta acción <b>elimina todo de forma permanente y no se puede deshacer</b>: movimientos, cuentas, presupuestos, fondos, metas, acuerdos, patrimonio, tandas, invitaciones, perfiles, categorías y fotos. También se borra su hogar.</p>
                       <div className="mt-3">
                         <Label htmlFor="reset-word">Para confirmar, escriba REINICIAR</Label>
                         <input id="reset-word" aria-label="Escriba REINICIAR para confirmar el reinicio" className={inputCls} value={resetWord} onChange={e=>setResetWord(e.target.value)} placeholder="REINICIAR" autoComplete="off" />
@@ -597,7 +597,7 @@ export function App(){
       </header>
 
       <main className="max-w-5xl mx-auto px-4 pb-16 pt-4">
-        {resetDone && <div className="mb-4 bg-[var(--surface)] border-2 border-[var(--green)] rounded-3xl p-4 flex items-start gap-3" role="status"><p className="text-sm flex-1"><b>La aplicación se reinició por completo.</b> Todos los datos fueron eliminados y la aplicación quedó en su estado inicial, con las categorías predeterminadas y los totales en cero. Usted continúa en su perfil inicial{me?`, ${fullName(me)}`:""}, sin haber salido de su sesión.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+        {resetDone && <div className="mb-4 bg-[var(--surface)] border-2 border-[var(--green)] rounded-3xl p-4 flex items-start gap-3" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
           <div className="mb-4 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-3xl p-4 sm:p-5" role="status">
             <div className="flex items-start justify-between gap-3">
@@ -621,7 +621,7 @@ export function App(){
             <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-3xl p-5">
               <p className="text-sm opacity-80">Disponible libre · {s.currentMonth}</p>
               <p className="font-display text-4xl font-extrabold mt-1">{money2(s.availableFree)}</p>
-              <p className="text-sm opacity-80 mt-1">Saldo total {money2(s.totalBalance)} − apartado en fondos {money2(s.totalInFunds)} = disponible libre. El saldo incluye todos los movimientos registrados{s.unassignedNet!==0?`, incluso ${money2(s.unassignedNet)} en movimientos sin cuenta asignada (asígnelos a una cuenta en Movimientos para mantener el orden)`:""}. Aportar a un fondo no constituye un gasto; retirar de un fondo no constituye un ingreso.</p>
+              <p className="text-sm opacity-80 mt-1">Saldo total {money2(s.totalBalance)} − fondos {money2(s.totalInFunds)} = disponible libre.</p>
               <div className="grid grid-cols-3 gap-2 mt-4 text-center">
                 <div className="bg-white/10 rounded-2xl py-3"><p className="text-xs opacity-80">Entradas del mes</p><p className="font-display font-bold">{money(s.monthIncome)}</p></div>
                 <div className="bg-white/10 rounded-2xl py-3"><p className="text-xs opacity-80">Salidas del mes</p><p className="font-display font-bold">{money(s.monthExpense)}</p></div>
@@ -629,19 +629,18 @@ export function App(){
               </div>
             </div>
 
-            {data.movements.length===0 && <div className="mt-4"><Empty title="Su hogar aún no tiene registros" body="Paso 1: cree una cuenta en Cuentas. Paso 2: registre su primer ingreso en Movimientos. Paso 3: cree un presupuesto. También puede seleccionar la opción Demo, en la parte superior, para consultar la aplicación con datos de ejemplo." /></div>}
+            {data.movements.length===0 && <div className="mt-4"><Empty title="Su hogar aún no tiene registros" body="Cree una cuenta en Cuentas y registre su primer movimiento." /></div>}
 
             <div className="grid md:grid-cols-2 gap-4 mt-4">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
-                <h2 className="font-display font-bold">Gráfica: gasto por categoría · {s.currentMonth}</h2>
+                <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
                 <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total}))} />
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
-                <h2 className="font-display font-bold">Gráfica: ingresos vs gastos por mes</h2>
+                <h2 className="font-display font-bold">Ingresos vs gastos</h2>
                 <MonthlyChart series={s.monthlySeries} />
-                <p className="text-xs text-[var(--dim)]">Últimos 6 meses, calculado de los movimientos reales del hogar.</p>
+                <p className="text-xs text-[var(--dim)]">Últimos 6 meses.</p>
                 <button type="button" aria-label="Ver los movimientos completos desde Inicio" className={btnPrimary+" mt-3"} onClick={()=>goTab("movimientos")}>Ver movimientos completos</button>
-                <p className="text-xs text-[var(--dim)] mt-2">En Movimientos puede elegir ver solo ingresos o solo gastos, y filtrar por subcategoría.</p>
               </div>
             </div>
             <div className="grid md:grid-cols-2 gap-4 mt-4">
@@ -656,7 +655,7 @@ export function App(){
                 {data.goals.slice(0,3).map(g=><div key={g.id} className="mt-3"><div className="flex justify-between text-sm"><span>{g.name}</span><b>{g.pct}%</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">{money(g.savedAmount)} de {money(g.targetAmount)}{g.targetDate?` · meta ${fmtDate(g.targetDate)}`:""}</p></div>)}
                 {data.goals.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin metas registradas.</p>}
                 <div className="border-t border-[var(--border)] mt-4 pt-3 flex justify-between"><span className="text-sm">Patrimonio neto (real)</span><b className="font-display">{money2(s.netWorth)}</b></div>
-                <p className="text-xs text-[var(--dim)]">Activos {money(s.totalAssets)} − Pasivos {money(s.totalLiabilities)}. Calculado a partir de las partidas registradas en Patrimonio, sin datos estimados.</p>
+                <p className="text-xs text-[var(--dim)]">Activos {money(s.totalAssets)} − Pasivos {money(s.totalLiabilities)}.</p>
               </div>
             </div>
 
@@ -665,7 +664,6 @@ export function App(){
               {visibleMovs.slice(0,6).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
               {data.movements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos. Registra el primero en Movimientos.</p>}
               {data.movements.length>0 && <button type="button" aria-label="Ver todos los movimientos del hogar" className={btnGhost+" mt-2"} onClick={()=>goTab("movimientos")}>Ver todos los movimientos</button>}
-              <div className="mt-3"><Help><b>Cómo interpretar este panel:</b> el disponible libre ya descuenta lo apartado en fondos. Lo privado no se mezcla con el reparto compartido de Aportaciones. Si un gasto compartido supera {money(hh.approvalThreshold)}, cree un Acuerdo antes de efectuar el pago.</Help></div>
             </div>
           </section>
         )}
@@ -677,13 +675,11 @@ export function App(){
               <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
                 {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
               </div>
-              {mvType==="debt_payment" && <Help>Para registrar el <b>pago de una deuda o tarjeta</b>, seleccione el tipo “Pago de deuda”, la cuenta de origen y la categoría Deudas.</Help>}
               <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-3"} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
               <div><Label htmlFor="mv-concept">Concepto</Label><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls} value={mvConcept} onChange={e=>setMvConcept(e.target.value)} placeholder="Ej. Súper semanal" /></div>
               {mvType!=="transfer" && <div className="grid grid-cols-2 gap-3">
-                <div><Label htmlFor="mv-cat">Categoría</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");}}><option value="">Seleccione una categoría…</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><p className="text-[11px] text-[var(--dim)] mt-1">Solo se muestran categorías de {mvType==="income"?"ingreso":"gasto"}.</p></div>
-                <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Agregar una subcategoría nueva…</option></select><p className="text-[11px] text-[var(--dim)] mt-1">Las subcategorías ya vienen filtradas por la categoría elegida y pueden modificarse: agregue nuevas aquí o edítelas en la pestaña Categorías.</p>
-                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Confirma que desea agregar la subcategoría <b>“{newSubName||"…"}”</b> a la categoría <b>{selectedCat.name}</b>? Quedará guardada y disponible para todos sus movimientos futuros.</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
+                <div><Label htmlFor="mv-cat">Categoría</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");}}><option value="">Seleccione una categoría…</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Agregar una subcategoría nueva…</option></select>                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Agregar “{newSubName||"…"}” a {selectedCat.name}?</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
                 </div>
               </div>}
               <div>
@@ -697,13 +693,12 @@ export function App(){
               <div className="border border-dashed border-[var(--border)] rounded-2xl p-3">
                 <Label htmlFor="mv-receipt">Foto del comprobante de compra (opcional)</Label>
                 <input id="mv-receipt" aria-label="Adjuntar foto del comprobante" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setReceipt); }} />
-                <p className="text-[11px] text-[var(--dim)] mt-1">La fotografía se guarda como comprobante y se muestra en el detalle del gasto. Si prefiere que la aplicación lea el comprobante y registre los gastos por usted, utilice la lectura automática siguiente.</p>
+                <p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante del gasto.</p>
                 {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-14 h-14 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>setReceipt(null)}>Quitar foto</button></div>}
               </div>
               <div className="border-2 border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
                 <p className="font-display font-bold text-sm">Lectura automática del comprobante</p>
-                <p className="text-xs text-[var(--dim)]">En esta versión desplegada, la lectura automática requiere el servicio de visión configurado por el administrador. Si no está configurado, la aplicación lo indicará y podrá adjuntar la foto como comprobante y registrar el gasto manualmente.</p>
-                <p className="text-[11px] text-[var(--dim)] mt-1">Suba la fotografía del comprobante y la aplicación leerá la tienda, cada producto con su importe y el total, y creará los gastos automáticamente, sin captura manual. Podrá corregirlos después en la lista de movimientos.</p>
+                                <p className="text-[11px] text-[var(--dim)] mt-1">Suba la foto y los gastos se crearán automáticamente.</p>
                 <input aria-label="Fotografía del comprobante para lectura automática" type="file" accept="image/*" className="w-full text-sm mt-2" onChange={e=>{ const f=e.target.files?.[0]; if(f) void imageFileToJpeg(f).then(setScanImg).catch(()=>setScanImg(null)); e.target.value=""; }} />
                 {scanImg && <div className="mt-2 space-y-2"><img src={scanImg.preview} alt="Vista previa del comprobante que se leerá automáticamente" className="w-full max-h-44 object-contain rounded-xl border border-[var(--border)] bg-white" />
                   <div><Label htmlFor="scan-cat">Categoría para los productos (opcional)</Label><select id="scan-cat" aria-label="Categoría para los productos leídos del comprobante" className={inputCls} value={scanCat} onChange={e=>setScanCat(e.target.value)}><option value="">Detectarla automáticamente</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
@@ -719,15 +714,15 @@ export function App(){
                   <button type="button" aria-label="Movimiento compartido" onClick={()=>setMvVis("shared")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="shared"?"bg-[var(--green)] text-white":"border border-[var(--border)]"}`}>Compartido</button>
                   <button type="button" aria-label="Movimiento privado" onClick={()=>setMvVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
                 </div>
-                <p className="text-[11px] text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo consultan todos los integrantes, con su nombre, monto, categoría y fecha, para garantizar la transparencia del hogar. Se considera en presupuestos y en el reparto de gastos.":"Solo usted puede consultarlo. No es visible para los demás integrantes ni para el administrador, y no afecta los registros compartidos."}</p>
+                <p className="text-[11px] text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos los integrantes.":"Solo usted lo ve."}</p>
               </div>
                 </div>)}
               </div>
-              {Number(mvAmount)>=hh.approvalThreshold && mvVis==="shared" && mvType==="expense" && <Help>Atención: este gasto compartido supera el umbral de {money(hh.approvalThreshold)}. De acuerdo con las reglas del hogar, debería contar con un Acuerdo aprobado.</Help>}
+              {Number(mvAmount)>=hh.approvalThreshold && mvVis==="shared" && mvType==="expense" && <Help>Supera el umbral de {money(hh.approvalThreshold)}: requiere un Acuerdo.</Help>}
               {saveMv.error && <p className="text-sm text-[var(--red)]">{String(saveMv.error)}</p>}
               <button className={btnPrimary+" w-full"} disabled={saveMv.isPending || !mvAmount || !mvConcept}>{saveMv.isPending?"Guardando…":editingMv?"Guardar cambios":"Registrar"}</button>
               {editingMv && <button type="button" className={btnGhost+" w-full"} onClick={()=>setEditingMv(null)}>Cancelar edición</button>}
-              {data.accounts.length===0 && <Help>Primero cree una cuenta en la pestaña Cuentas; de lo contrario, los saldos no podrán calcularse.</Help>}
+              {data.accounts.length===0 && <Help>Cree primero una cuenta en Cuentas.</Help>}
             </form>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
               <div className="flex gap-2 flex-wrap" role="group" aria-label="Mostrar movimientos por tipo">
@@ -739,20 +734,20 @@ export function App(){
                 <input aria-label="Buscar movimientos" placeholder="Buscar concepto…" className={inputCls+" flex-1 min-w-[160px]"} value={mvSearch} onChange={e=>setMvSearch(e.target.value)} />
                 <select aria-label="Filtrar por subcategoría" className={inputCls+" w-auto"} value={mvSubFilter} onChange={e=>setMvSubFilter(e.target.value)}><option value="all">Todas las subcategorías</option>{Array.from(new Set(data.categories.flatMap(c=>c.subcategories))).sort().map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="">Sin subcategoría</option></select>
               </div>
-              <p className="text-xs text-[var(--dim)] mt-2">{filteredMovs.length} movimientos · Entradas {money(filteredMovs.filter(m=>m.type==="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))} · Salidas {money(filteredMovs.filter(m=>m.type!=="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))} · Los movimientos reversados y sus reversiones se muestran marcados y no se consideran en los totales.</p>
+              <p className="text-xs text-[var(--dim)] mt-2">{filteredMovs.length} movimientos · Entradas {money(filteredMovs.filter(m=>m.type==="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))} · Salidas {money(filteredMovs.filter(m=>m.type!=="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))}</p>
               {revMv.error && <p className="text-sm text-[var(--red)] mt-2">{String(revMv.error)}</p>}
-              {revMv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">Movimiento reversado: se registró la reversión con fecha de hoy y ambos registros quedaron marcados; ninguno de los dos se considera en saldos, presupuestos ni gráficas.</p>}
+              {revMv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">Movimiento reversado.</p>}
               <div className="divide-y divide-[var(--border)] mt-2">
                 {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-3 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-3"><div><p className="font-semibold text-sm">{m.concept}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
-                {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-[11px] text-[var(--dim)]">Este movimiento fue reversado: ya no se considera en saldos, presupuestos ni gráficas. Se conserva visible como registro de auditoría.</span></p>}
-                {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-[11px] text-[var(--dim)]">Registro que anula el movimiento original «{data.movements.find(x=>x.id===m.reversalOfId)?.concept||""}». Tampoco se considera en los totales.</span></p>}
+                {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-[11px] text-[var(--dim)]">Ya no se considera en los totales.</span></p>}
+                {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-[11px] text-[var(--dim)]">Anula «{data.movements.find(x=>x.id===m.reversalOfId)?.concept||""}».</span></p>}
                 </div><div className="text-right shrink-0"><p className={`font-display font-bold ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-12 h-12 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
                 {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>delMv.mutate(m.id)}>Eliminar</button></>}
                 </div></div>
-                {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Confirma que desea <b>reversar</b> el movimiento <b>«{m.concept}»</b> por <b>{money2(m.amount)}</b>? Se creará un registro de reversión con fecha de hoy, de efecto contrario ({m.type==="income"?"un gasto que compensa el ingreso":m.type==="expense"?"un ingreso que compensa el gasto":m.type==="transfer"?"una transferencia en sentido inverso":"un ingreso que compensa el pago de deuda"}), y ambos registros quedarán marcados y fuera de los totales. El registro original no se borra, para conservar el historial.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
+                {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{m.concept}» por <b>{money2(m.amount)}</b>? Se crea un registro contrario y ambos quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
                 </div>; })}
               </div>
-              {filteredMovs.length===0 && <Empty title="Sin movimientos con ese filtro" body="Cambia el filtro o registra el primer movimiento con el formulario." />}
+              {filteredMovs.length===0 && <Empty title="Sin movimientos con ese filtro" body="Cambie el filtro o registre el primer movimiento con el formulario." />}
             </div>
           </section>
         )}
@@ -761,7 +756,7 @@ export function App(){
           <section className="grid md:grid-cols-[360px_1fr] gap-4 items-start">
             <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAcc.mutate();}}>
               <h2 className="font-display font-bold text-lg">{editingAcc?"Editar cuenta":"Nueva cuenta"}</h2>
-              <Help>El <b>saldo inicial se captura una sola vez</b>; posteriormente, el saldo se calcula de forma automática con sus movimientos y apartados a fondos.</Help>
+              <Help>El saldo inicial se captura una sola vez.</Help>
               <div><Label htmlFor="acc-name">Nombre</Label><input id="acc-name" aria-label="Nombre de la cuenta" required className={inputCls} value={accFormName} onChange={e=>setAccFormName(e.target.value)} placeholder="Ej. Nómina Banorte" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label htmlFor="acc-type">Tipo</Label><select id="acc-type" aria-label="Tipo de cuenta" className={inputCls} value={accType} onChange={e=>setAccType(e.target.value as typeof accType)}><option value="bank">Bancaria</option><option value="cash">Efectivo</option><option value="credit">Tarjeta de crédito</option><option value="investment">Inversión</option><option value="loan">Préstamo</option></select></div>
@@ -773,7 +768,7 @@ export function App(){
             </form>
             <div className="grid sm:grid-cols-2 gap-3">
               {data.accounts.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">{a.name}</p><p className="text-xs text-[var(--dim)]">{TYPE_LABEL[a.type]||a.type} · {a.visibility==="shared"?"Compartida":"Privada"} · Inicial {money(a.initialBalance)}</p><p className="font-display text-2xl font-extrabold mt-2">{money2(a.balance)}</p><div className="mt-2 flex gap-3"><button aria-label={`Editar cuenta ${a.name}`} className="text-xs underline" onClick={()=>{setEditingAcc(a.id);setAccFormName(a.name);setAccType(a.type as typeof accType);setAccVis(a.visibility as "private"|"shared");setAccInit(String(a.initialBalance));}}>Editar</button><button aria-label={`Eliminar cuenta ${a.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delAcc.mutate(a.id)}>Eliminar</button></div></div>)}
-              {data.accounts.length===0 && <Empty title="Sin cuentas" body="Crea tu primera cuenta: nómina, efectivo o tarjeta. Con eso los saldos empiezan a calcularse." />}
+              {data.accounts.length===0 && <Empty title="Sin cuentas" body="Cree su primera cuenta: nómina, efectivo o tarjeta." />}
             </div>
           </section>
         )}
@@ -787,7 +782,7 @@ export function App(){
               <div><Label htmlFor="bud-vis">Visibilidad</Label><select id="bud-vis" aria-label="Visibilidad del presupuesto" className={inputCls} value={budVis} onChange={e=>setBudVis(e.target.value as "private"|"shared")}><option value="shared">Compartido</option><option value="private">Privado</option></select></div>
               <button className={btnPrimary} disabled={saveBud.isPending}>Crear presupuesto</button>
             </form>
-            <Help>El <b>monto gastado se calcula desde el primer movimiento</b> que coincida en categoría, mes y visibilidad; no permanece en $0 aunque el gasto se haya registrado antes de crear el presupuesto. El presupuesto compartido solo suma movimientos compartidos; el privado, solo movimientos privados.</Help>
+            <Help>El gasto se calcula desde sus movimientos. Lo compartido suma solo movimientos compartidos; lo privado, solo privados.</Help>
             <div className="grid sm:grid-cols-2 gap-3 mt-4">
               {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado {money(b.amount)} · Gastado {money(b.spent)} · <b>Restan {money(b.remaining)}</b></p><div className="h-2.5 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${b.pct}%`}} /></div><p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado {b.remaining<0?"· Presupuesto excedido":""}</p><button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
               {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Crea uno por categoría y mes para ver el avance en Inicio." />}
@@ -802,10 +797,10 @@ export function App(){
               <div><Label htmlFor="fund-target">Meta del fondo ($, opcional)</Label><input id="fund-target" aria-label="Meta del fondo" type="number" min="0" className={inputCls} value={fundTarget} onChange={e=>setFundTarget(e.target.value)} /></div>
               <button className={btnPrimary}>Crear fondo</button>
             </form>
-            <div className="mt-3"><Help>Los fondos son <b>apartados virtuales</b> dentro de sus cuentas: el dinero permanece en la cuenta, pero deja de contar como disponible libre. Aportar a un fondo no constituye un gasto y retirar de un fondo no constituye un ingreso.</Help></div>
+            <div className="mt-3"><Help>Apartados virtuales: el dinero sigue en su cuenta, pero no cuenta como disponible libre.</Help></div>
             <div className="grid sm:grid-cols-2 gap-3 mt-4">
               {data.funds.map(f=><div key={f.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">{f.name}</p><p className="font-display text-2xl font-extrabold mt-1">{money2(f.balance)}</p>{f.targetAmount && <p className="text-xs text-[var(--dim)]">Meta {money(f.targetAmount)} · {Math.min(100,Math.round(f.balance/f.targetAmount*100))}%</p>}<div className="flex gap-2 mt-3"><input aria-label={`Monto para ${f.name}`} type="number" min="0" placeholder="$ Monto" className={inputCls} value={fundAmt[f.id]||""} onChange={e=>setFundAmt({...fundAmt,[f.id]:e.target.value})} /><button aria-label={`Aportar a ${f.name}`} className={btnPrimary} onClick={()=>fundMove.mutate({fundId:f.id,type:"contribution",amount:Number(fundAmt[f.id])||0})}>Aportar</button><button aria-label={`Retirar de ${f.name}`} className={btnGhost} onClick={()=>fundMove.mutate({fundId:f.id,type:"withdrawal",amount:Number(fundAmt[f.id])||0})}>Retirar</button></div><button aria-label={`Eliminar fondo ${f.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>delFund.mutate(f.id)}>Eliminar fondo</button></div>)}
-              {data.funds.length===0 && <Empty title="Sin fondos" body="Cree primero el fondo de emergencia: es el apartado destinado a cubrir imprevistos." />}
+              {data.funds.length===0 && <Empty title="Sin fondos" body="Cree primero el fondo de emergencia." />}
             </div>
           </section>
         )}
@@ -819,8 +814,8 @@ export function App(){
               <div className="divide-y divide-[var(--border)] mt-3">
                 {s.contributions.map(c=><div key={c.profileId} className="py-3 flex justify-between gap-3"><div><p className="font-semibold">{c.name}</p><p className="text-xs text-[var(--dim)]">Ingreso {money(c.income)} · Capacidad de pago {money(c.capacity)} (ingreso − compromisos fijos){hh.contributionRule==="proportional"?` · ${c.pctShare}% del ingreso conjunto`:""}</p>{c.shouldPay>c.capacity && c.capacity>=0 && <p className="text-xs text-[var(--red)]">La parte asignada supera su capacidad de pago.</p>}</div><p className="font-display font-extrabold text-lg">{money2(c.shouldPay)}</p></div>)}
               </div>
-              {s.contributions.length===0 && <Empty title="Sin adultos para repartir" body="Crea los perfiles de los adultos en Perfiles, con su ingreso neto y compromisos fijos." />}
-              <Help><b>Capacidad de pago</b> = ingreso neto mensual − compromisos fijos. Si el reparto resulta en $0, en la parte superior se indica con precisión qué información falta: gasto compartido, presupuesto compartido o ingresos registrados en los perfiles.</Help>
+              {s.contributions.length===0 && <Empty title="Sin adultos para repartir" body="Cree los perfiles de los adultos en Perfiles." />}
+              <Help><b>Capacidad de pago</b> = ingreso − compromisos fijos.</Help>
             </div>
           </section>
         )}
@@ -836,7 +831,7 @@ export function App(){
             </form>
             <div className="grid sm:grid-cols-2 gap-3 mt-4">
               {data.goals.map(g=>{ const monthsLeft=g.targetDate?Math.max(1,Math.round((new Date(g.targetDate).getTime()-Date.now())/(1000*60*60*24*30))):null; const need=monthsLeft?Math.ceil((g.targetAmount-g.savedAmount)/monthsLeft):null; return <div key={g.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">{g.name} <span className="text-xs font-normal text-[var(--dim)]">{g.visibility==="shared"?"Compartida":"Privada"}</span></p><p className="font-display text-xl font-extrabold mt-1">{money(g.savedAmount)} <span className="text-sm font-semibold text-[var(--dim)]">de {money(g.targetAmount)} · {g.pct}%</span></p><div className="h-2.5 bg-[var(--surface2)] rounded-full mt-2"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div>{g.targetDate && <p className="text-xs text-[var(--dim)] mt-1">Fecha objetivo {fmtDate(g.targetDate)}{need!==null && need>0?` · faltan ${money(need)}/mes para llegar`:""}</p>}<div className="flex gap-2 mt-3"><input aria-label={`Abonar a ${g.name}`} type="number" placeholder="$ Abonar" className={inputCls} value={goalAdd[g.id]||""} onChange={e=>setGoalAdd({...goalAdd,[g.id]:e.target.value})} /><button aria-label={`Abonar a la meta ${g.name}`} className={btnPrimary} onClick={()=>addGoal.mutate({id:g.id,amount:Number(goalAdd[g.id])||0})}>Abonar</button></div><button aria-label={`Eliminar meta ${g.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>delGoal.mutate(g.id)}>Eliminar</button></div>; })}
-              {data.goals.length===0 && <Empty title="Sin metas" body="Una meta con fecha objetivo indica el monto que debe abonarse cada mes. Se recomienda comenzar con una sola meta." />}
+              {data.goals.length===0 && <Empty title="Sin metas" body="Cree su primera meta." />}
             </div>
           </section>
         )}
@@ -853,7 +848,7 @@ export function App(){
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
                 <Label htmlFor="vote-profile">Voto como</Label>
                 <select id="vote-profile" aria-label="Votar como perfil" className={inputCls} value={voteProfile} onChange={e=>setVoteProfile(e.target.value)}><option value="">Seleccione su perfil…</option>{data.profiles.filter(p=>p.kind==="adult").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-                <p className="text-xs text-[var(--dim)] mt-2">Regla del hogar: <b>{hh.approvalRule==="unanimous"?"Unánime: se requiere el voto favorable de todos los adultos; un solo voto en contra rechaza la propuesta":"Mayoría: se aprueba con la mitad de los votos más uno"}</b>. Cuando el hogar tiene un solo adulto, su voto es suficiente para aprobar, lo que permite utilizar este flujo desde el inicio.</p>
+                <p className="text-xs text-[var(--dim)] mt-2">Regla del hogar: <b>{hh.approvalRule==="unanimous"?"Unánime":"Mayoría"}</b>.</p>
               </div>
               <div className="flex gap-2 text-center text-sm">
                 <div className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-2xl py-3"><b className="font-display block text-lg">{data.agreements.filter(a=>a.status==="proposal").length}</b>Propuestas</div>
@@ -862,8 +857,8 @@ export function App(){
               </div>
             </div>
             <div className="space-y-3">
-              {data.agreements.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><div className="flex justify-between gap-2"><b className="font-display">{a.title}</b><span className={`text-xs rounded-full px-2.5 py-1 font-bold shrink-0 ${a.status==="approved"?"bg-green-100 text-green-800":a.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</span></div>{a.description && <p className="text-sm text-[var(--dim)] mt-1">{a.description}</p>}<p className="text-xs text-[var(--dim)] mt-2">Votos: {a.votes.length===0?"ninguno hasta el momento":a.votes.map(v=>`${data.profiles.find(p=>p.id===v.profileId)?.name||"Perfil"}: ${v.vote==="approve"?"Sí":"No"}`).join(" · ")}</p><div className="flex gap-2 mt-3"><button aria-label={`Aprobar acuerdo ${a.title}`} className={btnPrimary} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"approve"})}>Votar Sí</button><button aria-label={`Rechazar acuerdo ${a.title}`} className={btnGhost} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"reject"})}>Votar No</button><button aria-label={`Eliminar acuerdo ${a.title}`} className="text-xs underline text-[var(--red)] ml-auto" onClick={()=>delAg.mutate(a.id)}>Eliminar</button></div>{!voteProfile && <p className="text-xs text-[var(--dim)] mt-1">Seleccione su perfil en el campo “Voto como”, ubicado a la izquierda, para poder votar.</p>}</div>)}
-              {data.agreements.length===0 && <Empty title="Sin acuerdos registrados" body="Proponga la primera regla del hogar: por ejemplo, el umbral a partir del cual un gasto debe decidirse entre todos los integrantes." />}
+              {data.agreements.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><div className="flex justify-between gap-2"><b className="font-display">{a.title}</b><span className={`text-xs rounded-full px-2.5 py-1 font-bold shrink-0 ${a.status==="approved"?"bg-green-100 text-green-800":a.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</span></div>{a.description && <p className="text-sm text-[var(--dim)] mt-1">{a.description}</p>}<p className="text-xs text-[var(--dim)] mt-2">Votos: {a.votes.length===0?"ninguno hasta el momento":a.votes.map(v=>`${data.profiles.find(p=>p.id===v.profileId)?.name||"Perfil"}: ${v.vote==="approve"?"Sí":"No"}`).join(" · ")}</p><div className="flex gap-2 mt-3"><button aria-label={`Aprobar acuerdo ${a.title}`} className={btnPrimary} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"approve"})}>Votar Sí</button><button aria-label={`Rechazar acuerdo ${a.title}`} className={btnGhost} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"reject"})}>Votar No</button><button aria-label={`Eliminar acuerdo ${a.title}`} className="text-xs underline text-[var(--red)] ml-auto" onClick={()=>delAg.mutate(a.id)}>Eliminar</button></div>{!voteProfile && <p className="text-xs text-[var(--dim)] mt-1">Seleccione su perfil en “Voto como” para votar.</p>}</div>)}
+              {data.agreements.length===0 && <Empty title="Sin acuerdos registrados" body="Proponga la primera regla del hogar." />}
             </div>
           </section>
         )}
@@ -871,11 +866,10 @@ export function App(){
         {effTab==="patrimonio" && (
           <section>
             <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-3xl p-5 flex flex-wrap gap-6">
-              <div><p className="text-sm opacity-80">Patrimonio neto, calculado a partir de sus partidas</p><p className="font-display text-3xl font-extrabold">{money2(s.netWorth)}</p></div>
+              <div><p className="text-sm opacity-80">Patrimonio neto</p><p className="font-display text-3xl font-extrabold">{money2(s.netWorth)}</p></div>
               <div><p className="text-sm opacity-80">Activos ({data.patrimony.filter(p=>p.kind==="asset").length} partidas)</p><p className="font-display text-xl font-bold">{money2(s.totalAssets)}</p></div>
               <div><p className="text-sm opacity-80">Pasivos ({data.patrimony.filter(p=>p.kind==="liability").length} partidas)</p><p className="font-display text-xl font-bold">{money2(s.totalLiabilities)}</p></div>
-              <p className="w-full text-xs opacity-80">El total corresponde a la suma exacta de la lista siguiente: al agregar o eliminar una partida, el total se actualiza de inmediato. Ningún dato de esta sección es de demostración, salvo las partidas identificadas con la etiqueta “(demo)”.</p>
-            </div>
+                          </div>
             <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 grid md:grid-cols-6 gap-3 items-end mt-4" onSubmit={(e:FormEvent)=>{e.preventDefault();savePat.mutate();}}>
               <div><Label htmlFor="pat-name">Nombre</Label><input id="pat-name" aria-label="Nombre de la partida de patrimonio" required className={inputCls} value={patName} onChange={e=>setPatName(e.target.value)} placeholder="Ej. Casa, Auto, Hipoteca" /></div>
               <div><Label htmlFor="pat-kind">Tipo</Label><select id="pat-kind" aria-label="Tipo de partida" className={inputCls} value={patKind} onChange={e=>setPatKind(e.target.value as "asset"|"liability")}><option value="asset">Activo (bien o derecho)</option><option value="liability">Pasivo (obligación)</option></select></div>
@@ -904,7 +898,7 @@ export function App(){
               <div><Label htmlFor="cat-subs">Subcategorías (separadas por coma)</Label><input id="cat-subs" aria-label="Subcategorías separadas por coma" className={inputCls} value={catSubs} onChange={e=>setCatSubs(e.target.value)} placeholder="Súper, Mercado, Tienda" /></div>
               <button className={btnPrimary}>Crear categoría</button>
             </form>
-            <div className="mt-3"><Help>Las <b>subcategorías son modificables</b>: agregue nuevas con el campo de cada categoría o elimine las que no utilice con la × de cada etiqueta. También puede crear una subcategoría nueva directamente al registrar un movimiento; la aplicación le pedirá confirmación antes de guardarla.</Help></div>
+            <div className="mt-3"><Help>Agregue o elimine subcategorías con la × de cada etiqueta.</Help></div>
             <div className="grid md:grid-cols-2 gap-4 mt-4">
               {(["income","expense"] as const).map(k=>(
                 <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><h3 className="font-display font-bold">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>
@@ -925,25 +919,25 @@ export function App(){
         {effTab==="perfiles" && (
           <section className="grid md:grid-cols-[360px_1fr] gap-4 items-start">
             <div style={{gridColumn:"1 / -1"}} className="bg-[var(--accent)] text-[var(--accent-text)] rounded-3xl p-4 flex flex-wrap items-center gap-3">
-              <div className="flex-1 min-w-[200px]"><p className="font-display font-bold">Perfil en uso en este dispositivo</p><p className="text-xs opacity-80">Determina qué movimientos privados puede consultar y si cuenta con permisos de administrador en este dispositivo.</p></div>
+              <div className="flex-1 min-w-[200px]"><p className="font-display font-bold">Perfil en uso en este dispositivo</p><p className="text-xs opacity-80">Define qué puede consultar en este dispositivo.</p></div>
               <select aria-label="Perfil actual en este dispositivo" className="rounded-xl bg-white text-black px-3 py-2.5 font-semibold" value={me?me.id:""} onChange={e=>pickProfile(Number(e.target.value))}>
                 {data.profiles.map(x=><option key={x.id} value={x.id}>{fullName(x)} — {x.role==="admin"?"Administrador":"Integrante"}</option>)}
               </select>
-              <span className="text-sm font-bold">{isAdmin?"Vista de administrador: puede consultar todo lo compartido y gestionar el hogar":"Vista de integrante: puede consultar lo compartido y sus propios movimientos privados"}</span>
+              <span className="text-sm font-bold">{isAdmin?"Administrador: ve todo lo compartido.":"Integrante: ve lo compartido y sus privados."}</span>
             </div>
             <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveProf.mutate();}}>
               <h2 className="font-display font-bold text-lg">Agregar persona</h2>
               <div className="grid grid-cols-2 gap-3"><div><Label htmlFor="prof-name">Nombre</Label><input id="prof-name" aria-label="Nombre de la persona" required className={inputCls} value={profName} onChange={e=>setProfName(e.target.value)} /></div><div><Label htmlFor="prof-last">Apellido</Label><input id="prof-last" aria-label="Apellido de la persona" className={inputCls} value={profLast} onChange={e=>setProfLast(e.target.value)} /></div></div>
-              <p className="text-[11px] text-[var(--dim)]">El nombre se captura manualmente; nunca se deriva del correo electrónico, y puede editarse en cualquier momento mediante el botón Editar de cada perfil.</p>
+              <p className="text-[11px] text-[var(--dim)]">El nombre no se toma del correo.</p>
               <div><Label htmlFor="prof-kind">Tipo de perfil</Label><select id="prof-kind" aria-label="Tipo de perfil" className={inputCls} value={profKind} onChange={e=>setProfKind(e.target.value as "adult"|"dependent")}><option value="adult">Adulto (aporta y vota)</option><option value="dependent">Dependiente (no aporta)</option></select></div>
               {profKind==="dependent" && <div><Label htmlFor="prof-type">Relación</Label><select id="prof-type" aria-label="Relación del dependiente" className={inputCls} value={profType} onChange={e=>setProfType(e.target.value)}><option>Hijo/a menor</option><option>Hijo/a adulto</option><option>Padre/Madre</option><option>Otro dependiente</option></select></div>}
               {profKind==="adult" && <>
-                <div><Label htmlFor="prof-email">Correo (para invitar al hogar)</Label><input id="prof-email" aria-label="Correo de la persona" type="email" className={inputCls} value={profEmail} onChange={e=>setProfEmail(e.target.value)} placeholder="pareja@correo.com" /><p className="text-[11px] text-[var(--dim)] mt-1">Al guardar el correo aquí, la persona queda registrada como integrante del hogar y puede votar acuerdos seleccionando su perfil en la sección Acuerdos.</p></div>
+                <div><Label htmlFor="prof-email">Correo (para invitar al hogar)</Label><input id="prof-email" aria-label="Correo de la persona" type="email" className={inputCls} value={profEmail} onChange={e=>setProfEmail(e.target.value)} placeholder="pareja@correo.com" /></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label htmlFor="prof-income">Ingreso neto mensual ($)</Label><input id="prof-income" aria-label="Ingreso neto mensual" type="number" min="0" className={inputCls} value={profIncome} onChange={e=>setProfIncome(e.target.value)} /></div>
                   <div><Label htmlFor="prof-fixed">Compromisos fijos ($)</Label><input id="prof-fixed" aria-label="Compromisos fijos mensuales" type="number" min="0" className={inputCls} value={profFixed} onChange={e=>setProfFixed(e.target.value)} /></div>
                 </div>
-                <Help><b>Capacidad de pago</b> = ingreso − compromisos fijos. La sección Aportaciones utiliza este dato para indicar si la parte asignada a una persona supera su capacidad de pago.</Help>
+                <Help><b>Capacidad de pago</b> = ingreso − compromisos fijos.</Help>
               </>}
               <button className={btnPrimary+" w-full"}>Agregar persona</button>
             </form>
@@ -959,17 +953,17 @@ export function App(){
                   </div>
                 </div>
               ))}
-              {data.profiles.length===0 && <Empty title="Sin perfiles" body="Agrega a los adultos del hogar para que Aportaciones y Acuerdos funcionen." />}
+              {data.profiles.length===0 && <Empty title="Sin perfiles" body="Agregue a los adultos del hogar." />}
               <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-3xl p-4">
                 <h3 className="font-display font-bold">Invitaciones al hogar</h3>
-                <p className="text-sm text-[var(--dim)] mt-1">Invite por correo electrónico: el correo se envía automáticamente con un enlace directo (un solo uso, vigencia de 7 días). Si el envío de correo no está configurado en este despliegue, se mostrará el enlace para copiarlo. La persona podrá aceptarla o rechazarla desde el enlace o desde el acceso de invitaciones de la pantalla de entrada (o en esta misma sección) y, al aceptarla, ingresará <b>directamente a este hogar</b>, sin crear uno nuevo y sin errores.</p>
+                <p className="text-sm text-[var(--dim)] mt-1">El correo se envía con un enlace directo (un solo uso, 7 días). Si el envío no está configurado, se mostrará el enlace para copiarlo.</p>
                 {isAdmin ? <div className="flex flex-wrap gap-2 mt-3"><input aria-label="Correo del invitado" type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={invEmail2} onChange={e=>setInvEmail2(e.target.value)} /><input aria-label="Nombre del invitado opcional" placeholder="Nombre (opcional, lo confirma él/ella)" className={inputCls+" flex-1 min-w-[160px]"} value={invName2} onChange={e=>setInvName2(e.target.value)} /><button aria-label="Enviar invitación al hogar" className={btnPrimary} onClick={()=>createInv.mutate()} disabled={!invEmail2 || createInv.isPending}>Invitar</button></div> : <p className="text-sm mt-2">Solo el administrador envía invitaciones.</p>}
-                {createInv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">{(createInv.data as {reused?:boolean})?.reused?"Ese correo ya contaba con una invitación pendiente; se reutilizó la existente, sin generar error.":"Invitación creada y en estado pendiente."}</p>}
+                {createInv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">{(createInv.data as {reused?:boolean})?.reused?"Ya tenía una invitación pendiente; se reutilizó.":"Invitación creada y en estado pendiente."}</p>}
                 {hhInvResult && (
                   <div className="text-sm space-y-2 mt-2">
                     {hhInvResult.emailSent
                       ? <p className="text-[var(--green)]">Correo de invitación enviado. La persona recibirá el enlace directo para entrar a este hogar.</p>
-                      : <><p className="text-[var(--red)]">El correo no se envió automáticamente (el envío de correo no está configurado en este despliegue). Copie el enlace y envíelo por el medio que prefiera:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{hhInvResult.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(hhInvResult.inviteUrl)}>{copiedLink===hhInvResult.inviteUrl?"Enlace copiado":"Copiar enlace de invitación"}</button></>}
+                      : <><p className="text-[var(--red)]">El correo no se envió automáticamente. Copie el enlace y envíelo por el medio que prefiera:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{hhInvResult.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(hhInvResult.inviteUrl)}>{copiedLink===hhInvResult.inviteUrl?"Enlace copiado":"Copiar enlace de invitación"}</button></>}
                   </div>
                 )}
                 {createInv.error && <p className="text-sm text-[var(--red)] mt-2">{String(createInv.error)}</p>}
@@ -1007,7 +1001,7 @@ export function App(){
                   <h2 className="font-display font-bold">Su sueldo / ingreso mensual</h2>
                   <div><Label htmlFor="salary">Sueldo mensual ($)</Label><input id="salary" aria-label="Sueldo mensual personal" type="number" min="0" className={inputCls} placeholder={String(data.personal.salary||"")} value={salaryInput} onChange={e=>setSalaryInput(e.target.value)} /></div>
                   <button className={btnPrimary+" w-full"} disabled={saveSalary.isPending || !salaryInput}>Guardar sueldo</button>
-                  {data.personal.salary===0 && <Help>Registre su sueldo para que el panel indique el saldo restante. Si registra ingresos en Movimientos, también se consideran cuando no existe un sueldo fijo guardado.</Help>}
+                  {data.personal.salary===0 && <Help>Registre su sueldo para ver su saldo restante.</Help>}
                 </form>
                 <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();savePersExp.mutate();}}>
                   <h2 className="font-display font-bold">Gasto del día</h2>
@@ -1019,8 +1013,8 @@ export function App(){
                     {persMore && (<div className="space-y-3 mt-3">
                   <div><Label htmlFor="pers-receipt">Foto del comprobante (opcional)</Label><input id="pers-receipt" aria-label="Adjuntar foto del comprobante del gasto del día" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setPersReceipt); }} />{persReceipt && <img src={persReceipt.preview} alt="Vista previa del comprobante del gasto del día" className="w-14 h-14 object-cover rounded-xl border border-[var(--border)] mt-2" />}<p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante visual del gasto.</p></div>
                   <div className="border-2 border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-                    <p className="font-display font-bold text-sm">O bien: lea el comprobante completo, sin capturar nada</p>
-                    <p className="text-[11px] text-[var(--dim)] mt-1">Suba la fotografía y la aplicación detectará la tienda, cada producto con su importe y el total, y registrará todos los gastos del día automáticamente, con visibilidad privada.</p>
+                    <p className="font-display font-bold text-sm">Leer el comprobante</p>
+                    <p className="text-[11px] text-[var(--dim)] mt-1">Suba la foto y los gastos se registrarán automáticamente.</p>
                     <input aria-label="Fotografía del comprobante para lectura automática en Personal" type="file" accept="image/*" className="w-full text-sm mt-2" onChange={e=>{ const f=e.target.files?.[0]; if(f) void imageFileToJpeg(f).then(setScanPersImg).catch(()=>setScanPersImg(null)); e.target.value=""; }} />
                     {scanPersImg && <div className="mt-2 space-y-2"><img src={scanPersImg.preview} alt="Vista previa del comprobante que se leerá en Personal" className="w-full max-h-40 object-contain rounded-xl border border-[var(--border)] bg-white" /><button type="button" aria-label="Leer el comprobante y registrar los gastos del día" className={btnPrimary+" w-full"} disabled={scanRcpt.isPending} onClick={()=>scanRcpt.mutate({img:{dataBase64:scanPersImg.dataBase64,mimeType:scanPersImg.mimeType},visibility:"private"})}>{scanRcpt.isPending?"Leyendo el comprobante…":"Leer comprobante y registrar los gastos"}</button></div>}
                     {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Se registraron {scanRcpt.data.created} gasto(s){scanRcpt.data.store?` de ${scanRcpt.data.store}`:""} por {money2(scanRcpt.data.totalDetected)}.</p>}
@@ -1029,12 +1023,12 @@ export function App(){
                     </div>)}
                   </div>
                   <button className={btnPrimary+" w-full"} disabled={savePersExp.isPending || !persAmt}>Registrar gasto de hoy</button>
-                  <p className="text-xs text-[var(--dim)]">Se guarda con la fecha de hoy y con visibilidad privada (modo Personal). Para registrar ingresos o transferencias, o para editar movimientos, utilice la sección Movimientos.</p>
+                  <p className="text-xs text-[var(--dim)]">Se guarda hoy, en privado.</p>
                 </form>
               </div>
               <div className="space-y-4">
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
-                  <h2 className="font-display font-bold">Distribución del gasto por categoría — mes en curso</h2>
+                  <h2 className="font-display font-bold">Gasto por categoría</h2>
                   <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total}))} />
                   {data.personal.byCategory.map(c=>(
                     <div key={String(c.categoryId)} className="flex justify-between text-sm mt-1.5"><span>{c.name}</span><b>{money(c.total)} · {c.pct}%</b></div>
@@ -1042,14 +1036,13 @@ export function App(){
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Total gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante de su sueldo: <b>{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
-                  <h2 className="font-display font-bold">Gráfica: ingresos vs gastos por mes</h2>
+                  <h2 className="font-display font-bold">Ingresos vs gastos</h2>
                   <MonthlyChart series={s.monthlySeries} />
-                  <p className="text-xs text-[var(--dim)]">Últimos 6 meses. En verde se muestran los ingresos y en rojo, los gastos.</p>
+                  <p className="text-xs text-[var(--dim)]">Últimos 6 meses.</p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
-                  <h2 className="font-display font-bold">Mis tandas — también disponibles en modo Personal</h2>
-                  <p className="text-xs text-[var(--dim)] mt-1">Las tandas no son exclusivas del plan Familiar: pueden crearse desde el modo Personal. Invite por correo electrónico a las personas que desee; todas podrán consultar los participantes, el calendario y los comprobantes. La administración del organizador se evalúa mediante calificaciones de una a cinco estrellas.</p>
-                  {data.tandas.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Aún no tiene tandas. Cree la primera o acepte una invitación en la pestaña Tandas.</p>}
+                  <h2 className="font-display font-bold">Mis tandas</h2>
+                                    {data.tandas.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Aún no tiene tandas. Cree la primera o acepte una invitación en la pestaña Tandas.</p>}
                   {data.tandas.map(td=>{
                     const next = td.calendar.find(c=>c.date>=todayISO()) || td.calendar[td.calendar.length-1];
                     const myPend = td.payments.filter(p=>p.status!=="paid").length;
@@ -1061,7 +1054,7 @@ export function App(){
                       <p className="text-xs text-[var(--dim)]">{unverified>0?`${unverified} comprobante(s) por verificar · `:""}{myPend>0?`${myPend} pago(s) marcados pendientes en total`:"Sin pendientes marcados"}</p>
                     </div>;
                   })}
-                  <button type="button" aria-label="Ir a la pestaña Tandas desde Personal" className={btnPrimary+" mt-3"} onClick={()=>goTab("tandas")}>Ir a Tandas: crear, invitar y realizar el sorteo</button>
+                  <button type="button" aria-label="Ir a la pestaña Tandas desde Personal" className={btnPrimary+" mt-3"} onClick={()=>goTab("tandas")}>Ir a Tandas</button>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
                   <h2 className="font-display font-bold">Gastos del día ({data.personal.todayCount})</h2>
@@ -1080,9 +1073,8 @@ export function App(){
           <section className="space-y-4">
             <div className="bg-amber-50 border-2 border-[var(--gold)] rounded-3xl p-4 text-amber-900">
               <p className="font-display font-bold">Tandas con verificación de pagos — sin cobro automático</p>
-              <p className="text-sm mt-1">No se integra Mercado Pago ni se realizan cargos a tarjetas: cada participante <b>sube la fotografía de su comprobante</b> de depósito o transferencia, y el organizador lo revisa y registra la <b>confirmación de pago verificado</b>. La tarjeta (únicamente los últimos 4 dígitos) se mantiene como un requisito simulado de registro. La confianza se sustenta en las <b>calificaciones del organizador</b> y en el historial de cumplimiento de cada participante.</p>
+              <p className="text-sm mt-1">Sin cobro automático: cada participante sube su comprobante y el organizador lo verifica.</p>
             </div>
-            <Help><b>Las tandas también están disponibles en modo Personal:</b> no se requiere el plan Familiar. Cree su tanda en esta sección e <b>invite por correo electrónico</b> a las personas que desee; al aceptar, cada invitado se incorpora como participante visible para todos. De esta manera, las personas invitadas conocen la aplicación y pueden consultar la tanda y su calendario. Usted actúa como <b>organizador</b> y recibe calificaciones por su administración.</Help>
             <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 grid md:grid-cols-3 gap-3 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveTanda.mutate();}}>
               <div><Label htmlFor="tanda-name">Nombre de la tanda</Label><input id="tanda-name" aria-label="Nombre de la tanda" required className={inputCls} value={tandaName} onChange={e=>setTandaName(e.target.value)} placeholder="Ej. Tanda de la oficina" /></div>
               <div><Label htmlFor="tanda-count">Nº de participantes</Label><input id="tanda-count" aria-label="Número de participantes de la tanda" type="number" min="2" max="30" required className={inputCls} value={tandaCount} onChange={e=>setTandaCount(e.target.value)} /></div>
@@ -1090,7 +1082,7 @@ export function App(){
               <div><Label htmlFor="tanda-start">Fecha de inicio</Label><input id="tanda-start" aria-label="Fecha de inicio de la tanda" type="date" required className={inputCls} value={tandaStart} onChange={e=>setTandaStart(e.target.value)} /></div>
               <div><Label htmlFor="tanda-freq">¿Con qué frecuencia se recaudan las aportaciones?</Label><select id="tanda-freq" aria-label="Frecuencia de cobro de la tanda" className={inputCls} value={tandaFreq} onChange={e=>setTandaFreq(e.target.value as "semanal"|"quincenal"|"mensual")}><option value="semanal">Semanal (cada 7 días)</option><option value="quincenal">Quincenal (cada 15 días)</option><option value="mensual">Mensual (cada 30 días)</option></select></div>
               <div><Label htmlFor="tanda-drawmode">Modo de sorteo de números</Label><select id="tanda-drawmode" aria-label="Modo de sorteo de la tanda" className={inputCls} value={tandaDrawMode} onChange={e=>setTandaDrawMode(e.target.value as "random"|"weighted")}><option value="random">Al azar</option><option value="weighted">Por cumplimiento (ponderado)</option></select></div>
-              <p className="text-xs text-[var(--dim)] md:col-span-2">Organizador: <b>{me?fullName(me):"usted"}</b>. Su calificación de administración se muestra en la tanda. <b>Al azar:</b> todos los participantes tienen la misma probabilidad. <b>Por cumplimiento:</b> quien paga puntualmente, paga con anticipación a la fecha de vencimiento y acumula mayor antigüedad en las tandas de este organizador tiene mayor probabilidad de obtener un número temprano.</p>
+              <p className="text-xs text-[var(--dim)] md:col-span-2">Organizador: <b>{me?fullName(me):"usted"}</b>. Al azar: misma probabilidad para todos. Por cumplimiento: más probabilidad a quien paga puntual.</p>
               <button className={btnPrimary} disabled={saveTanda.isPending}>Crear tanda</button>
             </form>
             {data.tandas.map(td=>(
@@ -1099,7 +1091,7 @@ export function App(){
                   <div>
                     <h3 className="font-display font-bold text-lg">{td.name}</h3>
                     <p className="text-xs text-[var(--dim)]">{td.participantCount} participantes · {money(td.amountPerQuincena)} por {td.frequency==="semanal"?"semana":td.frequency==="mensual"?"mes":"quincena"} · recaudación cada {td.cadenceDays} días · inicio {fmtDate(td.startDate)} · en cada periodo se entrega el monto total de <b>{money(td.potPerQuincena)}</b></p>
-                    <p className="text-sm mt-1.5">Organiza <b>{td.organizerName||"—"}</b> {td.organizerRating.count>0 ? <span><Stars value={td.organizerRating.avg} /> <b>{td.organizerRating.avg} de 5</b> · {td.organizerRating.count} calificación(es) otorgadas por los participantes{td.organizerRating.avg>=4.5 && td.organizerRating.count>=2 ? <> · <span className="bg-[var(--gold)] text-white text-[11px] font-bold rounded-full px-2 py-0.5">RECOMENDADO POR LOS PARTICIPANTES</span></> : ""}</span> : <span className="text-[var(--dim)]">· Aún no cuenta con calificaciones; los participantes pueden calificarlo en la parte inferior de esta sección.</span>}</p>
+                    <p className="text-sm mt-1.5">Organiza <b>{td.organizerName||"—"}</b> {td.organizerRating.count>0 ? <span><Stars value={td.organizerRating.avg} /> <b>{td.organizerRating.avg} de 5</b> · {td.organizerRating.count} calificación(es) otorgadas por los participantes{td.organizerRating.avg>=4.5 && td.organizerRating.count>=2 ? <> · <span className="bg-[var(--gold)] text-white text-[11px] font-bold rounded-full px-2 py-0.5">RECOMENDADO POR LOS PARTICIPANTES</span></> : ""}</span> : <span className="text-[var(--dim)]">· Aún sin calificaciones.</span>}</p>
                   </div>
                   <div className="flex gap-2 items-start">
                     <button aria-label={`Eliminar tanda ${td.name}`} className={btnGhost} onClick={()=>delTanda.mutate(td.id)}>Eliminar</button>
@@ -1112,17 +1104,17 @@ export function App(){
                     <button aria-label={`Hacer sorteo de ${td.name}`} className={btnPrimary} onClick={()=>drawTanda.mutate({id:td.id,mode:(drawSel[td.id]||td.drawMode) as "random"|"weighted"})} disabled={td.participants.length<2 || drawTanda.isPending}>Hacer sorteo</button>
                     <span className="text-xs text-[var(--dim)]">Modo guardado: <b>{td.drawMode==="weighted"?"Por cumplimiento":"Al azar"}</b></span>
                   </div>
-                  <p className="text-xs text-[var(--dim)] mt-2"><b>Al azar:</b> todos los participantes tienen la misma probabilidad. <b>Por cumplimiento:</b> el sorteo pondera el historial real de cada participante en las tandas de este organizador: <b>la anticipación con la que paga</b> (días previos a la fecha de vencimiento), <b>su puntualidad</b> y <b>su antigüedad</b> participando. El puntaje de cada participante se muestra junto a su nombre y se calcula a partir de sus pagos registrados.</p>
+                  <p className="text-xs text-[var(--dim)] mt-2"><b>Al azar:</b> misma probabilidad para todos. <b>Por cumplimiento:</b> más probabilidad a quien paga puntual.</p>
                   {drawTanda.error && <p className="text-sm text-[var(--red)] mt-1">{String(drawTanda.error)}</p>}
                 </div>
                 <div>
-                  <h4 className="font-display font-bold text-sm">Participantes ({td.participants.length}/{td.participantCount}) — visibles para todos los integrantes de la tanda</h4>
+                  <h4 className="font-display font-bold text-sm">Participantes ({td.participants.length}/{td.participantCount})</h4>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {[...td.participants].sort((a,b)=>(a.drawOrder??999)-(b.drawOrder??999)).map(pt=>(
                       <span key={pt.id} className="bg-[var(--surface2)] rounded-2xl px-3 py-2 text-sm">
                         <b>{pt.drawOrder?`#${pt.drawOrder} · `:""}{pt.name}</b>
                         <span className="block text-xs">{pt.cardLast4?`Tarjeta simulada •••• ${pt.cardLast4} registrada`:"Sin tarjeta registrada"}</span>
-                        <span className="block text-xs mt-0.5">Puntaje de cumplimiento: <b>{pt.stats.score}/100</b> · Pagó {pt.stats.paidCount} de {pt.stats.dueCount} periodos vencidos · {pt.stats.onTimePct}% puntuales{pt.stats.paidCount>0?` · paga en promedio ${pt.stats.avgDaysEarly>0?`${pt.stats.avgDaysEarly} día(s) antes del vencimiento`:pt.stats.avgDaysEarly<0?`${Math.abs(pt.stats.avgDaysEarly)} día(s) después del vencimiento`:"el día del vencimiento"}`:""} · {pt.stats.seniorityDays} día(s) de antigüedad en tandas de este organizador</span>
+                        <span className="block text-xs mt-0.5">Puntaje: <b>{pt.stats.score}/100</b> · {pt.stats.paidCount}/{pt.stats.dueCount} pagos · {pt.stats.onTimePct}% puntuales</span>
                         {!pt.cardLast4 && <span className="flex gap-1 mt-1"><input aria-label={`Últimos 4 dígitos de la tarjeta de ${pt.name}`} maxLength={4} inputMode="numeric" placeholder="Últ. 4 dígitos" className={inputCls+" w-28"} value={cardInput[pt.id]||""} onChange={e=>setCardInput({...cardInput,[pt.id]:e.target.value.replace(/[^0-9]/g,"")})} /><button aria-label={`Registrar tarjeta simulada de ${pt.name}`} className="text-xs underline font-bold" onClick={()=>setCard.mutate({id:pt.id,cardLast4:cardInput[pt.id]||""})}>Registrar</button></span>}
                         <button aria-label={`Quitar a ${pt.name} de ${td.name}`} className="text-xs underline text-[var(--red)] block mt-0.5" onClick={()=>removePart.mutate(pt.id)}>Quitar</button>
                       </span>
@@ -1137,7 +1129,7 @@ export function App(){
                   {addPart.error && <p className="text-sm text-[var(--red)] mt-1">{String(addPart.error)}</p>}
                   <div className="border border-dashed border-[var(--gold)] rounded-2xl p-3 mt-3">
                     <p className="text-sm font-bold">Invite a esta tanda por correo electrónico</p>
-                    <p className="text-xs text-[var(--dim)] mt-0.5">El correo se envía automáticamente con un enlace directo (un solo uso, vigencia de 7 días); si el envío no está configurado, se mostrará el enlace para copiarlo. Cuando la persona la acepte, se incorporará como participante y todos podrán consultar la lista de participantes, el calendario y los comprobantes.</p>
+                    <p className="text-xs text-[var(--dim)] mt-0.5">Enlace directo (un solo uso, 7 días). Si el envío no está configurado, se mostrará el enlace para copiarlo.</p>
                     <div className="flex flex-wrap gap-2 mt-2">
                       <input aria-label={`Correo para invitar a ${td.name}`} type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={tInvEmail[td.id]||""} onChange={e=>setTInvEmail({...tInvEmail,[td.id]:e.target.value})} />
                       <input aria-label={`Nombre de la persona invitada a ${td.name}`} placeholder="Nombre (opcional)" className={inputCls+" w-44"} value={tInvName[td.id]||""} onChange={e=>setTInvName({...tInvName,[td.id]:e.target.value})} />
@@ -1148,12 +1140,12 @@ export function App(){
                       <div className="text-sm space-y-2 mt-2">
                         {tRes.emailSent
                           ? <p className="text-[var(--green)]">Correo de invitación enviado. La persona recibirá el enlace directo para participar en esta tanda.</p>
-                          : <><p className="text-[var(--red)]">El correo no se envió automáticamente (el envío de correo no está configurado en este despliegue). Copie el enlace y envíelo por el medio que prefiera:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{tRes.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(tRes.inviteUrl)}>{copiedLink===tRes.inviteUrl?"Enlace copiado":"Copiar enlace de invitación"}</button></>}
+                          : <><p className="text-[var(--red)]">El correo no se envió automáticamente. Copie el enlace y envíelo por el medio que prefiera:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{tRes.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(tRes.inviteUrl)}>{copiedLink===tRes.inviteUrl?"Enlace copiado":"Copiar enlace de invitación"}</button></>}
                       </div>
                     ); })()}
                     {td.invitations.filter(iv=>iv.status==="pending").map(iv=>(
                       <div key={iv.id} className="border border-[var(--border)] rounded-2xl p-3 mt-2 space-y-2 bg-[var(--surface)]">
-                        <p className="text-sm"><b>Invitación pendiente</b> para {iv.email}{iv.invitedName?` (${iv.invitedName})`:""}. Al responder, la persona se incorporará a la tanda:</p>
+                        <p className="text-sm"><b>Invitación pendiente</b> para {iv.email}{iv.invitedName?` (${iv.invitedName})`:""}.</p>
                         <input aria-label={`Nombre con el que acepta la invitación de ${iv.email}`} placeholder="Nombre con el que participará" className={inputCls} value={tJoinName[iv.id]||iv.invitedName||""} onChange={e=>setTJoinName({...tJoinName,[iv.id]:e.target.value})} />
                         <div className="flex gap-2 flex-wrap">
                           <button aria-label={`Aceptar invitación de ${iv.email} a ${td.name}`} className={btnPrimary} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:true})} disabled={respondTandaInv.isPending}>Aceptar y participar</button>
@@ -1167,7 +1159,7 @@ export function App(){
                   </div>
                 </div>
                 <div>
-                  <h4 className="font-display font-bold text-sm">Calendario de entregas: beneficiario y fecha de cada periodo (recaudación cada {td.cadenceDays} días)</h4>
+                  <h4 className="font-display font-bold text-sm">Calendario de entregas</h4>
                   <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
                     {td.calendar.map(c=>(
                       <div key={c.index} className={`rounded-2xl border p-3 ${c.receiverName?"border-[var(--gold)] bg-[var(--surface2)]":"border-dashed border-[var(--border)]"}`}>
@@ -1179,8 +1171,8 @@ export function App(){
                   </div>
                 </div>
                 <div>
-                  <h4 className="font-display font-bold text-sm">Control de pagos por participante y periodo, con comprobante</h4>
-                  <p className="text-xs text-[var(--dim)]">Sin cobro automático: el participante <b>sube la fotografía de su comprobante</b> de depósito o transferencia; el pago permanece en estado “En revisión” hasta que el organizador lo verifica y registra la <b>confirmación de pago</b>. También es posible marcar el pago manualmente cuando se haya realizado en efectivo.</p>
+                  <h4 className="font-display font-bold text-sm">Pagos por participante</h4>
+                  <p className="text-xs text-[var(--dim)]">El participante sube su comprobante; el organizador lo verifica.</p>
                   <div className="space-y-3 mt-2">
                     {td.calendar.map(c=>{
                       const pendCount = td.participants.filter(pt=> (td.payments.find(pay=>pay.participantId===pt.id&&pay.quincenaIndex===c.index)?.status||"pending")!=="paid").length;
@@ -1215,8 +1207,8 @@ export function App(){
                   {(uploadProof.error || verifyPay.error) && <p className="text-sm text-[var(--red)] mt-1">{String(uploadProof.error || verifyPay.error)}</p>}
                 </div>
                 <div className="border-t border-[var(--border)] pt-3">
-                  <h4 className="font-display font-bold text-sm">Calificación del organizador, otorgada por los participantes</h4>
-                  <p className="text-xs text-[var(--dim)]">Funciona como la calificación de las plataformas de transporte: al concluir su participación, cada persona califica al organizador con una a cinco estrellas y puede recomendarlo con un comentario. El promedio se muestra antes de incorporarse a cualquier tanda suya, para que usted decida con información de la comunidad si le confía su dinero.</p>
+                  <h4 className="font-display font-bold text-sm">Calificación del organizador</h4>
+                  <p className="text-xs text-[var(--dim)]">Cada participante califica al organizador de 1 a 5 estrellas.</p>
                   <div className="flex flex-wrap gap-2 mt-2 items-end">
                     <div><Label htmlFor={`rate-name-${td.id}`}>Tu nombre</Label><input id={`rate-name-${td.id}`} aria-label={`Tu nombre para calificar al organizador de ${td.name}`} placeholder="Ej. Participante" className={inputCls+" w-44"} value={rateName[td.id]||""} onChange={e=>setRateName({...rateName,[td.id]:e.target.value})} /></div>
                     <div><Label htmlFor={`rate-stars-${td.id}`}>Calificación de confiabilidad</Label><select id={`rate-stars-${td.id}`} aria-label={`Estrellas para el organizador de ${td.name}`} className={inputCls+" w-auto"} value={rateStars[td.id]||"5"} onChange={e=>setRateStars({...rateStars,[td.id]:e.target.value})}><option value="5">★★★★★ 5 · Muy confiable</option><option value="4">★★★★ 4 · Confiable</option><option value="3">★★★ 3 · Regular</option><option value="2">★★ 2 · Con incidencias</option><option value="1">★ 1 · No cumplió con lo acordado</option></select></div>
@@ -1228,7 +1220,7 @@ export function App(){
                 </div>
               </div>
             ))}
-            {data.tandas.length===0 && <Empty title="Sin tandas" body="Cree la primera indicando el nombre, el número de participantes, el monto por periodo, la frecuencia de recaudación (semanal, quincenal o mensual) y el modo de sorteo. Posteriormente, invite a los participantes por correo electrónico; cada uno subirá su comprobante y usted, como organizador, verificará los pagos y acumulará calificaciones." />}
+            {data.tandas.length===0 && <Empty title="Sin tandas" body="Cree la primera con el formulario." />}
           </section>
         )}
 
@@ -1237,18 +1229,18 @@ export function App(){
             <InstallCard promptEvent={installPrompt} installed={appInstalled} onInstall={doInstall} />
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
               <h2 className="font-display font-bold text-lg">Video explicativo de SyncFinanzas (10 segundos)</h2>
-              <p className="text-sm text-[var(--dim)] mt-1">Un recorrido completo por la aplicación en diez segundos: el panel principal con las gráficas de ingresos contra gastos, los gastos del día con la lectura automática del comprobante y las tandas con su calendario, los comprobantes verificados y la calificación del organizador. Debajo del video encontrará las guías escritas de cada segmento, en formato PDF.</p>
+              <p className="text-sm text-[var(--dim)] mt-1">Un recorrido de diez segundos por la aplicación.</p>
               <video controls preload="auto" playsInline src={guiaVideo} className="w-full rounded-2xl mt-3 border border-[var(--border)]" aria-label="Video explicativo de SyncFinanzas" />
               <div className="mt-3"><a href={guiaVideo} download="video-explicativo-syncfinanzas.mp4" className={btnGhost} aria-label="Descargar el video explicativo de SyncFinanzas">Descargar el video</a></div>
             </div>
             <div className="grid sm:grid-cols-3 gap-3">
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">Gastos del día con comprobante leído</p><p className="text-sm text-[var(--dim)] mt-1">Suba la fotografía del comprobante y la aplicación detecta la tienda, cada producto con su importe y el total, y registra los gastos sin captura manual.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">Gráficas de ingresos vs gastos</p><p className="text-sm text-[var(--dim)] mt-1">Barras separadas y con el monto visible por mes y por categoría, sobre el fondo de la aplicación, para comparar sin superposiciones.</p><button type="button" aria-label="Ir a Inicio para ver las gráficas" className={btnGhost+" mt-2"} onClick={()=>goTab("inicio")}>Ver gráficas</button></div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">Tandas, una tradición mexicana</p><p className="text-sm text-[var(--dim)] mt-1">Cree su tanda desde Personal o Familiar, invite por correo, realice el sorteo al azar o por cumplimiento, y verifique cada pago con su comprobante. El organizador acumula calificaciones de los participantes.</p><button type="button" aria-label="Ir a Tandas desde la guía" className={btnGhost+" mt-2"} onClick={()=>goTab("tandas")}>Ir a Tandas</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">Gastos del día con comprobante leído</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto del comprobante y los gastos se registran solos.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">Gráficas de ingresos vs gastos</p><p className="text-sm text-[var(--dim)] mt-1">Montos visibles por mes y por categoría.</p><button type="button" aria-label="Ir a Inicio para ver las gráficas" className={btnGhost+" mt-2"} onClick={()=>goTab("inicio")}>Ver gráficas</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4"><p className="font-display font-bold">Tandas, una tradición mexicana</p><p className="text-sm text-[var(--dim)] mt-1">Cree su tanda, invite por correo y verifique cada pago.</p><button type="button" aria-label="Ir a Tandas desde la guía" className={btnGhost+" mt-2"} onClick={()=>goTab("tandas")}>Ir a Tandas</button></div>
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
               <h2 className="font-display font-bold text-lg">Guías por segmento, en PDF</h2>
-              <p className="text-sm text-[var(--dim)] mt-1">Cada segmento cuenta con su propia guía en formato PDF. Selecciónela con el botón «Guía en PDF» del segmento y se abrirá aquí mismo para que pueda leerla con calma y consultarla cuando tenga una duda; ciérrela con la × de la esquina superior. Debajo de cada botón se resume el contenido de sus módulos, con acceso directo a cada uno.</p>
+              <p className="text-sm text-[var(--dim)] mt-1">Cada segmento tiene su guía en PDF.</p>
               <div className="space-y-4 mt-3">
                 {MODULE_GROUPS.map(g=>(
                   <div key={g.title}>
@@ -1257,7 +1249,7 @@ export function App(){
                       <button type="button" aria-label={`Leer la guía en PDF del segmento ${g.title}`} className={btnGhost+" shrink-0"} onClick={()=>setGuidePdf({title:g.title,src:GUIDE_PDF_BY_GROUP[g.title]||""})}>Guía en PDF</button>
                     </div>
                     <div className="divide-y divide-[var(--border)]">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Panel general: disponible libre, gráficas por categoría e ingresos vs gastos, presupuestos y actividad reciente. Desde aquí se accede a los movimientos completos.", personal:"Su sueldo, sus gastos del día (con foto del comprobante o lectura automática) y la distribución de su gasto por categoría.", movimientos:"El registro completo: elija ver solo ingresos o solo gastos, filtre por subcategoría, adjunte comprobantes o lea un comprobante completo automáticamente. Si un registro se capturó por error, utilice el botón «Reversar»: se crea la reversión, ambos registros quedan marcados y fuera de los totales, sin borrar el historial.", cuentas:"Sus cuentas reales (bancaria, efectivo, tarjeta) con saldo calculado automáticamente desde los movimientos.", presupuestos:"Límites mensuales por categoría de gasto; el avance se calcula desde los movimientos.", fondos:"Apartados virtuales dentro de sus cuentas: el dinero apartado deja de contar como disponible libre.", aportaciones:"Se desprende de Movimientos: reparte el gasto compartido del mes entre los adultos, en partes iguales o proporcional al ingreso.", metas:"Objetivos de ahorro con fecha; la aplicación calcula cuánto abonar cada mes.", acuerdos:"Reglas del hogar sometidas a votación cuando un gasto supera el umbral definido.", patrimonio:"Activos y pasivos registrados por usted; el patrimonio neto es la resta exacta de ambos.", tandas:"Ahorro rotativo entre personas de confianza: sorteo, calendario de entregas, comprobantes verificados y calificación del organizador.", categorias:"Categorías de ingreso y gasto con subcategorías modificables: agregue o elimine subcategorías cuando lo necesite.", perfiles:"Las personas del hogar, el administrador, las invitaciones por correo y el perfil en uso en este dispositivo.", hogar:"Nombre, modo (Personal o Familiar), día de corte y reglas del hogar; todo es editable. Aquí también se encuentran las medidas de seguridad aplicadas y el registro de actividad reciente del hogar.", guia:"Esta guía: la instalación de la aplicación en el celular, el video explicativo y la guía en PDF de cada segmento, que se abre aquí mismo y se cierra con la ×." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-3"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible libre, gráficas, presupuestos y actividad reciente.", personal:"Su sueldo, sus gastos del día y su gasto por categoría.", movimientos:"El registro completo, con filtros y comprobantes. Use «Reversar» si capturó un registro por error.", cuentas:"Sus cuentas reales (bancaria, efectivo, tarjeta) con saldo calculado automáticamente desde los movimientos.", presupuestos:"Límites mensuales por categoría de gasto; el avance se calcula desde los movimientos.", fondos:"Apartados virtuales dentro de sus cuentas: el dinero apartado deja de contar como disponible libre.", aportaciones:"Se desprende de Movimientos: reparte el gasto compartido del mes entre los adultos, en partes iguales o proporcional al ingreso.", metas:"Objetivos de ahorro con fecha; la aplicación calcula cuánto abonar cada mes.", acuerdos:"Reglas del hogar sometidas a votación cuando un gasto supera el umbral definido.", patrimonio:"Activos y pasivos registrados por usted; el patrimonio neto es la resta exacta de ambos.", tandas:"Ahorro rotativo entre personas de confianza: sorteo, calendario de entregas, comprobantes verificados y calificación del organizador.", categorias:"Categorías de ingreso y gasto con subcategorías modificables: agregue o elimine subcategorías cuando lo necesite.", perfiles:"Las personas del hogar y el perfil en uso.", hogar:"Nombre, modo, día de corte y reglas del hogar.", guia:"Instalación en el celular, video y guías en PDF." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-3"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
                     </div>
                   </div>
                 ))}
@@ -1269,8 +1261,8 @@ export function App(){
 {effTab==="hogar" && (
           <section className="max-w-2xl space-y-4">
             <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5 space-y-4" onSubmit={(e:FormEvent)=>{e.preventDefault();saveHh.mutate();}}>
-              <h2 className="font-display font-bold text-lg">Hogar y ajustes: todo es editable</h2>
-              <p className="text-sm text-[var(--dim)]">Todas las reglas del hogar pueden modificarse en cualquier momento. Al guardar, los cambios se aplican de inmediato en Aportaciones y Acuerdos.</p>
+              <h2 className="font-display font-bold text-lg">Hogar y ajustes</h2>
+              <p className="text-sm text-[var(--dim)]">Las reglas se pueden cambiar en cualquier momento.</p>
               <div><Label htmlFor="edit-name">Nombre del hogar</Label><input id="edit-name" aria-label="Nombre del hogar editable" className={inputCls} defaultValue={hh.name} value={editName||undefined} placeholder={hh.name} onChange={e=>setEditName(e.target.value)} /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label htmlFor="edit-cutoff">Día de corte</Label><input id="edit-cutoff" aria-label="Día de corte editable" type="number" min="1" max="28" className={inputCls} defaultValue={hh.cutoffDay} onChange={e=>{setEditCutoff(e.target.value);}} /></div>
@@ -1281,7 +1273,7 @@ export function App(){
                 <div><Label htmlFor="edit-contrib">Regla de aportación</Label><select id="edit-contrib" aria-label="Regla de aportación editable" className={inputCls} defaultValue={hh.contributionRule} onChange={e=>setEditContrib(e.target.value as "equal"|"proportional")}><option value="equal">Partes iguales</option><option value="proportional">Proporcional al ingreso</option></select></div>
                 <div><Label htmlFor="edit-approval">Regla de aprobación</Label><select id="edit-approval" aria-label="Regla de aprobación editable" className={inputCls} defaultValue={hh.approvalRule} onChange={e=>setEditApproval(e.target.value as "unanimous"|"majority")}><option value="unanimous">Unánime</option><option value="majority">Mayoría</option></select></div>
               </div>
-              <Help>Moneda: <b>MXN</b>. Para aplicar los valores actuales sin modificaciones, seleccione Guardar; el formulario parte de las reglas guardadas del hogar ({hh.name}, corte día {hh.cutoffDay}, umbral {money(hh.approvalThreshold)}).</Help>
+              <Help>Moneda: <b>MXN</b>.</Help>
               {!isAdmin && <p className="text-sm text-[var(--red)]">Su perfil actual es de integrante: las reglas del hogar solo pueden ser modificadas por el administrador.</p>}
               <button className={btnPrimary} disabled={saveHh.isPending || !isAdmin} onClick={()=>{ if(!editName) setEditName(hh.name); }}>{saveHh.isPending?"Guardando…":"Guardar reglas del hogar"}</button>
               {saveHh.isSuccess && <p className="text-sm text-[var(--green)]">Reglas guardadas.</p>}
@@ -1289,23 +1281,23 @@ export function App(){
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
               <h3 className="font-display font-bold">Miembros del hogar ({data.profiles.length})</h3>
               {data.profiles.map(p=><p key={p.id} className="text-sm py-1.5 border-b border-[var(--border)] last:border-0">{fullName(p)} · {p.role==="admin"?"Administrador del hogar":"Integrante"} · {p.kind==="adult"?"Adulto":"Dependiente"}{p.email?` · ${p.email}`:""}</p>)}
-              <p className="text-xs text-[var(--dim)] mt-2">El <b>administrador</b> es la persona que creó el hogar: puede consultar todos los movimientos compartidos y los totales, y gestionar integrantes e invitaciones. Los <b>integrantes</b> pueden consultar lo compartido y sus propios movimientos privados. Para incorporar a una persona, envíele una invitación en Perfiles → Invitaciones; al aceptarla, ingresará directamente a este hogar.</p>
+              <p className="text-xs text-[var(--dim)] mt-2">El <b>administrador</b> gestiona el hogar. Para incorporar a una persona, invítela en Perfiles → Invitaciones.</p>
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
               <h3 className="font-display font-bold">Seguridad de su información</h3>
               <ul className="list-disc ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
-                <li><b className="text-[var(--text)]">Contraseña propia y segura:</b> cada persona entra con su correo y una contraseña de mínimo 12 caracteres, con mayúscula, minúscula, número y símbolo. La contraseña la guarda el servicio de autenticación (con hash y sal); SyncFinanzas no la ve ni la almacena. Tras 5 intentos fallidos, el correo se bloquea 15 minutos. Utilice una contraseña única para esta aplicación y active la verificación en dos pasos en su correo.</li>
-                <li><b className="text-[var(--text)]">Validación en el servidor:</b> cada registro se valida en el servidor (tipos de dato, importes máximos, formatos de correo y de fecha, tamaños de imagen); ninguna operación se acepta solo porque la pantalla la permita.</li>
-                <li><b className="text-[var(--text)]">Permisos por hogar:</b> el servidor comprueba que cada cuenta, categoría y perfil referenciado pertenezca a su hogar; una referencia ajena se rechaza. Dentro del hogar, el administrador gestiona integrantes, invitaciones y reglas; los movimientos privados solo son visibles para su autor.</li>
-                <li><b className="text-[var(--text)]">Límites de peticiones:</b> las operaciones sensibles tienen un número máximo de peticiones por minuto (la lectura automática de comprobantes, la más estricta), para frenar abusos y errores en cadena.</li>
-                <li><b className="text-[var(--text)]">Sin claves en el código:</b> la aplicación no contiene claves, contraseñas ni datos bancarios; los comprobantes se guardan como archivos protegidos y en la base de datos solo se conserva su referencia.</li>
-                <li><b className="text-[var(--text)]">Cierre de sesión:</b> para cerrar el acceso en un dispositivo, use el botón «Cerrar sesión» de esta sección; sus datos permanecen guardados en su cuenta, no en el dispositivo. También puede eliminar la aplicación instalada de la pantalla de inicio.</li>
+                <li><b className="text-[var(--text)]">Contraseña propia y segura:</b> cada persona entra con su correo y una contraseña de mínimo 12 caracteres. Tras 5 intentos fallidos, el correo se bloquea 15 minutos.</li>
+                <li><b className="text-[var(--text)]">Validación en el servidor:</b> cada registro se valida en el servidor.</li>
+                <li><b className="text-[var(--text)]">Permisos por hogar:</b> el servidor comprueba que cada registro pertenezca a su hogar; lo privado solo lo ve su autor.</li>
+                <li><b className="text-[var(--text)]">Límites de peticiones:</b> las operaciones sensibles tienen un límite de peticiones por minuto.</li>
+                <li><b className="text-[var(--text)]">Sin claves en el código:</b> la aplicación no contiene claves ni datos bancarios.</li>
+                <li><b className="text-[var(--text)]">Cierre de sesión:</b> use «Cerrar sesión» en esta sección para salir en este dispositivo.</li>
                 <li><button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-4 py-2 text-sm font-bold" onClick={()=>{ void supabase.auth.signOut(); }}>Cerrar sesión en este dispositivo</button></li>
               </ul>
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
               <h3 className="font-display font-bold">Registro de actividad reciente</h3>
-              <p className="text-xs text-[var(--dim)] mt-1">Respaldo de auditoría de este hogar: las operaciones relevantes quedan registradas con fecha y hora, para que cualquier cambio pueda revisarse. Se muestran las 30 más recientes.</p>
+              <p className="text-xs text-[var(--dim)] mt-1">Las operaciones relevantes quedan registradas. Se muestran las 30 más recientes.</p>
               {data.activity.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Aún no hay operaciones registradas.</p> : <div className="divide-y divide-[var(--border)] mt-2">
                 {data.activity.map(a=><div key={a.id} className="py-2 text-sm"><p><b>{a.action}</b>{a.detail?` — ${a.detail}`:""}</p><p className="text-xs text-[var(--dim)]">{new Date(a.createdAt).toLocaleString("es-MX",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</p></div>)}
               </div>}
@@ -1332,7 +1324,7 @@ export function App(){
           <div className="overflow-y-auto p-3">
             <PdfViewer src={guidePdf.src} ariaLabel={`Guía en PDF del segmento ${guidePdf.title}`} labels={{loading:"Cargando la guía…",loadError:"No fue posible cargar la guía. Verifique su conexión e inténtelo de nuevo.",pageError:"No fue posible mostrar esta página de la guía.",previousPage:"Página anterior",nextPage:"Página siguiente",pageIndicator:(p,t)=>`Página ${p} de ${t}`,navigationAriaLabel:"Navegación de páginas de la guía",pageAriaLabel:(p,t)=>`Página ${p} de ${t} de la guía`}} />
           </div>
-          <p className="px-4 py-2.5 border-t border-[var(--border)] text-xs text-[var(--dim)]">Puede pasar las páginas con los controles del visor. Para salir, cierre la ventana con la × de la esquina superior.</p>
+          <p className="px-4 py-2.5 border-t border-[var(--border)] text-xs text-[var(--dim)]">Cierre con la × de la esquina superior.</p>
         </div>
       </div>}
       {receiptView && <div className="fixed inset-0 z-50 bg-black/85 flex flex-col items-center justify-center p-4" role="dialog" aria-label="Fotografía del comprobante en tamaño completo">
