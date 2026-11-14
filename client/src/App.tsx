@@ -238,7 +238,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["invit", "persona", "pareja", "agreg", "unir"], q: "¿Cómo invito a alguien?", a: "En Perfiles, escriba el correo de la persona y pulse Invitar. Recibirá un enlace directo para entrar a su hogar.", go: "perfiles", goLabel: "Ir a Perfiles" },
   { keys: ["espacio", "hogar", "inici", "empez", "crear"], q: "¿Cómo creo mi espacio?", a: "Para crear su espacio, elija Personal o Familiar, escriba el nombre de su hogar y sus datos, y pulse Crear hogar.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["instal", "celular", "pantalla", "descarg"], q: "¿Cómo instalo la app en mi celular?", a: "En iPhone, abra la app en Safari, toque Compartir y seleccione Agregar a pantalla de inicio. En Android, mantenga presionado el icono y toque Instalar app.", go: "guia", goLabel: "Ir a Guía de uso" },
-  { keys: ["reinici", "borrar todo", "borrar los datos", "empezar de nuevo", "reset"], q: "¿Cómo reinicio todo?", a: "En el menú, al final, pulse Reiniciar todo y borrar los datos y escriba REINICIAR. Se borra el hogar completo y la app vuelve al inicio." },
+  { keys: ["reinici", "borrar todo", "borrar los datos", "empezar de nuevo", "reset"], q: "¿Cómo reinicio todo?", a: "En Hogar, al final, pulse Reiniciar la aplicación y responda las 3 preguntas de control. Se borra el hogar completo y la app vuelve al inicio." },
   { keys: ["sueldo", "salario"], q: "¿Cómo registro mi sueldo?", a: "En Personal, escriba su sueldo mensual y pulse Guardar sueldo.", go: "personal", goLabel: "Ir a Personal" },
   { keys: ["presupuest", "limite"], q: "¿Cómo creo un presupuesto?", a: "En Presupuestos, elija la categoría, escriba el límite del mes y pulse Guardar.", go: "presupuestos", goLabel: "Ir a Presupuestos" },
   { keys: ["comprobante", "foto", "ticket", "escanear", "leer el comprobante"], q: "¿Cómo leo un comprobante?", a: "En Movimientos, en Más opciones, suba la foto del comprobante. Si la lectura automática está configurada, los gastos se crean solos; si no, registre el gasto manualmente.", go: "movimientos", goLabel: "Ir a Movimientos" },
@@ -407,19 +407,19 @@ export function App(){
 
   // movement form
   const [mvType,setMvType]=useState<"income"|"expense"|"transfer"|"debt_payment">("expense"); const [mvStep,setMvStep]=useState(1); const [mvAmount,setMvAmount]=useState(""); const [mvConcept,setMvConcept]=useState(""); const [mvAccount,setMvAccount]=useState(""); const [mvToAccount,setMvToAccount]=useState(""); const [mvCat,setMvCat]=useState(""); const [mvSub,setMvSub]=useState(""); const [mvDate,setMvDate]=useState(todayISO()); const [mvVis,setMvVis]=useState<"private"|"shared">("shared"); const [mvSearch,setMvSearch]=useState(""); const [mvFilter,setMvFilter]=useState("all"); const [editingMv,setEditingMv]=useState<number|null>(null);
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();setMvAmount("");setMvConcept("");setEditingMv(null);setReceipt(null);setMvStep(1);}});
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();setMvAmount("");setMvConcept("");setEditingMv(null);setReceipt(null);setMvStep(1);setSavedNotice("Movimiento guardado.");}});
   const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:inv});
   const [confirmReverseId,setConfirmReverseId]=useState<number|null>(null);
   const revMv=useMutation({mutationFn:async(id:number)=>await api.reverseMovement({id}),onSuccess:()=>{inv();setConfirmReverseId(null);}});
 
   // account form
   const [accFormName,setAccFormName]=useState(""); const [accType,setAccType]=useState<"bank"|"cash"|"credit"|"investment"|"loan">("bank"); const [accVis,setAccVis]=useState<"private"|"shared">("shared"); const [accInit,setAccInit]=useState("0"); const [editingAcc,setEditingAcc]=useState<number|null>(null);
-  const saveAcc=useMutation({mutationFn:async()=>await api.saveAccount({id:editingAcc??undefined,householdId:data!.household!.id,name:accFormName,type:accType,visibility:accVis,initialBalance:Number(accInit)||0}),onSuccess:()=>{inv();setAccFormName("");setEditingAcc(null);}});
+  const saveAcc=useMutation({mutationFn:async()=>await api.saveAccount({id:editingAcc??undefined,householdId:data!.household!.id,name:accFormName,type:accType,visibility:accVis,initialBalance:Number(accInit)||0}),onSuccess:()=>{inv();setAccFormName("");setEditingAcc(null);setSavedNotice("Cuenta guardada.");}});
   const delAcc=useMutation({mutationFn:async(id:number)=>await api.deleteAccount({id}),onSuccess:inv});
 
   // budget
   const [budCat,setBudCat]=useState(""); const [budMonth,setBudMonth]=useState(monthNow()); const [budAmount,setBudAmount]=useState(""); const [budVis,setBudVis]=useState<"private"|"shared">("shared");
-  const saveBud=useMutation({mutationFn:async()=>await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis}),onSuccess:()=>{inv();setBudAmount("");}});
+  const saveBud=useMutation({mutationFn:async()=>await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis}),onSuccess:()=>{inv();setBudAmount("");setSavedNotice("Presupuesto guardado.");}});
   const delBud=useMutation({mutationFn:async(id:number)=>await api.deleteBudget({id}),onSuccess:inv});
 
   // category
@@ -428,13 +428,13 @@ export function App(){
 
   // fund
   const [fundName,setFundName]=useState(""); const [fundTarget,setFundTarget]=useState(""); const [fundAmt,setFundAmt]=useState<Record<number,string>>({});
-  const saveFund=useMutation({mutationFn:async()=>await api.saveFund({householdId:data!.household!.id,name:fundName,targetAmount:fundTarget?Number(fundTarget):null,visibility:"shared"}),onSuccess:()=>{inv();setFundName("");setFundTarget("");}});
+  const saveFund=useMutation({mutationFn:async()=>await api.saveFund({householdId:data!.household!.id,name:fundName,targetAmount:fundTarget?Number(fundTarget):null,visibility:"shared"}),onSuccess:()=>{inv();setFundName("");setFundTarget("");setSavedNotice("Fondo guardado.");}});
   const fundMove=useMutation({mutationFn:async(v:{fundId:number;type:"contribution"|"withdrawal";amount:number})=>await api.addFundMovement({householdId:data!.household!.id,fundId:v.fundId,type:v.type,amount:v.amount,date:todayISO()}),onSuccess:inv});
   const delFund=useMutation({mutationFn:async(id:number)=>await api.deleteFund({id}),onSuccess:inv});
 
   // goal
   const [goalName,setGoalName]=useState(""); const [goalTarget,setGoalTarget]=useState(""); const [goalDate,setGoalDate]=useState(""); const [goalSaved,setGoalSaved]=useState("0"); const [goalAdd,setGoalAdd]=useState<Record<number,string>>({});
-  const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");}});
+  const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
   const delGoal=useMutation({mutationFn:async(id:number)=>await api.deleteGoal({id}),onSuccess:inv});
 
@@ -459,12 +459,12 @@ export function App(){
   const saveHh=useMutation({mutationFn:async()=>await api.updateHousehold({id:data!.household!.id,mode:editMode,name:editName||data!.household!.name,currency:"MXN",cutoffDay:Number(editCutoff)||1,contributionRule:editContrib,approvalRule:editApproval,approvalThreshold:Number(editThreshold)||0}),onSuccess:inv});
   const demo=useMutation({mutationFn:async()=>await api.loadDemo({householdId:data!.household!.id}),onSuccess:inv});
   // Reinicio completo de la aplicación (botón dentro del menú desplegable de módulos)
-  const [resetConfirm,setResetConfirm]=useState(false); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false);
-  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetConfirm(false); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
+  const [resetStep,setResetStep]=useState(0); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false); const [savedNotice,setSavedNotice]=useState<string|null>(null);
+  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setPersStep(1);}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setPersStep(1);setSavedNotice("Gasto del día guardado.");}});
   // Acceso directo para registrar un gasto rápido (?accion=nuevo-gasto):
   // al entrar con ese parámetro, después de iniciar sesión y con el espacio
   // creado, se abre el formulario de gasto con el importe listo para escribir.
@@ -485,7 +485,7 @@ export function App(){
   const [drawSel,setDrawSel]=useState<Record<number,"random"|"weighted">>({});
   const [tInvEmail,setTInvEmail]=useState<Record<number,string>>({}); const [tInvName,setTInvName]=useState<Record<number,string>>({}); const [tJoinName,setTJoinName]=useState<Record<number,string>>({});
   const [rateName,setRateName]=useState<Record<number,string>>({}); const [rateStars,setRateStars]=useState<Record<number,string>>({}); const [rateComment,setRateComment]=useState<Record<number,string>>({});
-  const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");}});
+  const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");setSavedNotice("Tanda creada.");}});
   const delTanda=useMutation({mutationFn:async(id:number)=>await api.deleteTanda({id}),onSuccess:inv});
   const addPart=useMutation({mutationFn:async(v:{tandaId:number;name:string;cardLast4?:string})=>await api.addTandaParticipant({householdId:data!.household!.id,tandaId:v.tandaId,name:v.name,cardLast4:v.cardLast4||undefined}),onSuccess:inv});
   const removePart=useMutation({mutationFn:async(id:number)=>await api.removeTandaParticipant({id}),onSuccess:inv});
@@ -517,7 +517,7 @@ export function App(){
   const addSub=useMutation({mutationFn:async(v:{categoryId:number;name:string})=>await api.addSubcategory(v),onSuccess:inv});
   const removeSub=useMutation({mutationFn:async(v:{categoryId:number;name:string})=>await api.removeSubcategory(v),onSuccess:inv});
   const [scanImg,setScanImg]=useState<{dataBase64:string;mimeType:string;preview:string}|null>(null); const [scanCat,setScanCat]=useState(""); const [scanPersImg,setScanPersImg]=useState<{dataBase64:string;mimeType:string;preview:string}|null>(null);
-  const scanRcpt=useMutation({mutationFn:async(v:{img:{dataBase64:string;mimeType:string};visibility:"shared"|"private";categoryId?:number|null})=>await api.scanReceipt({householdId:data!.household!.id,image:v.img,visibility:v.visibility,categoryId:v.categoryId??null,profileId:me?me.id:null}),onSuccess:()=>{inv();setScanImg(null);setScanPersImg(null);}});
+  const scanRcpt=useMutation({mutationFn:async(v:{img:{dataBase64:string;mimeType:string};visibility:"shared"|"private";categoryId?:number|null})=>await api.scanReceipt({householdId:data!.household!.id,image:v.img,visibility:v.visibility,categoryId:v.categoryId??null,profileId:me?me.id:null}),onSuccess:()=>{inv();setScanImg(null);setScanPersImg(null);setSavedNotice("Comprobante leído y gastos guardados.");}});
 
 
 
@@ -740,28 +740,6 @@ export function App(){
                   )}
                 </div>
               ); })}
-              <div className="border-2 border-[var(--red)] rounded-2xl overflow-hidden">
-                <div className="px-3 py-2 bg-[var(--surface)]">
-                  <p className="text-[13px] font-bold tracking-wide text-[var(--red)]">REINICIAR LA APLICACIÓN</p>
-                  <p className="text-[11px] text-[var(--dim)] mt-0.5">Borra todo, incluido su hogar.</p>
-                  {!resetConfirm ? (
-                    <button type="button" aria-label="Reiniciar todo y borrar todos los datos" onClick={()=>{ setResetConfirm(true); setResetWord(""); }} className="mt-2 w-full rounded-full bg-[var(--red)] text-white font-bold px-3 py-2.5 text-sm">Reiniciar todo y borrar los datos</button>
-                  ) : (
-                    <div className="mt-2 border border-dashed border-[var(--red)] rounded-xl p-3 bg-[var(--surface2)]">
-                      <p className="text-xs">Elimina todo de forma permanente, incluido su hogar: movimientos, cuentas, presupuestos, fondos, metas, acuerdos, patrimonio, tandas, invitaciones, perfiles, categorías y fotos.</p>
-                      <div className="mt-3">
-                        <Label htmlFor="reset-word">Para confirmar, escriba REINICIAR</Label>
-                        <input id="reset-word" aria-label="Escriba REINICIAR para confirmar el reinicio" className={inputCls} value={resetWord} onChange={e=>setResetWord(e.target.value)} placeholder="REINICIAR" autoComplete="off" />
-                      </div>
-                      {resetAll.error && <p className="text-sm text-[var(--red)] mt-2">{String(resetAll.error)}</p>}
-                      <div className="flex gap-2 mt-3 flex-wrap">
-                        <button type="button" aria-label="Confirmar: sí, borrar todo y reiniciar la aplicación" className="rounded-full bg-[var(--red)] text-white font-bold px-5 py-2.5 text-sm disabled:opacity-50" disabled={resetWord.trim().toUpperCase()!=="REINICIAR" || resetAll.isPending} onClick={()=>resetAll.mutate()}>{resetAll.isPending?"Reiniciando…":"Sí, borrar todo y reiniciar"}</button>
-                        <button type="button" aria-label="Cancelar el reinicio de la aplicación" className={btnGhost} onClick={()=>{ setResetConfirm(false); setResetWord(""); }}>Cancelar</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
           </nav>
         )}
@@ -771,6 +749,7 @@ export function App(){
 
       <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
         {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-3 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+        {savedNotice && <div className="mb-3 bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex items-center gap-2" role="status"><p className="text-sm flex-1">{savedNotice}</p><button type="button" className={btnPrimary} onClick={()=>{setSavedNotice(null);goTab("inicio");}}>Ir a Inicio</button><button type="button" aria-label="Cerrar el aviso" onClick={()=>setSavedNotice(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
           <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 sm:p-3.5" role="status">
             <div className="flex items-start justify-between gap-2">
@@ -1507,6 +1486,46 @@ export function App(){
                 <li>Cree los <b>Presupuestos</b> del mes.</li>
                 <li>Aparte en <b>Fondos</b>, defina una <b>Meta</b> y registre su <b>Patrimonio</b>.</li>
               </ol>
+            </div>
+            <div className="pt-1">
+              <button type="button" aria-label="Reiniciar la aplicación y borrar todos los datos" onClick={()=>{ setResetStep(1); setResetWord(""); }} className="text-xs text-[var(--dim)] underline">Reiniciar la aplicación</button>
+              {resetStep>0 && (
+                <div className="mt-2 bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5 space-y-3" role="dialog" aria-label="Confirmación para reiniciar la aplicación">
+                  <p className="text-xs font-bold text-[var(--dim)]">Pregunta {resetStep} de 3</p>
+                  {resetStep===1 && (
+                    <>
+                      <p className="text-sm">Se borrará todo de forma permanente: movimientos, cuentas, presupuestos, fondos, metas, acuerdos, patrimonio, tandas, invitaciones, perfiles, categorías y fotos, incluido su hogar. ¿Desea continuar?</p>
+                      <div className="flex gap-2">
+                        <button type="button" className={btnPrimary} onClick={()=>setResetStep(2)}>Sí, entiendo</button>
+                        <button type="button" className={btnGhost} onClick={()=>setResetStep(0)}>Cancelar</button>
+                      </div>
+                    </>
+                  )}
+                  {resetStep===2 && (
+                    <>
+                      <p className="text-sm">Su hogar tiene {data.tandas.length} tanda(s) y {data.profiles.length} persona(s). Al reiniciar también se borrarán y no se podrán recuperar. ¿Está seguro?</p>
+                      <div className="flex gap-2">
+                        <button type="button" className={btnPrimary} onClick={()=>setResetStep(3)}>Sí, estoy seguro</button>
+                        <button type="button" className={btnGhost} onClick={()=>setResetStep(0)}>Cancelar</button>
+                      </div>
+                    </>
+                  )}
+                  {resetStep===3 && (
+                    <>
+                      <p className="text-sm">Última confirmación. Para borrar todo, escriba REINICIAR.</p>
+                      <div>
+                        <Label htmlFor="reset-word">Escriba REINICIAR</Label>
+                        <input id="reset-word" aria-label="Escriba REINICIAR para confirmar el reinicio" className={inputCls} value={resetWord} onChange={e=>setResetWord(e.target.value)} placeholder="REINICIAR" autoComplete="off" />
+                      </div>
+                      {resetAll.error && <p className="text-sm text-[var(--red)]">{String(resetAll.error)}</p>}
+                      <div className="flex gap-2 flex-wrap">
+                        <button type="button" aria-label="Confirmar: sí, borrar todo y reiniciar la aplicación" className="rounded-full border border-[var(--border)] px-5 py-2.5 text-sm font-bold disabled:opacity-50" disabled={resetWord.trim().toUpperCase()!=="REINICIAR" || resetAll.isPending} onClick={()=>resetAll.mutate()}>{resetAll.isPending?"Reiniciando…":"Sí, borrar todo"}</button>
+                        <button type="button" aria-label="Cancelar el reinicio de la aplicación" className={btnGhost} onClick={()=>{ setResetStep(0); setResetWord(""); }}>Cancelar</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </section>
         )}
