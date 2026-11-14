@@ -597,14 +597,19 @@ export function App(){
       <SafeAreaTopScrim backgroundColor="var(--bg)" />
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)] pt-safe">
-        <div className="max-w-5xl mx-auto px-3 py-2 flex items-center justify-between gap-2">
-          <div><p className="font-display font-extrabold leading-none">{hh.name} <span className="text-[11px] align-middle bg-[var(--gold)] text-white rounded-full px-2 py-0.5">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p><p className="text-xs text-[var(--dim)]">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}{me?` · ${fullName(me)} · ${me.role==="admin"?"Administrador":"Integrante"}`:""}</p></div>
-          <div className="flex gap-2 shrink-0">
-            {!appInstalled && <button type="button" className={btnGhost} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
-            <button className={btnGhost} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>Demo</button>
+        <div className="max-w-5xl mx-auto px-3 pt-3 pb-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-2"><span className="truncate">{hh.name}</span><span className="shrink-0 text-[11px] bg-[var(--gold)] text-white rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
+              <p className="text-[11px] text-[var(--dim)] mt-1.5">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}{me?` · ${fullName(me)} · ${me.role==="admin"?"Administrador":"Integrante"}`:""}</p>
+            </div>
+            <div className="flex gap-2 shrink-0 pt-0.5">
+              {!appInstalled && <button type="button" className={btnGhost} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
+              <button className={btnGhost} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>Demo</button>
+            </div>
           </div>
         </div>
-        <div className="max-w-5xl mx-auto px-3 pb-3 flex items-center gap-2">
+        <div className="max-w-5xl mx-auto px-3 pt-2 pb-3 flex items-center gap-3 border-t border-[var(--border)]">
           <button type="button" aria-label={menuOpen?"Cerrar menú de módulos":"Abrir menú de módulos"} aria-expanded={menuOpen} aria-controls="menu-modulos" onClick={()=>setMenuOpen(o=>!o)} className="shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex flex-col items-center justify-center gap-[5px]">
             <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"translate-y-[7.5px] rotate-45":""}`} />
             <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-opacity ${menuOpen?"opacity-0":""}`} />
