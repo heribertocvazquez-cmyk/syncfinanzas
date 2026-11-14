@@ -4,7 +4,7 @@ import { SafeAreaTopScrim } from "./components/SafeArea";
 import { readInviteToken, type InvitePreview } from "./components/AuthGate";
 import { fileToBase64 } from "./lib/file";
 import { supabase } from "./supabase";
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
 import guiaVideo from "./assets/media-generation-video-explicativo-syncfinanzas-0-db93744d-d5cd-455b-a5df-f1f32c5644bc.mp4";
@@ -93,42 +93,51 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
   return { dataBase64: dataUrl.split(",")[1]||"", mimeType:"image/jpeg", preview:url };
 }
 
-function CategoryChart({data}:{data:{name:string;total:number}[]}){
+const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
+function CategoryChart({data}:{data:{name:string;total:number;pct:number}[]}){
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
-  const maxTotal=Math.max(...data.map(d=>d.total));
-  return <div className="mt-2 rounded-2xl bg-[var(--surface2)] p-2" role="img" aria-label="Gráfica de gasto por categoría">
-    <ResponsiveContainer width="100%" height={Math.max(120, data.length*40)}>
-      <BarChart data={data} layout="vertical" margin={{left:8,right:76,top:6,bottom:6}} barCategoryGap="22%">
-        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border)" />
-        <XAxis type="number" tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize:11, fill:"var(--dim)"}} axisLine={{stroke:"var(--border)"}} tickLine={false} />
-        <YAxis type="category" dataKey="name" width={104} tick={{fontSize:12, fill:"var(--text)"}} axisLine={false} tickLine={false} />
-        <Tooltip cursor={{fill:"rgba(0,0,0,0.04)"}} formatter={(v)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,"Gastado"]} />
-        <Bar dataKey="total" barSize={18} radius={[0,8,8,0]} background={{fill:"rgba(0,0,0,0.03)", radius:8} as never}>
-          {data.map((d,i)=><Cell key={i} fill={d.total===maxTotal?"#B42318":"#C5962C"} />)}
-          <LabelList dataKey="total" position="right" formatter={(v: unknown)=>`$${Number(v).toLocaleString("es-MX")}`} style={{fontSize:12, fontWeight:700, fill:"var(--text)"}} />
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
-    <p className="text-xs text-[var(--dim)] px-1 pb-1">En rojo, la categoría de mayor gasto.</p>
+  const total=data.reduce((a,d)=>a+d.total,0);
+  return <div className="mt-2" role="img" aria-label="Gráfica de gasto por categoría">
+    <div className="relative mx-auto w-44 h-44">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none">
+            {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} />)}
+          </Pie>
+          <Tooltip formatter={(v)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,"Gastado"]} />
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+        <span className="text-xs text-[var(--dim)]">Total</span>
+        <b className="font-display text-lg leading-tight">{money2(total)}</b>
+      </div>
+    </div>
+    <div className="mt-2 space-y-2">
+      {data.map((d,i)=>(
+        <div key={d.name}>
+          <div className="flex justify-between gap-2 text-sm"><span className="inline-flex items-center gap-2 min-w-0" style={{color:DONUT_COLORS[i%DONUT_COLORS.length]}}><CatIcon name={d.name} size="sm" className="text-inherit" /><span className="text-[var(--text)] truncate">{d.name}</span></span><b className="shrink-0">{money(d.total)} · {d.pct}%</b></div>
+          <div className="h-1.5 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className="h-full rounded-full" style={{width:`${Math.min(100,Math.max(0,d.pct))}%`, background:DONUT_COLORS[i%DONUT_COLORS.length]}} /></div>
+        </div>
+      ))}
+    </div>
   </div>;
 }
 function MonthlyChart({series}:{series:{label:string;income:number;expense:number}[]}){
   const data=series.map(x=>({label:x.label, Ingresos:x.income, Gastos:x.expense}));
   const allZero=data.every(d=>d.Ingresos===0&&d.Gastos===0);
   if(allZero) return <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>;
-  return <div className="mt-2 rounded-2xl bg-[var(--surface2)] p-2" role="img" aria-label="Gráfica de ingresos contra gastos por mes">
-    <ResponsiveContainer width="100%" height={180}>
-      <BarChart data={data} margin={{left:0,right:8,top:10,bottom:4}} barCategoryGap="26%" barGap={6}>
+  return <div className="mt-2" role="img" aria-label="Gráfica de ingresos contra gastos por mes">
+    <ResponsiveContainer width="100%" height={170}>
+      <BarChart data={data} margin={{left:0,right:8,top:10,bottom:4}} barCategoryGap="30%" barGap={6}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
         <XAxis dataKey="label" tick={{fontSize:12, fill:"var(--text)"}} axisLine={{stroke:"var(--border)"}} tickLine={false} />
-        <YAxis tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize:11, fill:"var(--dim)"}} width={64} axisLine={false} tickLine={false} />
-        <Tooltip cursor={{fill:"rgba(0,0,0,0.04)"}} formatter={(v,name)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,name]} />
-        <Legend content={()=>(<div className="flex justify-center gap-4 text-xs mt-1"><span className="inline-flex items-center gap-1"><CatIcon name="Otro ingreso" size="sm" className="text-[var(--green)]" />Ingresos</span><span className="inline-flex items-center gap-1"><CatIcon name="Otro gasto" size="sm" className="text-[var(--red)]" />Gastos</span></div>)} />
-        <Bar dataKey="Ingresos" fill="#1B7A4D" radius={[6,6,0,0]} maxBarSize={30} />
-        <Bar dataKey="Gastos" fill="#B42318" radius={[6,6,0,0]} maxBarSize={30} />
+        <YAxis tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize:11, fill:"var(--dim)"}} width={56} axisLine={false} tickLine={false} />
+        <Tooltip cursor={{fill:"rgba(255,255,255,0.04)"}} formatter={(v,name)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,name]} />
+        <Legend content={()=>(<div className="flex justify-center gap-4 text-xs mt-1"><span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1B7A4D]" />Ingresos</span><span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#B42318]" />Gastos</span></div>)} />
+        <Bar dataKey="Ingresos" fill="#1B7A4D" radius={[6,6,0,0]} maxBarSize={26} />
+        <Bar dataKey="Gastos" fill="#B42318" radius={[6,6,0,0]} maxBarSize={26} />
       </BarChart>
     </ResponsiveContainer>
-    <p className="text-xs text-[var(--dim)] px-1 pb-1">Ingresos en verde, gastos en rojo.</p>
   </div>;
 }
 function Help({children}:{children:React.ReactNode}){ return <p className="text-[13px] leading-snug text-[var(--dim)] bg-[var(--surface2)] rounded-xl px-3 py-2">{children}</p>; }
@@ -799,10 +808,7 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
-                <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total}))} />
-                {data.personal.byCategory.map(c=>(
-                  <div key={String(c.categoryId)} className="flex justify-between text-sm mt-1.5"><span className="inline-flex items-center gap-2"><CatIcon name={c.name} size="sm" />{c.name}</span><b>{money(c.total)} · {c.pct}%</b></div>
-                ))}
+                <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total,pct:c.pct}))} />
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Ingresos vs gastos</h2>
@@ -1219,10 +1225,7 @@ export function App(){
               <div className="space-y-3">
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gasto por categoría</h2>
-                  <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total}))} />
-                  {data.personal.byCategory.map(c=>(
-                    <div key={String(c.categoryId)} className="flex justify-between text-sm mt-1.5"><span className="inline-flex items-center gap-2"><CatIcon name={c.name} size="sm" />{c.name}</span><b>{money(c.total)} · {c.pct}%</b></div>
-                  ))}
+                  <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total,pct:c.pct}))} />
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante: <b>{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
