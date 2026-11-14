@@ -99,7 +99,7 @@ function MonthlyChart({series}:{series:{label:string;income:number;expense:numbe
         <Bar dataKey="Gastos" fill="#B42318" radius={[6,6,0,0]} maxBarSize={30} />
       </BarChart>
     </ResponsiveContainer>
-    <p className="text-xs text-[var(--dim)] px-1 pb-1">Ingresos en verde y gastos en rojo, en pares separados por mes para compararlos sin superposición.</p>
+    <p className="text-xs text-[var(--dim)] px-1 pb-1">Ingresos en verde, gastos en rojo.</p>
   </div>;
 }
 function Help({children}:{children:React.ReactNode}){ return <p className="text-[13px] leading-snug text-[var(--dim)] bg-[var(--surface2)] rounded-xl px-3 py-2">{children}</p>; }
@@ -133,46 +133,58 @@ function detectStandalone(): boolean {
 }
 const INSTALL_STEPS: Record<InstallPlatform, string[]> = {
   android: [
-    "Toque el botón «Instalar la aplicación» de esta tarjeta; si el navegador no lo ofrece, continúe con los pasos siguientes.",
-    "Abra el menú del navegador (los tres puntos de la esquina superior derecha).",
-    "Seleccione «Instalar aplicación» o «Agregar a pantalla principal».",
-    "Confirme con «Instalar». El icono de SyncFinanzas quedará en la pantalla principal de su celular.",
+    "Abra el menú ⋮ de Chrome.",
+    "Seleccione «Instalar aplicación».",
+    "Confirme con «Instalar».",
   ],
   ios: [
-    "Abra esta página en Safari (en iPhone la instalación solo es posible desde Safari).",
-    "Toque el botón Compartir, el cuadrado con la flecha hacia arriba, en la barra inferior.",
+    "Abra esta página en Safari.",
+    "Toque Compartir, el cuadrado con la flecha hacia arriba.",
     "Seleccione «Agregar a pantalla de inicio».",
-    "Confirme con «Agregar». El icono de SyncFinanzas quedará en la pantalla principal de su iPhone.",
+    "Confirme con «Agregar».",
   ],
   desktop: [
-    "En la computadora, Chrome y Edge muestran el icono de instalación al final de la barra de direcciones.",
-    "Selecciónelo y confirme con «Instalar» para abrir SyncFinanzas como aplicación, en su propia ventana.",
-    "En el celular, la instalación se realiza desde el navegador: en Android, desde el menú ⋮, «Instalar aplicación»; en iPhone, desde Compartir, «Agregar a pantalla de inicio».",
+    "Toque el icono de instalación en la barra de direcciones.",
+    "Confirme con «Instalar».",
   ],
 };
-function InstallCard({ promptEvent, installed, onInstall, onDismiss }: { promptEvent: BeforeInstallPromptEvent | null; installed: boolean; onInstall: () => void; onDismiss?: () => void }) {
-  const platform = detectInstallPlatform();
+function InstallCard({ installed, onInstall, onDismiss }: { installed: boolean; onInstall: () => void; onDismiss?: () => void }) {
   return (
     <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-3xl p-4 sm:p-5">
       <div className="flex items-start gap-3">
         <img src={appIcon512} alt="Icono de SyncFinanzas: una casa blanca con flechas de sincronización doradas sobre fondo azul marino" className="w-14 h-14 rounded-2xl shrink-0 border border-[var(--border)]" />
         <div className="min-w-0 flex-1">
           <h2 className="font-display font-bold text-lg leading-tight">Instale SyncFinanzas en su celular</h2>
-          <p className="text-sm text-[var(--dim)] mt-1">Al instalarla queda un icono en su pantalla principal y se abre a pantalla completa. Sus datos se conservan en su cuenta.</p>
+          <p className="text-sm text-[var(--dim)] mt-1">Queda un icono en su pantalla principal y se abre a pantalla completa.</p>
         </div>
         {onDismiss && <button type="button" aria-label="Descartar el aviso de instalación" onClick={onDismiss} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>}
       </div>
       {installed ? (
-        <p className="text-sm font-semibold text-[var(--green)] mt-3" role="status">La aplicación ya está instalada en este dispositivo: ábrala desde el icono de SyncFinanzas en su pantalla principal.</p>
+        <p className="text-sm font-semibold text-[var(--green)] mt-3" role="status">Ya está instalada: ábrala desde su icono en la pantalla principal.</p>
       ) : (
-        <>
-          {promptEvent && <button type="button" aria-label="Instalar la aplicación SyncFinanzas en este dispositivo" className={btnPrimary + " mt-3 w-full sm:w-auto"} onClick={onInstall}>Instalar la aplicación</button>}
-          <ol className="list-decimal ml-5 text-sm space-y-1.5 mt-3 text-[var(--dim)]">
-            {INSTALL_STEPS[platform].map((s, i) => <li key={i}>{s}</li>)}
-          </ol>
-          <p className="text-xs text-[var(--dim)] mt-3">La instalación es gratuita, no requiere tiendas de aplicaciones ni registro adicional, y puede desinstalarse en cualquier momento como cualquier otra aplicación del celular.</p>
-        </>
+        <button type="button" aria-label="Instalar la aplicación SyncFinanzas en este dispositivo" className={btnPrimary + " mt-3 w-full sm:w-auto"} onClick={onInstall}>Instalar</button>
       )}
+    </div>
+  );
+}
+// En iPhone no hay instalación automática: el botón abre estos pasos cortos.
+// En Android/Chrome, si el navegador ofrece la instalación, el botón la dispara.
+function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  const platform = detectInstallPlatform();
+  const title = platform === "ios" ? "Instalar en iPhone" : platform === "android" ? "Instalar en Android" : "Instalar en la computadora";
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
+      <div className="bg-[var(--surface)] text-[var(--text)] rounded-3xl w-full max-w-sm p-5" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="font-display font-bold text-lg">{title}</h2>
+          <button type="button" aria-label="Cerrar las instrucciones de instalación" onClick={onClose} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+        </div>
+        <ol className="list-decimal ml-5 text-sm space-y-1.5 mt-3">
+          {INSTALL_STEPS[platform].map((s, i) => <li key={i}>{s}</li>)}
+        </ol>
+        <button type="button" className={btnPrimary + " mt-4 w-full"} onClick={onClose}>Entendido</button>
+      </div>
     </div>
   );
 }
@@ -182,6 +194,8 @@ export function App(){
   const [tab,setTab]=useState<Tab>("inicio"); const [tabChosen,setTabChosen]=useState(false); const [menuOpen,setMenuOpen]=useState(false); const [openGroup,setOpenGroup]=useState<string|null>(null); const [guidePdf,setGuidePdf]=useState<{title:string;src:string}|null>(null);
   // Instalación en el celular: se captura el evento del navegador y se detecta si ya está instalada.
   const [installPrompt,setInstallPrompt]=useState<BeforeInstallPromptEvent|null>(null); const [appInstalled,setAppInstalled]=useState<boolean>(()=>detectStandalone()); const [installDismissed,setInstallDismissed]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-install-dismissed")==="1"; }catch{ return false; } });
+  const [installStepsOpen,setInstallStepsOpen]=useState(false);
+  const [chartsSeen,setChartsSeen]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-guide-charts-seen")==="1"; }catch{ return false; } });
   useEffect(()=>{
     const onPrompt=(e:Event)=>{ e.preventDefault(); setInstallPrompt(e as BeforeInstallPromptEvent); };
     const onInstalled=()=>{ setAppInstalled(true); setInstallPrompt(null); };
@@ -190,6 +204,7 @@ export function App(){
     return ()=>{ window.removeEventListener("beforeinstallprompt",onPrompt); window.removeEventListener("appinstalled",onInstalled); };
   },[]);
   const doInstall=async()=>{ if(!installPrompt) return; try{ await installPrompt.prompt(); const choice=await installPrompt.userChoice; if(choice.outcome==="accepted") setAppInstalled(true); }catch{ /* el navegador no ofreció la instalación; quedan los pasos manuales */ } setInstallPrompt(null); };
+  const handleInstallClick=()=>{ if(installPrompt){ void doInstall(); } else { setInstallStepsOpen(true); } };
   const dismissInstall=()=>{ setInstallDismissed(true); try{ localStorage.setItem("sf-install-dismissed","1"); }catch{} };
   const [currentProfileId,setCurrentProfileId]=useState<number|null>(()=>{ try{ const v=localStorage.getItem("sf-profile"); return v?Number(v):null; }catch{ return null; } });
   const pickProfile=(id:number|null)=>{ setCurrentProfileId(id); try{ if(id) localStorage.setItem("sf-profile",String(id)); else localStorage.removeItem("sf-profile"); }catch{} };
@@ -201,7 +216,7 @@ export function App(){
   const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;householdName:string;invitedName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500");
   const findInv=useMutation({mutationFn:async()=>await api.findInvitations({email:invEmail}),onSuccess:(r)=>{setInvFound(r.invitations);setInvSearched(true);}});
   const respondInv=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:joinFirst||undefined,lastName:joinLast||undefined}),onSuccess:inv});
-  const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero personal":hhName):hhName,currency:"MXN",cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:()=>{ inv(); try{ localStorage.setItem("sf-first-guide-pending","1"); }catch{} }});
+  const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero personal":hhName):hhName,currency:"MXN",cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:()=>{ inv(); setChartsSeen(false); try{ localStorage.setItem("sf-first-guide-pending","1"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
   // Asistente de creación del espacio (paso a paso), secciones plegables de
   // registro y guía de primer uso tras crear el hogar.
   const [obStep,setObStep]=useState(0); const [obError,setObError]=useState("");
@@ -209,6 +224,14 @@ export function App(){
   const [firstGuideOpen,setFirstGuideOpen]=useState(false);
   useEffect(()=>{ if(data?.household){ try{ if(localStorage.getItem("sf-first-guide-pending")==="1") setFirstGuideOpen(true); }catch{} } },[data?.household]);
   const dismissFirstGuide=()=>{ setFirstGuideOpen(false); try{ localStorage.removeItem("sf-first-guide-pending"); localStorage.setItem("sf-first-guide-seen","1"); }catch{} };
+  // La guía se cierra sola cuando los pasos básicos ya están hechos:
+  // cuenta inicial (o sueldo en Personal), primer movimiento y gráficas revisadas.
+  useEffect(()=>{
+    if(!firstGuideOpen || !data?.household) return;
+    const step1 = data.household.mode==="personal" ? (data.personal?.salary||0)>0 : data.accounts.length>0;
+    const step2 = data.movements.length>0;
+    if(step1 && step2 && chartsSeen) dismissFirstGuide();
+  },[firstGuideOpen, data, chartsSeen]);
 
   // Invitación por enlace directo (?token=...): se resuelve al entrar, se
   // muestra el banner y se acepta o rechaza con las acciones existentes,
@@ -310,7 +333,7 @@ export function App(){
   const demo=useMutation({mutationFn:async()=>await api.loadDemo({householdId:data!.household!.id}),onSuccess:inv});
   // Reinicio completo de la aplicación (botón dentro del menú desplegable de módulos)
   const [resetConfirm,setResetConfirm]=useState(false); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false);
-  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetConfirm(false); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); }catch{} }});
+  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetConfirm(false); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState("");
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
@@ -376,7 +399,7 @@ export function App(){
           <p className="text-[var(--gold)] font-display font-extrabold tracking-wide text-sm">SYNCFINANZAS · VERSIÓN GRANDE</p>
           <h1 className="font-display text-3xl font-extrabold mt-2 leading-tight">Un solo hogar,<br/>cuentas claras.</h1>
           <p className="text-[var(--dim)] mt-3">Registre sus gastos e ingresos y vea cuánto le queda, solo o en familia.</p>
-          <div className="mt-6"><InstallCard promptEvent={installPrompt} installed={appInstalled} onInstall={doInstall} /></div>
+          <div className="mt-6"><InstallCard installed={appInstalled} onInstall={handleInstallClick} /></div>
           <div className="bg-[var(--surface)] rounded-3xl border-2 border-[var(--gold)] p-5 mt-6 space-y-3">
             <h2 className="font-display font-bold text-lg">¿Recibió una invitación?</h2>
             <p className="text-sm text-[var(--dim)]">Escriba su correo y pulse Buscar invitación.</p>
@@ -512,15 +535,19 @@ export function App(){
               </div>
             )}
           </form>
+          <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
         </main>
       </div>
     );
   }
 
-  const s=data.summary; const hh=data.household; const effTab:Tab = (!tabChosen && hh.mode==="personal" && tab==="inicio") ? "personal" : tab; const goTab=(x:Tab)=>{setTabChosen(true);setTab(x);};
+  const s=data.summary; const hh=data.household; const effTab:Tab = (!tabChosen && hh.mode==="personal" && tab==="inicio") ? "personal" : tab; const goTab=(x:Tab)=>{setTabChosen(true);setTab(x); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
   const expandedGroup = openGroup ?? (MODULE_GROUPS.find(g=>g.tabs.includes(effTab))?.title ?? "");
   const fullName=(pr:{name:string;lastName?:string|null})=>`${pr.name} ${pr.lastName||""}`.trim();
   const me = data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null;
+  const guideStep1 = hh.mode==="personal" ? data.personal.salary>0 : data.accounts.length>0;
+  const guideStep2 = data.movements.length>0;
+  const guideStep3 = chartsSeen;
   const isAdmin = !me || me.role==="admin";
   const visibleMovs = data.movements.filter(m=> m.visibility==="shared" || (me ? m.profileId===me.id : true));
   const getCatName=(id:number|null)=>data.categories.find(c=>c.id===id)?.name||"—";
@@ -534,7 +561,7 @@ export function App(){
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div><p className="font-display font-extrabold leading-none">{hh.name} <span className="text-[11px] align-middle bg-[var(--gold)] text-white rounded-full px-2 py-0.5">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p><p className="text-xs text-[var(--dim)]">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}{me?` · ${fullName(me)} · ${me.role==="admin"?"Administrador":"Integrante"}`:""}</p></div>
           <div className="flex gap-2 shrink-0">
-            {!appInstalled && <button type="button" className={btnGhost} aria-label="Instalar SyncFinanzas en el celular" onClick={()=>{ if(installPrompt){ void doInstall(); } else { goTab("guia"); } }}>Instalar</button>}
+            {!appInstalled && <button type="button" className={btnGhost} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
             <button className={btnGhost} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo etiquetados como demo"}>Demo</button>
           </div>
         </div>
@@ -603,19 +630,19 @@ export function App(){
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="font-display font-bold text-lg">Empiece en 3 pasos</h2>
-                <p className="text-sm text-[var(--dim)] mt-1">Su espacio ya está creado. Siga estos pasos en orden:</p>
+                
               </div>
               <button type="button" aria-label="Cerrar la guía de inicio" onClick={dismissFirstGuide} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
             </div>
             <ol className="mt-3 space-y-3">
-              <li className="flex gap-3 items-start"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--gold)] text-white font-bold flex items-center justify-center text-sm">1</span><div className="flex-1"><p className="text-sm font-bold">{hh.mode==="personal"?"Registre su sueldo":"Abra su cuenta inicial"}</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Vaya a Personal y escriba su sueldo mensual en «Su sueldo / ingreso mensual», y pulse Guardar sueldo.":"Vaya a Cuentas y pulse Nueva cuenta; escriba el nombre y el saldo inicial, y pulse Crear cuenta."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"cuentas")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Cuentas"}</button></li>
-              <li className="flex gap-3 items-start"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--gold)] text-white font-bold flex items-center justify-center text-sm">2</span><div className="flex-1"><p className="text-sm font-bold">Registre su primer gasto</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"En Personal, en Gasto del día, escriba el importe y el concepto, y pulse Registrar gasto de hoy.":"Vaya a Movimientos, escriba el importe y el concepto, y pulse Registrar."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"movimientos")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Movimientos"}</button></li>
-              <li className="flex gap-3 items-start"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--gold)] text-white font-bold flex items-center justify-center text-sm">3</span><div className="flex-1"><p className="text-sm font-bold">Revise sus gráficas</p><p className="text-sm text-[var(--dim)]">Vaya a Inicio para ver cuánto gastó por categoría y cuánto le queda.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("inicio")}>Ir a Inicio</button></li>
+              <li className="flex gap-3 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep1?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep1?"✓":"1"}</span><div className="flex-1"><p className="text-sm font-bold">{hh.mode==="personal"?"Registre su sueldo":"Abra su cuenta inicial"}</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"En Personal, escriba su sueldo y pulse Guardar sueldo.":"En Cuentas, pulse Nueva cuenta."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"cuentas")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Cuentas"}</button></li>
+              <li className="flex gap-3 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep2?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep2?"✓":"2"}</span><div className="flex-1"><p className="text-sm font-bold">Registre su primer gasto</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"En Personal, registre su gasto del día.":"En Movimientos, escriba el importe y pulse Registrar."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"movimientos")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Movimientos"}</button></li>
+              <li className="flex gap-3 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep3?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep3?"✓":"3"}</span><div className="flex-1"><p className="text-sm font-bold">Revise sus gráficas</p><p className="text-sm text-[var(--dim)]">En Inicio, vea su gasto por categoría.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("inicio")}>Ir a Inicio</button></li>
             </ol>
             <button type="button" className={btnPrimary+" mt-4"} onClick={dismissFirstGuide}>Entendido</button>
           </div>
         )}
-        {!appInstalled && !installDismissed && <div className="mb-4"><InstallCard promptEvent={installPrompt} installed={appInstalled} onInstall={doInstall} onDismiss={dismissInstall} /></div>}
+        {!appInstalled && !installDismissed && <div className="mb-4"><InstallCard installed={appInstalled} onInstall={handleInstallClick} onDismiss={dismissInstall} /></div>}
         {effTab==="inicio" && (
           <section>
             <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-3xl p-5">
@@ -1226,7 +1253,11 @@ export function App(){
 
         {effTab==="guia" && (
           <section className="space-y-4">
-            <InstallCard promptEvent={installPrompt} installed={appInstalled} onInstall={doInstall} />
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
+              <h2 className="font-display font-bold text-lg">Instalación en el celular</h2>
+              <p className="text-sm text-[var(--dim)] mt-1">Queda un icono en su pantalla principal.</p>
+              <button type="button" className={btnPrimary+" mt-3"} onClick={handleInstallClick}>Cómo instalar</button>
+            </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4">
               <h2 className="font-display font-bold text-lg">Video explicativo de SyncFinanzas (10 segundos)</h2>
               <p className="text-sm text-[var(--dim)] mt-1">Un recorrido de diez segundos por la aplicación.</p>
@@ -1249,7 +1280,7 @@ export function App(){
                       <button type="button" aria-label={`Leer la guía en PDF del segmento ${g.title}`} className={btnGhost+" shrink-0"} onClick={()=>setGuidePdf({title:g.title,src:GUIDE_PDF_BY_GROUP[g.title]||""})}>Guía en PDF</button>
                     </div>
                     <div className="divide-y divide-[var(--border)]">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible libre, gráficas, presupuestos y actividad reciente.", personal:"Su sueldo, sus gastos del día y su gasto por categoría.", movimientos:"El registro completo, con filtros y comprobantes. Use «Reversar» si capturó un registro por error.", cuentas:"Sus cuentas reales (bancaria, efectivo, tarjeta) con saldo calculado automáticamente desde los movimientos.", presupuestos:"Límites mensuales por categoría de gasto; el avance se calcula desde los movimientos.", fondos:"Apartados virtuales dentro de sus cuentas: el dinero apartado deja de contar como disponible libre.", aportaciones:"Se desprende de Movimientos: reparte el gasto compartido del mes entre los adultos, en partes iguales o proporcional al ingreso.", metas:"Objetivos de ahorro con fecha; la aplicación calcula cuánto abonar cada mes.", acuerdos:"Reglas del hogar sometidas a votación cuando un gasto supera el umbral definido.", patrimonio:"Activos y pasivos registrados por usted; el patrimonio neto es la resta exacta de ambos.", tandas:"Ahorro rotativo entre personas de confianza: sorteo, calendario de entregas, comprobantes verificados y calificación del organizador.", categorias:"Categorías de ingreso y gasto con subcategorías modificables: agregue o elimine subcategorías cuando lo necesite.", perfiles:"Las personas del hogar y el perfil en uso.", hogar:"Nombre, modo, día de corte y reglas del hogar.", guia:"Instalación en el celular, video y guías en PDF." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-3"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible libre, gráficas, presupuestos y actividad reciente.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro completo, con filtros y comprobantes.", cuentas:"Sus cuentas reales, con saldo automático.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados dentro de sus cuentas.", aportaciones:"Reparto del gasto compartido del mes.", metas:"Objetivos de ahorro con fecha.", acuerdos:"Votación de gastos mayores.", patrimonio:"Activos y pasivos; patrimonio neto.", tandas:"Sorteo, calendario y comprobantes verificados.", categorias:"Categorías con subcategorías modificables.", perfiles:"Las personas del hogar.", hogar:"Nombre, modo, día de corte y reglas del hogar.", guia:"Instalación en el celular, video y guías en PDF." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-3"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
                     </div>
                   </div>
                 ))}
@@ -1281,23 +1312,23 @@ export function App(){
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
               <h3 className="font-display font-bold">Miembros del hogar ({data.profiles.length})</h3>
               {data.profiles.map(p=><p key={p.id} className="text-sm py-1.5 border-b border-[var(--border)] last:border-0">{fullName(p)} · {p.role==="admin"?"Administrador del hogar":"Integrante"} · {p.kind==="adult"?"Adulto":"Dependiente"}{p.email?` · ${p.email}`:""}</p>)}
-              <p className="text-xs text-[var(--dim)] mt-2">El <b>administrador</b> gestiona el hogar. Para incorporar a una persona, invítela en Perfiles → Invitaciones.</p>
+              <p className="text-xs text-[var(--dim)] mt-2">Para incorporar a una persona, invítela en Perfiles → Invitaciones.</p>
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
               <h3 className="font-display font-bold">Seguridad de su información</h3>
               <ul className="list-disc ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
-                <li><b className="text-[var(--text)]">Contraseña propia y segura:</b> cada persona entra con su correo y una contraseña de mínimo 12 caracteres. Tras 5 intentos fallidos, el correo se bloquea 15 minutos.</li>
-                <li><b className="text-[var(--text)]">Validación en el servidor:</b> cada registro se valida en el servidor.</li>
-                <li><b className="text-[var(--text)]">Permisos por hogar:</b> el servidor comprueba que cada registro pertenezca a su hogar; lo privado solo lo ve su autor.</li>
-                <li><b className="text-[var(--text)]">Límites de peticiones:</b> las operaciones sensibles tienen un límite de peticiones por minuto.</li>
-                <li><b className="text-[var(--text)]">Sin claves en el código:</b> la aplicación no contiene claves ni datos bancarios.</li>
-                <li><b className="text-[var(--text)]">Cierre de sesión:</b> use «Cerrar sesión» en esta sección para salir en este dispositivo.</li>
+                <li>Contraseña de mínimo 12 caracteres; bloqueo de 15 minutos tras 5 intentos fallidos.</li>
+                <li>Cada registro se valida en el servidor.</li>
+                <li>Cada registro pertenece a su hogar; lo privado solo lo ve su autor.</li>
+                <li>Límite de peticiones por minuto en operaciones sensibles.</li>
+                <li>Sin claves ni datos bancarios en el código.</li>
+                <li>«Cerrar sesión» sale en este dispositivo.</li>
                 <li><button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-4 py-2 text-sm font-bold" onClick={()=>{ void supabase.auth.signOut(); }}>Cerrar sesión en este dispositivo</button></li>
               </ul>
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-5">
               <h3 className="font-display font-bold">Registro de actividad reciente</h3>
-              <p className="text-xs text-[var(--dim)] mt-1">Las operaciones relevantes quedan registradas. Se muestran las 30 más recientes.</p>
+              <p className="text-xs text-[var(--dim)] mt-1">Se muestran las 30 más recientes.</p>
               {data.activity.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Aún no hay operaciones registradas.</p> : <div className="divide-y divide-[var(--border)] mt-2">
                 {data.activity.map(a=><div key={a.id} className="py-2 text-sm"><p><b>{a.action}</b>{a.detail?` — ${a.detail}`:""}</p><p className="text-xs text-[var(--dim)]">{new Date(a.createdAt).toLocaleString("es-MX",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</p></div>)}
               </div>}
@@ -1315,6 +1346,7 @@ export function App(){
           </section>
         )}
       </main>
+      <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-3xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)]">
