@@ -154,6 +154,13 @@ export const tandas = pgTable("tandas", {
   frequency: text("frequency", { enum: ["semanal", "quincenal", "mensual"] }).notNull().default("quincenal"),
   cadenceDays: integer("cadence_days").notNull().default(15),
   drawMode: text("draw_mode", { enum: ["random", "weighted"] }).notNull().default("random"),
+  // Tandas v3 ("modo Compartamos"): reglas del grupo.
+  coverageRule: text("coverage_rule", { enum: ["fondo", "prorroga", "reparto"] }).notNull().default("fondo"),
+  fineAmount: doublePrecision("fine_amount").notNull().default(0),
+  turnsLocked: integer("turns_locked").notNull().default(0),
+  treasurerProfileId: integer("treasurer_profile_id"),
+  substituteProfileId: integer("substitute_profile_id"),
+  meetingDay: text("meeting_day").notNull().default(""),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 export const tandaParticipants = pgTable("tanda_participants", {
@@ -165,6 +172,9 @@ export const tandaParticipants = pgTable("tanda_participants", {
   drawOrder: integer("draw_order"),
   cardLast4: text("card_last4"),
   joinedDate: text("joined_date"),
+  // Tandas v3: rol en el grupo y exclusión por votación.
+  role: text("role", { enum: ["organizador", "tesorero", "suplente", "participante"] }).notNull().default("participante"),
+  excluded: integer("excluded").notNull().default(0),
 });
 export const tandaPayments = pgTable("tanda_payments", {
   id: serial("id").primaryKey(),
@@ -172,11 +182,13 @@ export const tandaPayments = pgTable("tanda_payments", {
   householdId: integer("household_id").notNull(),
   participantId: integer("participant_id").notNull(),
   quincenaIndex: integer("quincena_index").notNull(),
-  status: text("status", { enum: ["paid", "pending"] }).notNull().default("pending"),
+  status: text("status", { enum: ["paid", "pending", "late"] }).notNull().default("pending"),
   reminderSent: integer("reminder_sent").notNull().default(0),
   paidDate: text("paid_date"),
   proofBlobKey: text("proof_blob_key"),
   verified: integer("verified").notNull().default(0),
+  // Tandas v3: multa aplicada a este pago.
+  fineAmount: doublePrecision("fine_amount").notNull().default(0),
 });
 export const tandaInvitations = pgTable("tanda_invitations", {
   id: serial("id").primaryKey(),
@@ -194,6 +206,52 @@ export const organizerRatings = pgTable("organizer_ratings", {
   raterName: text("rater_name").notNull(),
   stars: integer("stars").notNull(),
   comment: text("comment"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+// Tandas v3 ("modo Compartamos"): multas, votaciones de exclusión,
+// confirmación doble de entrega y fondos separados. Tablas creadas con
+// supabase/tandas-v3.sql; RLS con denegación total, solo service_role.
+export const tandaFines = pgTable("tanda_fines", {
+  id: serial("id").primaryKey(),
+  tandaId: integer("tanda_id").notNull(),
+  householdId: integer("household_id").notNull(),
+  participantId: integer("participant_id").notNull(),
+  quincenaIndex: integer("quincena_index").notNull(),
+  amount: doublePrecision("amount").notNull(),
+  reason: text("reason", { enum: ["retardo", "falta"] }).notNull().default("retardo"),
+  status: text("status", { enum: ["pendiente", "pagada"] }).notNull().default("pendiente"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+export const tandaVotes = pgTable("tanda_votes", {
+  id: serial("id").primaryKey(),
+  tandaId: integer("tanda_id").notNull(),
+  householdId: integer("household_id").notNull(),
+  targetParticipantId: integer("target_participant_id").notNull(),
+  voterName: text("voter_name").notNull(),
+  vote: text("vote", { enum: ["excluir", "no"] }).notNull().default("excluir"),
+  reason: text("reason"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+export const tandaDeliveries = pgTable("tanda_deliveries", {
+  id: serial("id").primaryKey(),
+  tandaId: integer("tanda_id").notNull(),
+  householdId: integer("household_id").notNull(),
+  quincenaIndex: integer("quincena_index").notNull(),
+  receiverId: integer("receiver_id"),
+  organizerConfirmed: integer("organizer_confirmed").notNull().default(0),
+  receiverConfirmed: integer("receiver_confirmed").notNull().default(0),
+  organizerConfirmedAt: timestamp("organizer_confirmed_at", { mode: "date" }),
+  receiverConfirmedAt: timestamp("receiver_confirmed_at", { mode: "date" }),
+});
+export const tandaFundEntries = pgTable("tanda_fund_entries", {
+  id: serial("id").primaryKey(),
+  tandaId: integer("tanda_id").notNull(),
+  householdId: integer("household_id").notNull(),
+  participantId: integer("participant_id"),
+  kind: text("kind", { enum: ["aportacion", "fondo", "multa"] }).notNull().default("fondo"),
+  amount: doublePrecision("amount").notNull(),
+  note: text("note"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
