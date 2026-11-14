@@ -19,7 +19,12 @@ export function getDb(): Db {
   if (dbInstance) return dbInstance;
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("Falta la variable de entorno DATABASE_URL (cadena del pooler de Supabase).");
-  client = postgres(url, { prepare: false, max: 1, ssl: "require", connect_timeout: 10, idle_timeout: 10, max_lifetime: 60 * 5 });
+  // max: 3 porque getOverview lanza ~17 consultas en paralelo (Promise.all):
+  // con una sola conexión, una consulta atascada bloquea todas las demás.
+  // statement_timeout: ninguna consulta puede colgarse más de 15 s; si lo
+  // hace, Postgres la cancela y devuelve un error claro en lugar de dejar
+  // la función de Vercel esperando hasta agotar su tiempo.
+  client = postgres(url, { prepare: false, max: 3, ssl: "require", connect_timeout: 10, idle_timeout: 10, max_lifetime: 60 * 5, options: "-c statement_timeout=15000" });
   dbInstance = drizzle(client, { schema });
   return dbInstance;
 }
