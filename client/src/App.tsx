@@ -181,20 +181,15 @@ const INSTALL_STEPS: Record<InstallPlatform, string[]> = {
 };
 function InstallCard({ installed, onInstall, onDismiss }: { installed: boolean; onInstall: () => void; onDismiss?: () => void }) {
   return (
-    <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 sm:p-3.5">
-      <div className="flex items-start gap-2">
-        <img src={appIcon512} alt="Icono de SyncFinanzas: una casa blanca con flechas de sincronización doradas sobre fondo azul marino" className="w-11 h-11 rounded-2xl shrink-0 border border-[var(--border)]" />
-        <div className="min-w-0 flex-1">
-          <h2 className="font-display font-bold text-base leading-tight">Instale SyncFinanzas en su celular</h2>
-          <p className="text-sm text-[var(--dim)] mt-1">Queda un icono en su pantalla principal.</p>
-        </div>
-        {onDismiss && <button type="button" aria-label="Descartar el aviso de instalación" onClick={onDismiss} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>}
-      </div>
+    <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl px-3 py-2 flex items-center gap-2">
+      <img src={appIcon512} alt="Icono de SyncFinanzas: una casa blanca con flechas de sincronización doradas sobre fondo azul marino" className="w-9 h-9 rounded-xl shrink-0 border border-[var(--border)]" />
+      <p className="text-sm font-bold flex-1 min-w-0">Instale SyncFinanzas en su celular</p>
       {installed ? (
-        <p className="text-sm font-semibold text-[var(--green)] mt-3" role="status">Ya instalada: ábrala desde su icono.</p>
+        <p className="text-sm font-semibold text-[var(--green)] shrink-0" role="status">Ya instalada.</p>
       ) : (
-        <button type="button" aria-label="Instalar la aplicación SyncFinanzas en este dispositivo" className={btnPrimary + " mt-3 w-full sm:w-auto"} onClick={onInstall}>Instalar</button>
+        <button type="button" aria-label="Instalar la aplicación SyncFinanzas en este dispositivo" className={btnPrimary + " shrink-0"} onClick={onInstall}>Instalar</button>
       )}
+      {onDismiss && <button type="button" aria-label="Descartar el aviso de instalación" onClick={onDismiss} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>}
     </div>
   );
 }
@@ -368,7 +363,7 @@ export function App(){
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState("");
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);}});
   // tandas
   const [tandaName,setTandaName]=useState(""); const [tandaCount,setTandaCount]=useState("10"); const [tandaAmount,setTandaAmount]=useState(""); const [tandaStart,setTandaStart]=useState(todayISO());
   const [tandaFreq,setTandaFreq]=useState<"semanal"|"quincenal"|"mensual">("quincenal"); const [tandaDrawMode,setTandaDrawMode]=useState<"random"|"weighted">("random");
@@ -414,7 +409,7 @@ export function App(){
 
   const catsForType = useMemo(()=>{ if(!data) return []; const kind = mvType==="income"?"income":"expense"; if(mvType==="transfer") return []; return data.categories.filter(c=>c.kind===kind && c.isActive===1); },[data,mvType]);
   const selectedCat = data?.categories.find(c=>String(c.id)===mvCat);
-  const filteredMovs = useMemo(()=>{ if(!data) return []; const meId = currentProfileId ?? data.profiles.find(x=>x.role==="admin")?.id ?? data.profiles.find(x=>x.kind==="adult")?.id ?? null; return data.movements.filter(m=> m.visibility==="shared" || (meId ? m.profileId===meId : true)).filter(m=>{ if(mvFilter!=="all" && m.type!==mvFilter) return false; if(mvSubFilter!=="all" && (m.subcategory||"")!==mvSubFilter) return false; if(mvSearch && !m.concept.toLowerCase().includes(mvSearch.toLowerCase())) return false; return true; }); },[data,mvFilter,mvSubFilter,mvSearch,currentProfileId]);
+  const filteredMovs = useMemo(()=>{ if(!data) return []; const meId = currentProfileId ?? data.profiles.find(x=>x.role==="admin")?.id ?? data.profiles.find(x=>x.kind==="adult")?.id ?? null; const meIsAdmin = meId!=null && data.profiles.find(x=>x.id===meId)?.role==="admin"; return data.movements.filter(m=> m.visibility==="shared" || (meId ? (m.profileId===meId || (m.profileId===null && meIsAdmin)) : true)).filter(m=>{ if(mvFilter!=="all" && m.type!==mvFilter) return false; if(mvSubFilter!=="all" && (m.subcategory||"")!==mvSubFilter) return false; if(mvSearch && !m.concept.toLowerCase().includes(mvSearch.toLowerCase())) return false; return true; }); },[data,mvFilter,mvSubFilter,mvSearch,currentProfileId]);
 
   if(q.isPending) return <div className="min-h-screen bg-[var(--bg)] p-6 text-center text-[var(--dim)]">Cargando SyncFinanzas…</div>;
   if(q.error) return <div className="min-h-screen bg-[var(--bg)] p-6"><p className="text-[var(--red)]">No se pudo cargar. {String(q.error)}</p><button className={btnPrimary} onClick={()=>q.refetch()}>Reintentar</button></div>;
@@ -580,7 +575,7 @@ export function App(){
   const guideStep2 = data.movements.length>0;
   const guideStep3 = chartsSeen;
   const isAdmin = !me || me.role==="admin";
-  const visibleMovs = data.movements.filter(m=> m.visibility==="shared" || (me ? m.profileId===me.id : true));
+  const visibleMovs = data.movements.filter(m=> m.visibility==="shared" || (me ? (m.profileId===me.id || (m.profileId===null && me.role==="admin")) : true));
   const getCatName=(id:number|null)=>data.categories.find(c=>c.id===id)?.name||"—";
   const getAccName=(id:number|null)=>data.accounts.find(a=>a.id===id)?.name||"—";
 
@@ -687,8 +682,9 @@ export function App(){
               </div>
             </div>
 
-            {data.movements.length===0 && <div className="mt-3"><Empty title="Su hogar aún no tiene registros" body="Cree una cuenta y registre su primer movimiento." /></div>}
-
+            {data.movements.length===0 ? (
+              <p className="text-sm text-[var(--dim)] mt-3">Sin movimientos todavía.</p>
+            ) : (
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
@@ -701,6 +697,7 @@ export function App(){
                 <button type="button" aria-label="Ver los movimientos completos desde Inicio" className={btnPrimary+" mt-3"} onClick={()=>goTab("movimientos")}>Ver movimientos completos</button>
               </div>
             </div>
+            )}
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Presupuestos</h2>
@@ -1289,10 +1286,9 @@ export function App(){
 
         {effTab==="guia" && (
           <section className="space-y-3">
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-              <h2 className="font-display font-bold text-base">Instalación en el celular</h2>
-              <p className="text-sm text-[var(--dim)] mt-1">Queda un icono en su pantalla principal.</p>
-              <button type="button" className={btnPrimary+" mt-3"} onClick={handleInstallClick}>Cómo instalar</button>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex items-center gap-2">
+              <h2 className="font-display font-bold text-base flex-1 min-w-0">Instalación en el celular</h2>
+              <button type="button" className={btnPrimary+" shrink-0"} onClick={handleInstallClick}>Cómo instalar</button>
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
               <h2 className="font-display font-bold text-base">Video explicativo (10 segundos)</h2>
