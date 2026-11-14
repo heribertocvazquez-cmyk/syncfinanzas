@@ -158,9 +158,7 @@ function InstallCard({ promptEvent, installed, onInstall, onDismiss }: { promptE
         <img src={appIcon512} alt="Icono de SyncFinanzas: una casa blanca con flechas de sincronización doradas sobre fondo azul marino" className="w-14 h-14 rounded-2xl shrink-0 border border-[var(--border)]" />
         <div className="min-w-0 flex-1">
           <h2 className="font-display font-bold text-lg leading-tight">Instale SyncFinanzas en su celular</h2>
-          <p className="text-sm text-[var(--dim)] mt-1">La aplicación está proyectada primero para el celular: al instalarla queda un icono en su pantalla principal y se abre a pantalla completa, sin la barra del navegador. Sus datos se conservan, porque se guardan en su cuenta, no en el navegador: al abrirla desde el icono verá la misma información, con su sesión iniciada.</p>
-          <p className="text-sm font-semibold mt-2">Sí: se instala en cualquier celular, ya sea Android o iPhone (iOS).</p>
-          <p className="text-sm text-[var(--dim)] mt-1">En Android se instala desde Chrome, con el botón de esta tarjeta o desde el menú del navegador. En iPhone se instala desde Safari, con Compartir → «Agregar a pantalla de inicio», porque Apple no permite la instalación con un solo toque desde el navegador. En ambos sistemas el resultado es el mismo: un icono propio en la pantalla principal y la aplicación a pantalla completa, sin pasar por ninguna tienda de aplicaciones.</p>
+          <p className="text-sm text-[var(--dim)] mt-1">Al instalarla queda un icono en su pantalla principal y se abre a pantalla completa. Sus datos se conservan en su cuenta.</p>
         </div>
         {onDismiss && <button type="button" aria-label="Descartar el aviso de instalación" onClick={onDismiss} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>}
       </div>
@@ -203,7 +201,14 @@ export function App(){
   const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;householdName:string;invitedName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500");
   const findInv=useMutation({mutationFn:async()=>await api.findInvitations({email:invEmail}),onSuccess:(r)=>{setInvFound(r.invitations);setInvSearched(true);}});
   const respondInv=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:joinFirst||undefined,lastName:joinLast||undefined}),onSuccess:inv});
-  const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero personal":hhName):hhName,currency:"MXN",cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:inv});
+  const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero personal":hhName):hhName,currency:"MXN",cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:()=>{ inv(); try{ localStorage.setItem("sf-first-guide-pending","1"); }catch{} }});
+  // Asistente de creación del espacio (paso a paso), secciones plegables de
+  // registro y guía de primer uso tras crear el hogar.
+  const [obStep,setObStep]=useState(0); const [obError,setObError]=useState("");
+  const [mvMore,setMvMore]=useState(false); const [persMore,setPersMore]=useState(false);
+  const [firstGuideOpen,setFirstGuideOpen]=useState(false);
+  useEffect(()=>{ if(data?.household){ try{ if(localStorage.getItem("sf-first-guide-pending")==="1") setFirstGuideOpen(true); }catch{} } },[data?.household]);
+  const dismissFirstGuide=()=>{ setFirstGuideOpen(false); try{ localStorage.removeItem("sf-first-guide-pending"); localStorage.setItem("sf-first-guide-seen","1"); }catch{} };
 
   // Invitación por enlace directo (?token=...): se resuelve al entrar, se
   // muestra el banner y se acepta o rechaza con las acciones existentes,
@@ -241,6 +246,12 @@ export function App(){
   const createGenInv=useMutation({mutationFn:async()=>await api.createGeneralInvitation({email:genEmail,invitedName:genName||undefined}),onSuccess:(r)=>{ setGenResult(r); setGenEmail(""); setGenName(""); }});
   const resendGenInv=useMutation({mutationFn:async(id:number)=>await api.resendInvitation({kind:"general",invitationId:id}),onSuccess:(r)=>{ setGenResult(prev=>prev?{...prev,emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}:prev); }});
   const resendInv=useMutation({mutationFn:async(v:{kind:"household"|"tanda";invitationId:number;tandaId?:number})=>await api.resendInvitation({kind:v.kind,invitationId:v.invitationId}),onSuccess:(r,v)=>{ if(v.kind==="household") setHhInvResult(r); else if(v.tandaId) setTInvResult(p=>({...p,[v.tandaId as number]:r})); inv(); }});
+  // Ventana emergente para elegir el modo (Personal o Familiar) al crear el
+  // espacio: se abre sola la primera vez que se muestra la pantalla de
+  // entrada sin hogar (salvo que se haya llegado con una invitación por
+  // enlace, en cuyo caso se entra al hogar invitado sin crear uno nuevo).
+  const [modeModalOpen,setModeModalOpen]=useState(false); const [modeModalShown,setModeModalShown]=useState(false);
+  useEffect(()=>{ if(data && !data.household && !tokenInvite && !modeModalShown){ setModeModalOpen(true); setModeModalShown(true); } },[data,tokenInvite,modeModalShown]);
   const [hhInvResult,setHhInvResult]=useState<InviteSend|null>(null);
   const [tInvResult,setTInvResult]=useState<Record<number,InviteSend>>({});
 
@@ -299,7 +310,7 @@ export function App(){
   const demo=useMutation({mutationFn:async()=>await api.loadDemo({householdId:data!.household!.id}),onSuccess:inv});
   // Reinicio completo de la aplicación (botón dentro del menú desplegable de módulos)
   const [resetConfirm,setResetConfirm]=useState(false); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false);
-  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetConfirm(false); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab(data!.household!.mode==="personal"?"personal":"inicio"); pickProfile(null); try{ localStorage.removeItem("sf-install-dismissed"); }catch{} }});
+  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetConfirm(false); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab(data!.household!.mode==="personal"?"personal":"inicio"); pickProfile(null); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.setItem("sf-first-guide-pending","1"); }catch{} }});
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState("");
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
@@ -363,16 +374,11 @@ export function App(){
         <main className="max-w-xl mx-auto px-4 pb-10 pt-6">
           <p className="text-[var(--gold)] font-display font-extrabold tracking-wide text-sm">SYNCFINANZAS · VERSIÓN GRANDE</p>
           <h1 className="font-display text-3xl font-extrabold mt-2 leading-tight">Un solo hogar,<br/>cuentas claras.</h1>
-          <p className="text-[var(--dim)] mt-3">Administre el dinero compartido con claridad: compartan los gastos comunes, mantengan la privacidad de los personales y decidan en conjunto los gastos de mayor monto. Todos los totales se calculan a partir de sus movimientos reales, sin cifras de demostración presentadas como reales.</p>
-          <div className="grid grid-cols-3 gap-2 mt-5 text-center text-[13px]">
-            <div className="bg-[var(--surface)] rounded-2xl p-3 border border-[var(--border)]"><b className="font-display block text-base">Módulos agrupados</b>Registro, planificación, tandas y configuración</div>
-            <div className="bg-[var(--surface)] rounded-2xl p-3 border border-[var(--border)]"><b className="font-display block text-base">Privado / Compartido</b>en cada registro</div>
-            <div className="bg-[var(--surface)] rounded-2xl p-3 border border-[var(--border)]"><b className="font-display block text-base">Totales reales</b>siempre consistentes</div>
-          </div>
+          <p className="text-[var(--dim)] mt-3">Registre sus gastos e ingresos y vea cuánto le queda, solo o en familia.</p>
           <div className="mt-6"><InstallCard promptEvent={installPrompt} installed={appInstalled} onInstall={doInstall} /></div>
           <div className="bg-[var(--surface)] rounded-3xl border-2 border-[var(--gold)] p-5 mt-6 space-y-3">
             <h2 className="font-display font-bold text-lg">¿Recibió una invitación a un hogar? Ingrese directamente, sin crear uno nuevo</h2>
-            <p className="text-sm text-[var(--dim)]">Escriba el correo electrónico al que fue invitado. Si tiene una invitación pendiente, aparecerá aquí con las opciones <b>Aceptar / Rechazar</b>. Al aceptarla, ingresará al hogar de la persona que lo invitó, en calidad de integrante, sin errores ni hogares duplicados.</p>
+            <p className="text-sm text-[var(--dim)]">Escriba el correo al que fue invitado y pulse Buscar invitación. Si tiene una pendiente, podrá aceptarla aquí.</p>
             <div className="flex gap-2"><input aria-label="Correo para buscar invitación" type="email" placeholder="tu@correo.com" className={inputCls} value={invEmail} onChange={e=>setInvEmail(e.target.value)} /><button type="button" className={btnPrimary} onClick={()=>findInv.mutate()} disabled={!invEmail || findInv.isPending}>Buscar invitación</button></div>
             {invSearched && invFound.length===0 && <p className="text-sm text-[var(--dim)]">No se encontró una invitación pendiente para ese correo. Solicite a la persona que lo invitó que la cree en Perfiles → Invitar, o cree su propio espacio a continuación.</p>}
             {invFound.map(iv=>(
@@ -415,7 +421,7 @@ export function App(){
           {tokenDone && <p className="text-sm text-[var(--green)] mt-6" role="status">Invitación respondida. Ya puede continuar en la aplicación.</p>}
           <div className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 mt-6 space-y-3">
             <h2 className="font-display font-bold text-lg">Invitar a una persona a crear su cuenta personal</h2>
-            <p className="text-sm text-[var(--dim)]">Envíe la invitación por correo desde aquí: la persona recibirá un enlace directo para crear su cuenta personal en SyncFinanzas, sin unirse a su hogar. Si el envío de correo no está configurado en este despliegue, se mostrará el enlace para copiarlo.</p>
+            <p className="text-sm text-[var(--dim)]">La persona recibirá un enlace directo para crear su cuenta personal, sin unirse a su hogar.</p>
             <div className="flex flex-wrap gap-2">
               <input aria-label="Correo para invitar a crear una cuenta personal" type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={genEmail} onChange={e=>setGenEmail(e.target.value)} />
               <input aria-label="Nombre de la persona invitada a crear una cuenta personal" placeholder="Nombre (opcional)" className={inputCls+" flex-1 min-w-[160px]"} value={genName} onChange={e=>setGenName(e.target.value)} />
@@ -431,33 +437,79 @@ export function App(){
               </div>
             )}
           </div>
+          {modeModalOpen && (
+            <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Elija el modo de su espacio">
+              <div className="bg-[var(--surface)] text-[var(--text)] rounded-3xl w-full max-w-md p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="font-display font-bold text-lg">¿Cómo quiere usar SyncFinanzas?</h2>
+                    <p className="text-sm text-[var(--dim)] mt-1">Elija un modo para empezar. Podrá cambiarlo después en Hogar.</p>
+                  </div>
+                  <button type="button" aria-label="Cerrar la elección de modo" onClick={()=>setModeModalOpen(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mt-4" role="group" aria-label="Elija el modo Personal o Familiar">
+                  <button type="button" aria-label="Modo Personal" onClick={()=>setPlanMode("personal")} className={`rounded-2xl border-2 p-4 text-left ${planMode==="personal"?"border-[var(--gold)] bg-[var(--surface2)]":"border-[var(--border)]"}`}><b className="font-display block">Personal</b><span className="text-[13px] text-[var(--dim)]">Solo usted: su sueldo y sus gastos del día.</span></button>
+                  <button type="button" aria-label="Modo Familiar" onClick={()=>setPlanMode("familiar")} className={`rounded-2xl border-2 p-4 text-left ${planMode==="familiar"?"border-[var(--gold)] bg-[var(--surface2)]":"border-[var(--border)]"}`}><b className="font-display block">Familiar</b><span className="text-[13px] text-[var(--dim)]">Pareja o familia: gastos compartidos y privados.</span></button>
+                </div>
+                <button type="button" className={btnPrimary+" w-full mt-4"} onClick={()=>{ setModeModalOpen(false); setObStep(1); }}>Continuar</button>
+              </div>
+            </div>
+          )}
           <form className="bg-[var(--surface)] rounded-3xl border border-[var(--border)] p-5 mt-6 space-y-4" onSubmit={(e:FormEvent)=>{e.preventDefault();createHh.mutate();}}>
-            <h2 className="font-display font-bold text-lg">Primero, elija su modo</h2>
-            <div className="grid grid-cols-2 gap-3" role="group" aria-label="Elija el modo Personal o Familiar">
-              <button type="button" aria-label="Modo Personal" onClick={()=>setPlanMode("personal")} className={`rounded-2xl border-2 p-4 text-left ${planMode==="personal"?"border-[var(--gold)] bg-[var(--surface2)]":"border-[var(--border)]"}`}><b className="font-display block">Personal</b><span className="text-[13px] text-[var(--dim)]">Solo usted: su sueldo, sus gastos del día y la distribución de su dinero por categoría, además de sus tandas con invitados, comprobantes y calificaciones.</span></button>
-              <button type="button" aria-label="Modo Familiar" onClick={()=>setPlanMode("familiar")} className={`rounded-2xl border-2 p-4 text-left ${planMode==="familiar"?"border-[var(--gold)] bg-[var(--surface2)]":"border-[var(--border)]"}`}><b className="font-display block">Familiar</b><span className="text-[13px] text-[var(--dim)]">Pareja o familia: movimientos compartidos y privados, aportaciones, acuerdos y tandas.</span></button>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-display font-bold text-lg">{planMode==="personal"?"Su espacio personal en 3 pasos":"Cree su hogar en 3 pasos"}</h2>
+              <span className="text-xs font-bold text-[var(--dim)] shrink-0">Paso {obStep+1} de 3</span>
             </div>
-            <h2 className="font-display font-bold text-lg">{planMode==="personal"?"Su espacio personal en 1 minuto":"Cree su hogar en 1 minuto"}</h2>
-            <div><Label htmlFor="hh-name">Nombre del hogar</Label><input id="hh-name" aria-label="Nombre del hogar" className={inputCls} value={hhName} onChange={e=>setHhName(e.target.value)} required /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label htmlFor="owner-name">Su nombre</Label><input id="owner-name" aria-label="Su nombre" className={inputCls} value={ownerName} onChange={e=>setOwnerName(e.target.value)} placeholder="Ej. Andrés" required /></div>
-              <div><Label htmlFor="owner-last">Su apellido</Label><input id="owner-last" aria-label="Su apellido" className={inputCls} value={ownerLast} onChange={e=>setOwnerLast(e.target.value)} placeholder="Ej. Téllez" /></div>
-              <div><Label htmlFor="owner-income">{planMode==="personal"?"Su sueldo / ingreso mensual ($)":"Su ingreso neto mensual ($)"}</Label><input id="owner-income" aria-label="Su ingreso neto mensual" type="number" min="0" className={inputCls} value={ownerIncome} onChange={e=>setOwnerIncome(e.target.value)} placeholder="0" /></div>
+            <div className="flex gap-1.5" aria-label={`Paso ${obStep+1} de 3`}>
+              {[0,1,2].map(i=><span key={i} className={`h-1.5 flex-1 rounded-full ${i<=obStep?"bg-[var(--gold)]":"bg-[var(--surface2)]"}`} />)}
             </div>
-            <p className="text-xs text-[var(--dim)]">Su nombre lo captura usted mismo, con nombre y apellido; nunca se toma del usuario de su correo electrónico, de modo que ninguna persona queda identificada con el nombre de su cuenta de correo. Puede editarlo en cualquier momento en Perfiles.</p>
-            <Help><b>Día de corte:</b> día del mes en que concluye su periodo financiero (por ejemplo, el día 1 o el día de pago). <b>Umbral de aprobación:</b> los gastos compartidos superiores a ese monto deben someterse previamente a un Acuerdo.</Help>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label htmlFor="cutoff">Día de corte (1–28)</Label><input id="cutoff" aria-label="Día de corte" type="number" min="1" max="28" className={inputCls} value={cutoff} onChange={e=>setCutoff(e.target.value)} /></div>
-              <div><Label htmlFor="threshold">Umbral de aprobación ($)</Label><input id="threshold" aria-label="Umbral de aprobación" type="number" min="0" className={inputCls} value={threshold} onChange={e=>setThreshold(e.target.value)} /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label htmlFor="contrib-rule">Reparto del gasto compartido</Label><select id="contrib-rule" aria-label="Reparto del gasto compartido" className={inputCls} value={contribRule} onChange={e=>setContribRule(e.target.value as "equal"|"proportional")}><option value="equal">Partes iguales</option><option value="proportional">Proporcional al ingreso</option></select></div>
-              <div><Label htmlFor="approval-rule">Aprobación de acuerdos</Label><select id="approval-rule" aria-label="Aprobación de acuerdos" className={inputCls} value={approvalRule} onChange={e=>setApprovalRule(e.target.value as "unanimous"|"majority")}><option value="unanimous">Unánime (se requiere el voto favorable de todos)</option><option value="majority">Mayoría</option></select></div>
-            </div>
-            <Help><b>Partes iguales:</b> cada adulto paga lo mismo. <b>Proporcional:</b> paga más quien gana más. <b>Privado vs Compartido:</b> lo privado no afecta presupuestos ni repartos compartidos.</Help>
-            {createHh.error && <p className="text-sm text-[var(--red)]">{String(createHh.error)}</p>}
-            <button type="submit" className={btnPrimary+" w-full"} disabled={createHh.isPending}>{createHh.isPending?"Creando…":planMode==="personal"?"Crear mi espacio personal":"Crear hogar y empezar"}</button>
-            <p className="text-xs text-[var(--dim)] text-center">Se crean automáticamente 7 categorías de ingreso y 14 de gasto con subcategorías. Todo se puede editar después en Hogar.</p>
+            {obStep===0 && (
+              <div className="space-y-4">
+                <p className="text-sm text-[var(--dim)]">Primero, elija su modo: solo usted o con su familia.</p>
+                <div className="rounded-2xl border-2 border-[var(--gold)] bg-[var(--surface2)] p-4 flex items-center justify-between gap-3">
+                  <div><b className="font-display block">{planMode==="personal"?"Personal":"Familiar"}</b><span className="text-[13px] text-[var(--dim)]">{planMode==="personal"?"Solo usted: su sueldo y sus gastos del día.":"Pareja o familia: gastos compartidos y privados."}</span></div>
+                  <button type="button" className={btnGhost+" shrink-0"} onClick={()=>setModeModalOpen(true)}>Cambiar modo</button>
+                </div>
+                <button type="button" className={btnPrimary+" w-full"} onClick={()=>setObStep(1)}>Siguiente</button>
+              </div>
+            )}
+            {obStep===1 && (
+              <div className="space-y-4">
+                <p className="text-sm text-[var(--dim)]">Ahora, escriba el nombre de su espacio y sus datos.</p>
+                <div><Label htmlFor="hh-name">Nombre del hogar</Label><input id="hh-name" aria-label="Nombre del hogar" className={inputCls} value={hhName} onChange={e=>setHhName(e.target.value)} required /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label htmlFor="owner-name">Su nombre</Label><input id="owner-name" aria-label="Su nombre" className={inputCls} value={ownerName} onChange={e=>setOwnerName(e.target.value)} placeholder="Ej. Andrés" required /></div>
+                  <div><Label htmlFor="owner-last">Su apellido</Label><input id="owner-last" aria-label="Su apellido" className={inputCls} value={ownerLast} onChange={e=>setOwnerLast(e.target.value)} placeholder="Ej. Téllez" /></div>
+                  <div><Label htmlFor="owner-income">{planMode==="personal"?"Su sueldo / ingreso mensual ($)":"Su ingreso neto mensual ($)"}</Label><input id="owner-income" aria-label="Su ingreso neto mensual" type="number" min="0" className={inputCls} value={ownerIncome} onChange={e=>setOwnerIncome(e.target.value)} placeholder="0" /></div>
+                </div>
+                <p className="text-xs text-[var(--dim)]">Su nombre lo captura usted mismo; nunca se toma de su correo electrónico. Puede editarlo después en Perfiles.</p>
+                {obError && <p className="text-sm text-[var(--red)]">{obError}</p>}
+                <div className="flex gap-2">
+                  <button type="button" className={btnGhost+" flex-1"} onClick={()=>{setObError("");setObStep(0);}}>Atrás</button>
+                  <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{ if(!hhName.trim()){ setObError("Escriba el nombre de su hogar para continuar."); return; } if(!ownerName.trim()){ setObError("Escriba su nombre para continuar."); return; } setObError(""); setObStep(2); }}>Siguiente</button>
+                </div>
+              </div>
+            )}
+            {obStep===2 && (
+              <div className="space-y-4">
+                <p className="text-sm text-[var(--dim)]">Por último, revise las reglas. Puede cambiarlas después en Hogar.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label htmlFor="cutoff">Día de corte (1–28)</Label><input id="cutoff" aria-label="Día de corte" type="number" min="1" max="28" className={inputCls} value={cutoff} onChange={e=>setCutoff(e.target.value)} /></div>
+                  <div><Label htmlFor="threshold">Umbral de aprobación ($)</Label><input id="threshold" aria-label="Umbral de aprobación" type="number" min="0" className={inputCls} value={threshold} onChange={e=>setThreshold(e.target.value)} /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label htmlFor="contrib-rule">Reparto del gasto compartido</Label><select id="contrib-rule" aria-label="Reparto del gasto compartido" className={inputCls} value={contribRule} onChange={e=>setContribRule(e.target.value as "equal"|"proportional")}><option value="equal">Partes iguales</option><option value="proportional">Proporcional al ingreso</option></select></div>
+                  <div><Label htmlFor="approval-rule">Aprobación de acuerdos</Label><select id="approval-rule" aria-label="Aprobación de acuerdos" className={inputCls} value={approvalRule} onChange={e=>setApprovalRule(e.target.value as "unanimous"|"majority")}><option value="unanimous">Unánime (se requiere el voto favorable de todos)</option><option value="majority">Mayoría</option></select></div>
+                </div>
+                <Help><b>Día de corte:</b> día del mes en que concluye su periodo financiero. <b>Umbral de aprobación:</b> los gastos compartidos superiores a ese monto requieren un Acuerdo.</Help>
+                {createHh.error && <p className="text-sm text-[var(--red)]">{String(createHh.error)}</p>}
+                <div className="flex gap-2">
+                  <button type="button" className={btnGhost+" flex-1"} onClick={()=>setObStep(1)}>Atrás</button>
+                  <button type="submit" className={btnPrimary+" flex-1"} disabled={createHh.isPending}>{createHh.isPending?"Creando…":planMode==="personal"?"Crear mi espacio personal":"Crear hogar y empezar"}</button>
+                </div>
+                <p className="text-xs text-[var(--dim)] text-center">Se crean automáticamente 7 categorías de ingreso y 14 de gasto. Todo se puede editar después en Hogar.</p>
+              </div>
+            )}
           </form>
         </main>
       </div>
@@ -546,6 +598,23 @@ export function App(){
 
       <main className="max-w-5xl mx-auto px-4 pb-16 pt-4">
         {resetDone && <div className="mb-4 bg-[var(--surface)] border-2 border-[var(--green)] rounded-3xl p-4 flex items-start gap-3" role="status"><p className="text-sm flex-1"><b>La aplicación se reinició por completo.</b> Todos los datos fueron eliminados y la aplicación quedó en su estado inicial, con las categorías predeterminadas y los totales en cero. Usted continúa en su perfil inicial{me?`, ${fullName(me)}`:""}, sin haber salido de su sesión.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+        {firstGuideOpen && (
+          <div className="mb-4 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-3xl p-4 sm:p-5" role="status">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-display font-bold text-lg">Empiece en 3 pasos</h2>
+                <p className="text-sm text-[var(--dim)] mt-1">Su espacio ya está creado. Siga estos pasos en orden:</p>
+              </div>
+              <button type="button" aria-label="Cerrar la guía de inicio" onClick={dismissFirstGuide} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+            </div>
+            <ol className="mt-3 space-y-3">
+              <li className="flex gap-3 items-start"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--gold)] text-white font-bold flex items-center justify-center text-sm">1</span><div className="flex-1"><p className="text-sm font-bold">{hh.mode==="personal"?"Registre su sueldo":"Abra su cuenta inicial"}</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Vaya a Personal y escriba su sueldo mensual en «Su sueldo / ingreso mensual», y pulse Guardar sueldo.":"Vaya a Cuentas y pulse Nueva cuenta; escriba el nombre y el saldo inicial, y pulse Crear cuenta."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"cuentas")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Cuentas"}</button></li>
+              <li className="flex gap-3 items-start"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--gold)] text-white font-bold flex items-center justify-center text-sm">2</span><div className="flex-1"><p className="text-sm font-bold">Registre su primer gasto</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"En Personal, en Gasto del día, escriba el importe y el concepto, y pulse Registrar gasto de hoy.":"Vaya a Movimientos, escriba el importe y el concepto, y pulse Registrar."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"movimientos")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Movimientos"}</button></li>
+              <li className="flex gap-3 items-start"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--gold)] text-white font-bold flex items-center justify-center text-sm">3</span><div className="flex-1"><p className="text-sm font-bold">Revise sus gráficas</p><p className="text-sm text-[var(--dim)]">Vaya a Inicio para ver cuánto gastó por categoría y cuánto le queda.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("inicio")}>Ir a Inicio</button></li>
+            </ol>
+            <button type="button" className={btnPrimary+" mt-4"} onClick={dismissFirstGuide}>Entendido</button>
+          </div>
+        )}
         {!appInstalled && !installDismissed && <div className="mb-4"><InstallCard promptEvent={installPrompt} installed={appInstalled} onInstall={doInstall} onDismiss={dismissInstall} /></div>}
         {effTab==="inicio" && (
           <section>
@@ -609,19 +678,22 @@ export function App(){
                 {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
               </div>
               {mvType==="debt_payment" && <Help>Para registrar el <b>pago de una deuda o tarjeta</b>, seleccione el tipo “Pago de deuda”, la cuenta de origen y la categoría Deudas.</Help>}
-              <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
+              <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-3"} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
               <div><Label htmlFor="mv-concept">Concepto</Label><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls} value={mvConcept} onChange={e=>setMvConcept(e.target.value)} placeholder="Ej. Súper semanal" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label htmlFor="mv-account">Cuenta</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>setMvAccount(e.target.value)}><option value="">Sin cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
-                {mvType==="transfer" && <div><Label htmlFor="mv-to">Cuenta destino</Label><select id="mv-to" aria-label="Cuenta destino" className={inputCls} value={mvToAccount} onChange={e=>setMvToAccount(e.target.value)}><option value="">Seleccione…</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>}
-                <div><Label htmlFor="mv-date">Fecha</Label><input id="mv-date" aria-label="Fecha del movimiento" type="date" required className={inputCls} value={mvDate} onChange={e=>setMvDate(e.target.value)} /></div>
-              </div>
               {mvType!=="transfer" && <div className="grid grid-cols-2 gap-3">
                 <div><Label htmlFor="mv-cat">Categoría</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");}}><option value="">Seleccione una categoría…</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><p className="text-[11px] text-[var(--dim)] mt-1">Solo se muestran categorías de {mvType==="income"?"ingreso":"gasto"}.</p></div>
                 <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Agregar una subcategoría nueva…</option></select><p className="text-[11px] text-[var(--dim)] mt-1">Las subcategorías ya vienen filtradas por la categoría elegida y pueden modificarse: agregue nuevas aquí o edítelas en la pestaña Categorías.</p>
                 {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Confirma que desea agregar la subcategoría <b>“{newSubName||"…"}”</b> a la categoría <b>{selectedCat.name}</b>? Quedará guardada y disponible para todos sus movimientos futuros.</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
                 </div>
               </div>}
+              <div>
+                <button type="button" aria-expanded={mvMore} aria-label={mvMore?"Ocultar más opciones del movimiento":"Mostrar más opciones del movimiento"} onClick={()=>setMvMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{mvMore?"▾ Ocultar más opciones":"▸ Más opciones: cuenta, fecha, visibilidad y comprobante"}</button>
+                {mvMore && (<div className="space-y-3 mt-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label htmlFor="mv-account">Cuenta</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>setMvAccount(e.target.value)}><option value="">Sin cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
+                {mvType==="transfer" && <div><Label htmlFor="mv-to">Cuenta destino</Label><select id="mv-to" aria-label="Cuenta destino" className={inputCls} value={mvToAccount} onChange={e=>setMvToAccount(e.target.value)}><option value="">Seleccione…</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>}
+                <div><Label htmlFor="mv-date">Fecha</Label><input id="mv-date" aria-label="Fecha del movimiento" type="date" required className={inputCls} value={mvDate} onChange={e=>setMvDate(e.target.value)} /></div>
+              </div>
               <div className="border border-dashed border-[var(--border)] rounded-2xl p-3">
                 <Label htmlFor="mv-receipt">Foto del comprobante de compra (opcional)</Label>
                 <input id="mv-receipt" aria-label="Adjuntar foto del comprobante" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setReceipt); }} />
@@ -648,6 +720,8 @@ export function App(){
                   <button type="button" aria-label="Movimiento privado" onClick={()=>setMvVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
                 </div>
                 <p className="text-[11px] text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo consultan todos los integrantes, con su nombre, monto, categoría y fecha, para garantizar la transparencia del hogar. Se considera en presupuestos y en el reparto de gastos.":"Solo usted puede consultarlo. No es visible para los demás integrantes ni para el administrador, y no afecta los registros compartidos."}</p>
+              </div>
+                </div>)}
               </div>
               {Number(mvAmount)>=hh.approvalThreshold && mvVis==="shared" && mvType==="expense" && <Help>Atención: este gasto compartido supera el umbral de {money(hh.approvalThreshold)}. De acuerdo con las reglas del hogar, debería contar con un Acuerdo aprobado.</Help>}
               {saveMv.error && <p className="text-sm text-[var(--red)]">{String(saveMv.error)}</p>}
@@ -937,13 +1011,13 @@ export function App(){
                 </form>
                 <form className="bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();savePersExp.mutate();}}>
                   <h2 className="font-display font-bold">Gasto del día</h2>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label htmlFor="pers-amt">Importe ($)</Label><input id="pers-amt" aria-label="Importe del gasto del día" type="number" min="0.01" step="0.01" required className={inputCls} value={persAmt} onChange={e=>setPersAmt(e.target.value)} /></div>
-                    <div><Label htmlFor="pers-cat">Categoría</Label><select id="pers-cat" aria-label="Categoría del gasto del día" className={inputCls} value={persCat} onChange={e=>setPersCat(e.target.value)}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                  </div>
+                  <div><Label htmlFor="pers-amt">Importe ($)</Label><input id="pers-amt" aria-label="Importe del gasto del día" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-3"} value={persAmt} onChange={e=>setPersAmt(e.target.value)} /></div>
                   <div><Label htmlFor="pers-concept">Concepto del gasto</Label><input id="pers-concept" aria-label="Concepto del gasto del día" className={inputCls} value={persConcept} onChange={e=>setPersConcept(e.target.value)} placeholder="Ej. Alimentos, transporte, café…" /></div>
+                  <div><Label htmlFor="pers-cat">Categoría</Label><select id="pers-cat" aria-label="Categoría del gasto del día" className={inputCls} value={persCat} onChange={e=>setPersCat(e.target.value)}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  <div>
+                    <button type="button" aria-expanded={persMore} aria-label={persMore?"Ocultar más opciones del gasto del día":"Mostrar más opciones del gasto del día"} onClick={()=>setPersMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{persMore?"▾ Ocultar más opciones":"▸ Más opciones: foto del comprobante y lectura automática"}</button>
+                    {persMore && (<div className="space-y-3 mt-3">
                   <div><Label htmlFor="pers-receipt">Foto del comprobante (opcional)</Label><input id="pers-receipt" aria-label="Adjuntar foto del comprobante del gasto del día" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setPersReceipt); }} />{persReceipt && <img src={persReceipt.preview} alt="Vista previa del comprobante del gasto del día" className="w-14 h-14 object-cover rounded-xl border border-[var(--border)] mt-2" />}<p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante visual del gasto.</p></div>
-                  <button className={btnPrimary+" w-full"} disabled={savePersExp.isPending || !persAmt}>Registrar gasto de hoy</button>
                   <div className="border-2 border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
                     <p className="font-display font-bold text-sm">O bien: lea el comprobante completo, sin capturar nada</p>
                     <p className="text-[11px] text-[var(--dim)] mt-1">Suba la fotografía y la aplicación detectará la tienda, cada producto con su importe y el total, y registrará todos los gastos del día automáticamente, con visibilidad privada.</p>
@@ -952,6 +1026,9 @@ export function App(){
                     {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Se registraron {scanRcpt.data.created} gasto(s){scanRcpt.data.store?` de ${scanRcpt.data.store}`:""} por {money2(scanRcpt.data.totalDetected)}.</p>}
                     {scanRcpt.error && <p className="text-sm text-[var(--red)] mt-2">{String(scanRcpt.error)}</p>}
                   </div>
+                    </div>)}
+                  </div>
+                  <button className={btnPrimary+" w-full"} disabled={savePersExp.isPending || !persAmt}>Registrar gasto de hoy</button>
                   <p className="text-xs text-[var(--dim)]">Se guarda con la fecha de hoy y con visibilidad privada (modo Personal). Para registrar ingresos o transferencias, o para editar movimientos, utilice la sección Movimientos.</p>
                 </form>
               </div>
