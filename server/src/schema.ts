@@ -331,16 +331,39 @@ export const testerFeedback = pgTable("tester_feedback", {
   dispositivo: text("dispositivo"),
 });
 
+// Plan de ahorro para una meta: cuánto aportar al mes, en qué fondo se
+// aparta el dinero y en qué estado va el plan. La tabla se crea con
+// supabase/goal-plans.sql; RLS con denegación total, solo service_role.
+// Un plan por meta (goal_id único). status: aceptado | en_riesgo | cumplido
+// | cancelado. start_month es YYYY-MM, due_day el día del mes en que toca
+// aportar (por defecto, el día de corte del hogar).
+export const goalPlans = pgTable("goal_plans", {
+  id: serial("id").primaryKey(),
+  householdId: integer("household_id").notNull(),
+  goalId: integer("goal_id").notNull(),
+  monthlyAmount: doublePrecision("monthly_amount").notNull(),
+  months: integer("months").notNull(),
+  startMonth: text("start_month").notNull(),
+  dueDay: integer("due_day").notNull().default(1),
+  fundId: integer("fund_id"),
+  status: text("status", { enum: ["aceptado", "en_riesgo", "cumplido", "cancelado"] }).notNull().default("aceptado"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
 // Avisos dentro de la app (campanita con puntito rojo + insignia del icono).
 // Se crean en el servidor: nuevo integrante en el hogar, gasto mayor que el
 // límite del hogar, presupuesto del mes excedido. La tabla se crea con
 // supabase/notifications.sql; RLS con denegación total, solo service_role.
 // Un aviso por integrante del hogar (user_id destinatario); isRead 0/1.
+// Tipos del plan de ahorro (mismo sistema de avisos): plan_aporte (se
+// acerca la fecha de la aportación del mes), plan_mes_sin_aporte (un mes
+// pasó sin aportar), plan_en_riesgo (con el ritmo actual no se llega a la
+// fecha), meta_cumplida (la meta llegó a su monto).
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
   householdId: integer("household_id").notNull(),
   userId: uuid("user_id").notNull(),
-  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido"] }).notNull(),
+  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida"] }).notNull(),
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   amount: doublePrecision("amount"),
