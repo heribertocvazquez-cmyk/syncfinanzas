@@ -765,6 +765,7 @@ export function App(){
   }
 
   const s=data.summary; const hh=data.household; const effTab:Tab = (!tabChosen && hh.mode==="personal" && tab==="inicio") ? "personal" : tab; const goTab=(x:Tab)=>{setTabChosen(true);setTab(x); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
+  const openNewMovement=(t:"income"|"expense")=>{ setEditingMv(null); setMvType(t); setMvCat(""); setMvSub(""); setMvStep(1); goTab("movimientos"); };
   const expandedGroup = openGroup ?? (MODULE_GROUPS.find(g=>g.tabs.includes(effTab))?.title ?? "");
   const fullName=(pr:{name:string;lastName?:string|null})=>`${pr.name} ${pr.lastName||""}`.trim();
   const me = data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null;
@@ -863,9 +864,7 @@ export function App(){
               </div>
             </div>
 
-            {data.movements.length===0 ? (
-              <p className="text-sm text-[var(--dim)] mt-3">Sin movimientos todavía.</p>
-            ) : (
+            {data.movements.length>0 && (
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
@@ -879,6 +878,23 @@ export function App(){
               </div>
             </div>
             )}
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 mt-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="font-display font-bold">Movimientos</h2>
+                {data.movements.length>0 && <button type="button" aria-label="Ver todos los movimientos" className="text-sm font-bold underline shrink-0" onClick={()=>goTab("movimientos")}>Ver todos</button>}
+              </div>
+              {data.movements.length===0 ? (
+                <><p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p><button type="button" aria-label="Agregar movimiento" className={btnPrimary+" mt-2"} onClick={()=>openNewMovement("expense")}>+ Agregar movimiento</button></>
+              ) : (
+                <>
+                  {visibleMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
+                  <div className="flex gap-2 mt-3">
+                    <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
+                    <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
+                  </div>
+                </>
+              )}
+            </div>
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Presupuestos</h2>
@@ -896,12 +912,6 @@ export function App(){
               </div>
             </div>
 
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 mt-3">
-              <h2 className="font-display font-bold">Actividad reciente</h2>
-              {visibleMovs.slice(0,6).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
-              {data.movements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>}
-              {data.movements.length>0 && <button type="button" aria-label="Ver todos los movimientos del hogar" className={btnGhost+" mt-2"} onClick={()=>goTab("movimientos")}>Ver todos los movimientos</button>}
-            </div>
           </section>
         )}
 
@@ -1574,7 +1584,7 @@ export function App(){
                       <button type="button" aria-label={`Leer la guía en PDF del segmento ${g.title}`} className={btnGhost+" shrink-0"} onClick={()=>setGuidePdf({title:g.title,src:GUIDE_PDF_BY_GROUP[g.title]||""})}>Guía en PDF</button>
                     </div>
                     <div className="divide-y divide-[var(--border)]">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y actividad.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", guia:"Instalación, video y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", guia:"Instalación, video y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
                     </div>
                   </div>
                 ))}
