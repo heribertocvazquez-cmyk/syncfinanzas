@@ -330,3 +330,21 @@ export const testerFeedback = pgTable("tester_feedback", {
   modulo: text("modulo"),
   dispositivo: text("dispositivo"),
 });
+
+// Avisos dentro de la app (campanita con puntito rojo + insignia del icono).
+// Se crean en el servidor: nuevo integrante en el hogar, gasto mayor que el
+// límite del hogar, presupuesto del mes excedido. La tabla se crea con
+// supabase/notifications.sql; RLS con denegación total, solo service_role.
+// Un aviso por integrante del hogar (user_id destinatario); isRead 0/1.
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  householdId: integer("household_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido"] }).notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  amount: doublePrecision("amount"),
+  target: text("target").notNull().default("inicio"),
+  isRead: integer("is_read").notNull().default(0),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});

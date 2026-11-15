@@ -45,7 +45,7 @@ async function firstMembership(db: ReturnType<typeof getDb>, userId: string) {
 
 // Acciones que se identifican solo por id: el hogar se resuelve desde la
 // fila correspondiente antes de ejecutarlas.
-const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | "funds" | "goals" | "agreements" | "patrimonyItems" | "invitations" | "tandas" | "movements" | "categories" | "tandaParticipants"; idField: "id" | "agreementId" | "tandaId" | "categoryId" | "participantId" }> = {
+const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | "funds" | "goals" | "agreements" | "patrimonyItems" | "invitations" | "tandas" | "movements" | "categories" | "tandaParticipants" | "notifications"; idField: "id" | "agreementId" | "tandaId" | "categoryId" | "participantId" }> = {
   deleteProfile: { table: "profiles", idField: "id" },
   deleteAccount: { table: "accounts", idField: "id" },
   deleteBudget: { table: "budgets", idField: "id" },
@@ -63,6 +63,7 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   drawTanda: { table: "tandas", idField: "tandaId" },
   setParticipantCard: { table: "tandaParticipants", idField: "id" },
   removeTandaParticipant: { table: "tandaParticipants", idField: "id" },
+  markNotificationRead: { table: "notifications", idField: "id" },
 };
 
 const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation", "listTesterFeedback"]);
@@ -103,6 +104,8 @@ async function householdIdForRow(
       return byId(db.select().from(schema.categories).where(eq(schema.categories.id, id)).limit(1));
     case "tandaParticipants":
       return byId(db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.id, id)).limit(1));
+    case "notifications":
+      return byId(db.select().from(schema.notifications).where(eq(schema.notifications.id, id)).limit(1));
     default:
       return null;
   }

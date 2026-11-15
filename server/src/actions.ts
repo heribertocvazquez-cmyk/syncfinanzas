@@ -1,5 +1,5 @@
 import { defineAction, rateLimitDb, z, type ActionsModule, type Ctx } from "./space-shim.js";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { issueInviteToken, inviteUrl, markToken, markTokensForInvitation, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
 import { mailConfigured, sendInviteEmail } from "./mail.js";
@@ -18,6 +18,56 @@ async function rateLimit(key: string, max: number, windowMs: number) {
 // Registro de actividad (auditoría): nunca debe bloquear la operación principal.
 async function logActivity(ctx: Ctx, householdId: number, action: string, detail: string) {
   try { const db = ctx.db; await db.insert(schema.activityLog).values({ householdId, action, detail: detail.slice(0, 300) }); } catch { /* sin registro antes que sin operación */ }
+}
+
+// ---- Avisos dentro de la app (campanita + insignia del icono) ----
+// Un aviso por integrante del hogar (user_id destinatario). Nunca bloquea
+// la operación principal: si la tabla aún no existe (falta correr
+// supabase/notifications.sql), la inserción falla en silencio y la app
+// sigue funcionando sin avisos.
+type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido"; title: string; body: string; amount?: number | null; target: string };
+async function notifyHousehold(ctx: Ctx, householdId: number, n: NotifInput, excludeUserId?: string | null) {
+  try {
+    const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
+    const targets = members.filter(m => m.userId !== excludeUserId);
+    if (targets.length === 0) return;
+    await ctx.db.insert(schema.notifications).values(targets.map(m => ({ householdId, userId: m.userId, type: n.type, title: n.title, body: n.body, amount: n.amount ?? null, target: n.target, isRead: 0 })));
+  } catch { /* tabla aún no creada: la operación principal sigue */ }
+}
+const moneyShort = (n: number) => `$${Math.round(n * 100) / 100}`;
+// Revisa si un gasto nuevo debe avisar: (b) supera el límite del hogar
+// (umbral) y (c) cruza el presupuesto de su categoría en el mes. El aviso
+// de presupuesto solo se crea al cruzar el límite (antes por debajo o
+// igual, después por encima), para no repetirlo en cada gasto posterior.
+async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; movementId: number; type: string; amount: number; categoryId: number | null; visibility: string; date: string }) {
+  try {
+    if (args.type !== "expense" && args.type !== "debt_payment") return;
+    const db = ctx.db;
+    const hh = await db.select().from(schema.households).where(eq(schema.households.id, args.householdId)).limit(1);
+    const threshold = hh[0]?.approvalThreshold ?? 0;
+    if (threshold > 0 && args.amount > threshold) {
+      await notifyHousehold(ctx, args.householdId, { type: "gasto_umbral", title: "Gasto mayor que el límite", body: `Un gasto de ${moneyShort(args.amount)} superó el límite de ${moneyShort(threshold)}.`, amount: args.amount, target: "movimientos" });
+    }
+    if (args.categoryId) {
+      const month = args.date.slice(0, 7);
+      const budgets = await db.select().from(schema.budgets).where(eq(schema.budgets.householdId, args.householdId));
+      const mine = budgets.filter(b => b.categoryId === args.categoryId && b.month === month);
+      if (mine.length > 0) {
+        const cat = await db.select().from(schema.categories).where(eq(schema.categories.id, args.categoryId)).limit(1);
+        const catName = cat[0]?.name ?? "la categoría";
+        const movs = await db.select().from(schema.movements).where(eq(schema.movements.householdId, args.householdId));
+        const reversedIds = new Set(movs.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
+        for (const b of mine) {
+          const spent = (excludeId: number | null) => movs.filter(m => m.reversalOfId == null && !reversedIds.has(m.id) && m.id !== excludeId && m.categoryId === b.categoryId && m.date.startsWith(b.month) && (m.type === "expense" || m.type === "debt_payment") && (b.visibility === "shared" ? m.visibility === "shared" : m.visibility === "private")).reduce((s, m) => s + m.amount, 0);
+          const after = spent(null);
+          const before = spent(args.movementId);
+          if (before <= b.amount && after > b.amount) {
+            await notifyHousehold(ctx, args.householdId, { type: "presupuesto_excedido", title: "Presupuesto excedido", body: `El gasto de ${catName} llegó a ${moneyShort(after)} y superó su presupuesto de ${moneyShort(b.amount)}.`, amount: after, target: "presupuestos" });
+          }
+        }
+      }
+    }
+  } catch { /* los avisos nunca bloquean el registro del gasto */ }
 }
 
 // ---- Invitaciones por correo con enlace directo ----
@@ -516,7 +566,8 @@ export const Actions = {
       let totalCreated = 0;
       for (const it of finalItems) {
         const concept = store ? `${store} — ${it.name.trim()}` : it.name.trim();
-        await db.insert(schema.movements).values({ householdId: args.householdId, type: "expense", amount: Math.round(it.amount*100)/100, concept, accountId: args.accountId ?? null, toAccountId: null, categoryId, subcategory: null, date: dateOk, visibility: args.visibility, profileId: args.profileId ?? null, receiptBlobKey: key });
+        const [created] = await db.insert(schema.movements).values({ householdId: args.householdId, type: "expense", amount: Math.round(it.amount*100)/100, concept, accountId: args.accountId ?? null, toAccountId: null, categoryId, subcategory: null, date: dateOk, visibility: args.visibility, profileId: args.profileId ?? null, receiptBlobKey: key }).returning({ id: schema.movements.id });
+        if (created?.id) await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: created.id, type: "expense", amount: Math.round(it.amount*100)/100, categoryId, visibility: args.visibility, date: dateOk });
         totalCreated += it.amount;
       }
       await logActivity(ctx, args.householdId, "Comprobante leído automáticamente", `Se crearon ${finalItems.length} gasto(s)${store?` de ${store}`:""} por un total de $${Math.round(totalCreated*100)/100}.`);
@@ -538,7 +589,7 @@ export const Actions = {
       if (args.categoryId) { const r = await db.select().from(schema.categories).where(eq(schema.categories.id, args.categoryId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("La categoría indicada no pertenece a este hogar."); }
       if (args.profileId) { const r = await db.select().from(schema.profiles).where(eq(schema.profiles.id, args.profileId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("El perfil indicado no pertenece a este hogar."); }
       if (args.id) { const r = await db.select().from(schema.movements).where(eq(schema.movements.id, args.id)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("El movimiento indicado no pertenece a este hogar."); if (r[0].reversalOfId != null) throw new Error("Una reversión no puede editarse; forma parte del registro de auditoría."); }
-      const vals={householdId:args.householdId,type:args.type,amount:args.amount,concept:args.concept,accountId:args.accountId??null,toAccountId:args.toAccountId??null,categoryId:args.categoryId??null,subcategory:args.subcategory||null,date:args.date,visibility:args.visibility,profileId:args.profileId??null, ...(receiptBlobKey!==undefined?{receiptBlobKey}:{})}; if(args.id){ await db.update(schema.movements).set(vals).where(eq(schema.movements.id,args.id)); await logActivity(ctx, args.householdId, "Movimiento editado", `${args.concept} · $${args.amount}`); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.movements).values(vals).returning({id:schema.movements.id}); await logActivity(ctx, args.householdId, "Movimiento registrado", `${args.concept} · $${args.amount}`); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+      const vals={householdId:args.householdId,type:args.type,amount:args.amount,concept:args.concept,accountId:args.accountId??null,toAccountId:args.toAccountId??null,categoryId:args.categoryId??null,subcategory:args.subcategory||null,date:args.date,visibility:args.visibility,profileId:args.profileId??null, ...(receiptBlobKey!==undefined?{receiptBlobKey}:{})}; if(args.id){ await db.update(schema.movements).set(vals).where(eq(schema.movements.id,args.id)); await logActivity(ctx, args.householdId, "Movimiento editado", `${args.concept} · $${args.amount}`); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.movements).values(vals).returning({id:schema.movements.id}); await logActivity(ctx, args.householdId, "Movimiento registrado", `${args.concept} · $${args.amount}`); if(r?.id) await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: r.id, type: args.type, amount: args.amount, categoryId: args.categoryId ?? null, visibility: args.visibility, date: args.date }); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
   deleteMovement: defineAction({ description: "Deletes a movement.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const rows=await db.select().from(schema.movements).where(eq(schema.movements.id,args.id)); const row=rows[0]; if(row && row.reversalOfId!=null) throw new Error("Una reversión no puede eliminarse por separado; forma parte del registro de auditoría. Si elimina el movimiento original, su reversión se elimina junto con él."); await db.delete(schema.movements).where(eq(schema.movements.reversalOfId,args.id)); await db.delete(schema.movements).where(eq(schema.movements.id,args.id)); if(row) await logActivity(ctx, row.householdId, "Movimiento eliminado", `${row.concept} · $${row.amount}`); ctx.invalidateQueries(); return {ok:true}; } }),
 
@@ -838,6 +889,7 @@ export const Actions = {
         }
       }
       await logActivity(ctx, inv.householdId, "Invitación al hogar aceptada", `${first} · ${inv.email}`);
+      await notifyHousehold(ctx, inv.householdId, { type: "nuevo_integrante", title: "Nuevo integrante en el hogar", body: `${first} se unió al hogar.`, target: "hogar" }, ctx.user.id);
       ctx.invalidateQueries(); return { ok: true, profileId, householdId: inv.householdId };
     },
   }),
@@ -1243,6 +1295,38 @@ export const Actions = {
       if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede revisar las opiniones de los testers.");
       const rows = await ctx.db.select().from(schema.testerFeedback).orderBy(desc(schema.testerFeedback.createdAt)).limit(100);
       return { feedback: rows.map(r => ({ id: r.id, createdAt: r.createdAt.toISOString(), nombre: r.nombre, correo: r.correo, calificacionGeneral: r.calificacionGeneral, facilidadUso: r.facilidadUso, queFunciono: r.queFunciono, queFallo: r.queFallo, sugerencia: r.sugerencia, modulo: r.modulo, dispositivo: r.dispositivo })) };
+    },
+  }),
+  // Avisos dentro de la app (campanita + insignia del icono): cada usuario
+  // ve solo sus propios avisos. Si la tabla aún no existe (falta correr
+  // supabase/notifications.sql), la lista sale vacía y nada se rompe.
+  listNotifications: defineAction({
+    description: "Lists the current user's notifications for the household, newest first, with the unread count.",
+    request: z.object({ householdId: z.number() }),
+    response: z.object({ notifications: z.array(z.object({ id: z.number(), type: z.string(), title: z.string(), body: z.string(), amount: z.number().nullable(), target: z.string(), isRead: z.number(), createdAt: z.string() })), unreadCount: z.number() }),
+    async handler(ctx, args) {
+      try {
+        const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id))).orderBy(desc(schema.notifications.createdAt)).limit(100);
+        return { notifications: rows.map(r => ({ id: r.id, type: r.type, title: r.title, body: r.body, amount: r.amount ?? null, target: r.target, isRead: r.isRead, createdAt: r.createdAt.toISOString() })), unreadCount: rows.filter(r => !r.isRead).length };
+      } catch { return { notifications: [], unreadCount: 0 }; }
+    },
+  }),
+  markNotificationRead: defineAction({
+    description: "Marks one of the current user's notifications as read.",
+    request: z.object({ id: z.number() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      try { await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.id, args.id), eq(schema.notifications.userId, ctx.user.id))); } catch { /* tabla aún no creada */ }
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+  markAllNotificationsRead: defineAction({
+    description: "Marks all of the current user's notifications in the household as read.",
+    request: z.object({ householdId: z.number() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      try { await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id))); } catch { /* tabla aún no creada */ }
+      ctx.invalidateQueries(); return { ok: true };
     },
   }),
 } satisfies ActionsModule;

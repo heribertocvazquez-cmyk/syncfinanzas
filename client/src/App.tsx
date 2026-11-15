@@ -529,12 +529,25 @@ export function App(){
   const [currentProfileId,setCurrentProfileId]=useState<number|null>(()=>{ try{ const v=localStorage.getItem("sf-profile"); return v?Number(v):null; }catch{ return null; } });
   const pickProfile=(id:number|null)=>{ setCurrentProfileId(id); try{ if(id) localStorage.setItem("sf-profile",String(id)); else localStorage.removeItem("sf-profile"); }catch{} };
   const q=useQuery({queryKey:["overview"],queryFn:()=>api.getOverview({})});
-  const inv=()=>qc.invalidateQueries({queryKey:["overview"]});
+  const inv=()=>{ qc.invalidateQueries({queryKey:["overview"]}); qc.invalidateQueries({queryKey:["notifications"]}); };
   const data=q.data;
   // Opiniones de testers (segunda etapa): se consultan solo si hay hogar y el
   // perfil actual es administrador; el servidor vuelve a verificar el rol.
   const meEarly = data ? (data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null) : null;
   const fbQuery=useQuery({queryKey:["testerFeedback"],queryFn:()=>api.listTesterFeedback({householdId:data!.household!.id}),enabled:!!data?.household && (!meEarly || meEarly.role==="admin")});
+  // Avisos dentro de la app (campanita + insignia del icono): cada usuario
+  // ve solo sus propios avisos. Si la tabla aún no existe, la lista sale
+  // vacía y nada se rompe.
+  const notifQuery=useQuery({queryKey:["notifications"],queryFn:()=>api.listNotifications({householdId:data!.household!.id}),enabled:!!data?.household});
+  const unreadCount=notifQuery.data?.unreadCount??0;
+  const [notifOpen,setNotifOpen]=useState(false);
+  const markNotifRead=useMutation({mutationFn:async(id:number)=>await api.markNotificationRead({id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
+  const markAllNotifRead=useMutation({mutationFn:async()=>await api.markAllNotificationsRead({householdId:data!.household!.id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
+  const openNotif=(n:{id:number;target:string})=>{ void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); goTab(n.target as Tab); };
+  // Insignia del icono de la app instalada: número de avisos sin leer; se
+  // quita cuando ya no hay. Solo funciona en navegadores que la soportan
+  // (Android con Chrome y iPhone con iOS 16.4 o posterior).
+  useEffect(()=>{ try{ const nav=navigator as Navigator & { setAppBadge?: (n?:number)=>Promise<void>; clearAppBadge?: ()=>Promise<void> }; if(unreadCount>0) void nav.setAppBadge?.(unreadCount); else void nav.clearAppBadge?.(); }catch{} },[unreadCount]);
 
   // onboarding state
   const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;householdName:string;invitedName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500");
@@ -913,6 +926,10 @@ export function App(){
               <p className="text-[11px] text-[var(--dim)] mt-1.5">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}{me?` · ${fullName(me)} · ${me.role==="admin"?"Administrador":"Integrante"}`:""}</p>
             </div>
             <div className="flex gap-2 shrink-0 pt-0.5">
+              <button type="button" className="relative shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={unreadCount>0?`Notificaciones: ${unreadCount} sin leer`:"Notificaciones"} onClick={()=>setNotifOpen(o=>!o)}>
+                <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+                {unreadCount>0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-[var(--red)] text-white text-[11px] font-bold flex items-center justify-center">{unreadCount>99?"99+":unreadCount}</span>}
+              </button>
               {!appInstalled && <button type="button" className={btnGhost} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
               <button className={btnGhost} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>Demo</button>
             </div>
@@ -952,6 +969,30 @@ export function App(){
         )}
         {demo.error && <p className="max-w-5xl mx-auto px-3 pb-2 text-xs text-[var(--red)]">{String(demo.error)}</p>}
         {demo.isSuccess && <p className="max-w-5xl mx-auto px-3 pb-2 text-xs text-[var(--green)]">Demo cargada: datos con “(demo)”.</p>}
+        {notifOpen && (
+          <div className="absolute right-3 top-full mt-1 z-40 w-[min(22rem,calc(100vw-1.5rem))] max-h-[70vh] overflow-y-auto bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl p-3" role="dialog" aria-label="Notificaciones">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-display font-bold">Notificaciones</h2>
+              <div className="flex items-center gap-2">
+                {unreadCount>0 && <button type="button" className="text-xs font-bold underline" onClick={()=>markAllNotifRead.mutate()} disabled={markAllNotifRead.isPending}>Marcar todas como leídas</button>}
+                <button type="button" aria-label="Cerrar notificaciones" onClick={()=>setNotifOpen(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+              </div>
+            </div>
+            {notifQuery.isPending && <p className="text-sm text-[var(--dim)] mt-2">Cargando avisos…</p>}
+            {notifQuery.data && notifQuery.data.notifications.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin avisos por ahora.</p>}
+            <ul className="mt-2 space-y-2">
+              {notifQuery.data?.notifications.map(n=>(
+                <li key={n.id}>
+                  <button type="button" className={`w-full text-left rounded-xl border p-3 ${n.isRead?"border-[var(--border)]":"border-[var(--gold)] bg-[var(--surface2)]"}`} onClick={()=>openNotif(n)}>
+                    <p className="text-sm font-bold">{n.title}{!n.isRead && <span className="ml-2 inline-block w-2 h-2 rounded-full bg-[var(--red)]" aria-label="Sin leer" />}</p>
+                    <p className="text-sm text-[var(--dim)] mt-0.5">{n.body}</p>
+                    <p className="text-[11px] text-[var(--dim)] mt-1">{new Date(n.createdAt).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </header>
 
       <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
