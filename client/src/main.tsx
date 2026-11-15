@@ -5,6 +5,7 @@ import { App, TesterFeedbackForm } from "./App";
 import { AuthGate } from "./components/AuthGate";
 import "./theme.css";
 import appIcon192 from "./assets/app-icon-192.png";
+import { registerAppServiceWorker } from "./serviceWorkerUpdate";
 import appIcon512 from "./assets/app-icon-512.png";
 
 // Instalación en el celular (aplicación instalable, pensada primero para el
@@ -59,13 +60,9 @@ try {
 // Service worker (solo en producción): guarda la cáscara de la aplicación
 // para que la instalada se abra rápido y siga mostrando la pantalla
 // principal sin conexión. Los datos siempre se consultan en línea.
-if ("serviceWorker" in navigator && import.meta.env.PROD) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {
-      // Sin service worker la aplicación sigue funcionando en línea.
-    });
-  });
-}
+// El módulo serviceWorkerUpdate avisa a la app cuando hay una versión
+// nueva, para que muestre el aviso con el botón Actualizar.
+registerAppServiceWorker();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },

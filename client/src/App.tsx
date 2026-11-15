@@ -14,6 +14,8 @@ import guiaPlanificacionPdf from "./assets/guia-planificacion.pdf";
 import guiaDecisionesPdf from "./assets/guia-decisiones-patrimonio.pdf";
 import guiaTandasPdf from "./assets/guia-tandas.pdf";
 import guiaConfiguracionPdf from "./assets/guia-configuracion-ayuda.pdf";
+import { APP_VERSION } from "./version";
+import { APP_UPDATE_EVENT, applyAppUpdate, checkForAppUpdate } from "./serviceWorkerUpdate";
 import appIcon512 from "./assets/app-icon-512.png";
 
 type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"guia";
@@ -343,6 +345,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["invit", "persona", "pareja", "agreg", "unir"], q: "¿Cómo invito a alguien?", a: "En Perfiles, escriba el correo de la persona y pulse Invitar. Recibirá un enlace directo para entrar a su hogar.", go: "perfiles", goLabel: "Ir a Perfiles" },
   { keys: ["espacio", "hogar", "inici", "empez", "crear"], q: "¿Cómo creo mi espacio?", a: "Para crear su espacio, elija Personal o Familiar, escriba el nombre de su hogar y sus datos, y pulse Crear hogar.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["instal", "celular", "pantalla", "descarg"], q: "¿Cómo instalo la app en mi celular?", a: "En iPhone, abra la app en Safari, toque Compartir y seleccione Agregar a pantalla de inicio. En Android, mantenga presionado el icono y toque Instalar app.", go: "guia", goLabel: "Ir a Guía de uso" },
+  { keys: ["actualiz", "nueva versión", "versión"], q: "¿Cómo actualizo la app?", a: "Si hay una versión nueva, aparece un aviso con el botón Actualizar. También puede revisar en Hogar → Buscar actualizaciones. Su cuenta y sus datos no cambian.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["reinici", "borrar todo", "borrar los datos", "empezar de nuevo", "reset"], q: "¿Cómo reinicio todo?", a: "En Hogar, al final, pulse Reiniciar la aplicación y responda las 3 preguntas de control. Se borra el hogar completo y la app vuelve al inicio." },
   { keys: ["sueldo", "salario"], q: "¿Cómo registro mi sueldo?", a: "En Personal, escriba su sueldo mensual y pulse Guardar sueldo.", go: "personal", goLabel: "Ir a Personal" },
   { keys: ["presupuest", "limite"], q: "¿Cómo creo un presupuesto?", a: "En Presupuestos, elija la categoría, escriba el límite del mes y pulse Guardar.", go: "presupuestos", goLabel: "Ir a Presupuestos" },
@@ -506,6 +509,23 @@ export function App(){
   const doInstall=async()=>{ if(!installPrompt) return; try{ await installPrompt.prompt(); const choice=await installPrompt.userChoice; if(choice.outcome==="accepted") setAppInstalled(true); }catch{ /* el navegador no ofreció la instalación; quedan los pasos manuales */ } setInstallPrompt(null); };
   const handleInstallClick=()=>{ if(installPrompt){ void doInstall(); } else { setInstallStepsOpen(true); } };
   const dismissInstall=()=>{ setInstallDismissed(true); try{ localStorage.setItem("sf-install-dismissed","1"); }catch{} };
+  // Aviso de actualización: cuando el service worker nuevo queda en espera,
+  // la app muestra el aviso con el botón Actualizar. Al actualizar solo
+  // cambia el código; la sesión y los datos no se tocan.
+  const [updateAvailable,setUpdateAvailable]=useState(false); const [updateApplying,setUpdateApplying]=useState(false); const [updateChecking,setUpdateChecking]=useState(false); const [updateCheckMsg,setUpdateCheckMsg]=useState<string|null>(null);
+  useEffect(()=>{
+    const onUpdate=()=>setUpdateAvailable(true);
+    window.addEventListener(APP_UPDATE_EVENT,onUpdate);
+    return ()=>window.removeEventListener(APP_UPDATE_EVENT,onUpdate);
+  },[]);
+  const checkUpdatesManually=async()=>{
+    setUpdateChecking(true); setUpdateCheckMsg(null);
+    const r=await checkForAppUpdate();
+    setUpdateChecking(false);
+    if(r==="update"){ setUpdateAvailable(true); setUpdateCheckMsg("Hay una nueva versión. Pulse Actualizar arriba."); }
+    else if(r==="latest"){ setUpdateCheckMsg("Ya tiene la versión más reciente."); }
+    else { setUpdateCheckMsg("No se pudo revisar la actualización."); }
+  };
   const [currentProfileId,setCurrentProfileId]=useState<number|null>(()=>{ try{ const v=localStorage.getItem("sf-profile"); return v?Number(v):null; }catch{ return null; } });
   const pickProfile=(id:number|null)=>{ setCurrentProfileId(id); try{ if(id) localStorage.setItem("sf-profile",String(id)); else localStorage.removeItem("sf-profile"); }catch{} };
   const q=useQuery({queryKey:["overview"],queryFn:()=>api.getOverview({})});
@@ -935,6 +955,7 @@ export function App(){
       </header>
 
       <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
+        {updateAvailable && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 flex items-center gap-2" role="status"><p className="text-sm flex-1"><b>Hay una nueva versión de SyncFinanzas.</b> Su cuenta y sus datos no cambian.</p><button type="button" className={btnPrimary} disabled={updateApplying} onClick={()=>{ setUpdateApplying(true); applyAppUpdate(); }}>{updateApplying?"Actualizando…":"Actualizar"}</button><button type="button" aria-label="Cerrar el aviso de actualización" onClick={()=>setUpdateAvailable(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-3 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {savedNotice && <div className="mb-3 bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex items-center gap-2" role="status"><p className="text-sm flex-1">{savedNotice}</p><button type="button" className={btnPrimary} onClick={()=>{setSavedNotice(null);goTab("inicio");}}>Ir a Inicio</button><button type="button" aria-label="Cerrar el aviso" onClick={()=>setSavedNotice(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
@@ -1778,6 +1799,13 @@ export function App(){
                 </div>}
               </div>
             )}
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+              <h3 className="font-display font-bold">Actualizaciones de la aplicación</h3>
+              <p className="text-xs text-[var(--dim)] mt-1">Versión: {APP_VERSION}</p>
+              <p className="text-sm text-[var(--dim)] mt-1">Al actualizar no se cierra su sesión ni se borran sus datos.</p>
+              <button type="button" className={btnGhost+" mt-2"} disabled={updateChecking} onClick={()=>{ void checkUpdatesManually(); }}>{updateChecking?"Revisando…":"Buscar actualizaciones"}</button>
+              {updateCheckMsg && <p className="text-sm mt-2" role="status">{updateCheckMsg}</p>}
+            </div>
             <div className="pt-1">
               <button type="button" aria-label="Reiniciar la aplicación y borrar todos los datos" onClick={()=>{ setResetStep(1); setResetWord(""); }} className="text-xs text-[var(--dim)] underline">Reiniciar la aplicación</button>
               {resetStep>0 && (
