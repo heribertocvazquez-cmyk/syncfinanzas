@@ -150,6 +150,109 @@ const inputCls="w-full rounded-xl border border-[var(--border)] bg-[var(--surfac
 const btnPrimary="rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
 const btnGhost="rounded-full border border-[var(--border)] px-3 py-2 text-sm font-semibold";
 
+// Calendario mensual en rejilla para una tanda: lunes a domingo, con los
+// días de pago en dorado y los días de entrega en azul. Solo muestra
+// fechas y estados; no cobra nada.
+type TandaCal = {
+  id: number; name: string; amountPerQuincena: number;
+  calendar: { index: number; date: string; receiverName: string | null; receiverId: number | null; amount: number }[];
+  participants: { id: number; name: string; excluded?: number }[];
+  payments: { participantId: number; quincenaIndex: number; status: string; paidDate?: string | null }[];
+};
+const CAL_WEEKDAYS = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+function parseISODate(iso:string){ const [y=2026,m=1,d=1]=iso.split("-").map(Number); return new Date(y,(m||1)-1,d||1); }
+function daysFromToday(iso:string){ const t=new Date(); t.setHours(0,0,0,0); return Math.round((parseISODate(iso).getTime()-t.getTime())/86400000); }
+function capFirst(s:string){ return s.charAt(0).toUpperCase()+s.slice(1); }
+
+function TandaMonthCalendar({td}:{td:TandaCal}){
+  const now = new Date();
+  const [view,setView] = useState({y:now.getFullYear(), m:now.getMonth()});
+  const [selected,setSelected] = useState<string|null>(null);
+  const todayKey = todayISO();
+  if (td.calendar.length===0) return <p className="text-sm text-[var(--dim)]">Sin periodos todavía.</p>;
+  const byDate = new Map(td.calendar.map(c=>[c.date, c]));
+  const upcoming = td.calendar.filter(c=>c.date>=todayKey);
+  const nextPay = upcoming[0] || null;
+  const nextReceive = upcoming.find(c=>c.receiverName) || null;
+  const payDays = nextPay ? daysFromToday(nextPay.date) : null;
+  const recDays = nextReceive ? daysFromToday(nextReceive.date) : null;
+  const payLine = !nextPay ? "La tanda terminó. No hay fechas próximas para pagar."
+    : payDays===0 ? `Hoy se paga · ${fmtDate(nextPay.date)}`
+    : payDays===1 ? `Falta 1 día para pagar · ${fmtDate(nextPay.date)}`
+    : `Faltan ${payDays} días para pagar · ${fmtDate(nextPay.date)}`;
+  const recLine = !nextReceive ? (nextPay ? "Aún sin sorteo: no hay entrega programada." : "Sin entregas próximas.")
+    : recDays===0 ? `Hoy recibe ${nextReceive.receiverName} · ${fmtDate(nextReceive.date)}`
+    : recDays===1 ? `Falta 1 día para recibir · recibe ${nextReceive.receiverName} · ${fmtDate(nextReceive.date)}`
+    : `Faltan ${recDays} días para recibir · recibe ${nextReceive.receiverName} · ${fmtDate(nextReceive.date)}`;
+  const first = new Date(view.y, view.m, 1);
+  const leading = (first.getDay()+6)%7;
+  const daysInMonth = new Date(view.y, view.m+1, 0).getDate();
+  const monthLabel = capFirst(first.toLocaleDateString("es-MX",{month:"long",year:"numeric"}));
+  const sel = selected ? byDate.get(selected) : null;
+  const shiftMonth = (d:number)=>{ setView(v=>{ const dt=new Date(v.y, v.m+d, 1); return {y:dt.getFullYear(), m:dt.getMonth()}; }); };
+  const activeParts = td.participants.filter(p=>p.excluded!==1);
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="font-display font-bold text-sm">Calendario del mes</h4>
+        <div className="flex items-center gap-1">
+          <button type="button" aria-label="Mes anterior" className={btnGhost} onClick={()=>shiftMonth(-1)}>‹</button>
+          <span className="text-sm font-bold min-w-[132px] text-center">{monthLabel}</span>
+          <button type="button" aria-label="Mes siguiente" className={btnGhost} onClick={()=>shiftMonth(1)}>›</button>
+          <button type="button" aria-label="Volver al mes actual" className={btnGhost} onClick={()=>setView({y:now.getFullYear(), m:now.getMonth()})}>Hoy</button>
+        </div>
+      </div>
+      <div className="bg-[#FBF6E9] border border-[var(--gold)] rounded-2xl p-3 space-y-1 mt-2">
+        <p className="text-sm font-bold text-[#6B4E0A]">{payLine}</p>
+        <p className="text-sm font-bold text-[#1D5A75]">{recLine}</p>
+      </div>
+      <div className="grid grid-cols-7 gap-1 mt-2">
+        {CAL_WEEKDAYS.map(wd=><div key={wd} className="text-[10px] font-bold text-[var(--dim)] text-center py-1">{wd}</div>)}
+        {Array.from({length: leading+daysInMonth}, (_,i)=>{
+          if(i<leading) return <div key={`b${i}`} />;
+          const d = i-leading+1;
+          const key = `${view.y}-${String(view.m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+          const c = byDate.get(key);
+          const isToday = key===todayKey;
+          const isPast = key<todayKey;
+          const inner = (<>
+            <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isToday?"bg-[var(--accent)] text-white":""}`}>{d}</span>
+            {c && <>
+              <span className="block mt-0.5 text-[9px] leading-[1.15] font-bold rounded px-0.5 py-px bg-[#F3E3B8] text-[#6B4E0A]">Pagar {money(td.amountPerQuincena)}</span>
+              {c.receiverName && <span className="block mt-0.5 text-[9px] leading-[1.15] font-bold rounded px-0.5 py-px bg-[#DCEBF3] text-[#1D5A75] truncate">Recibe: {c.receiverName}</span>}
+            </>}
+          </>);
+          const cls = `min-h-[54px] rounded-lg border p-1 text-left align-top ${c ? "border-[var(--gold)] bg-[#FBF6E9]" : "border-[var(--border)]"} ${isPast && c ? "opacity-60" : ""} ${isToday && !c ? "ring-2 ring-[var(--accent)]" : ""} ${selected===key ? "ring-2 ring-[var(--gold)]" : ""}`;
+          return c
+            ? <button key={key} type="button" aria-label={`Periodo ${c.index+1} el ${fmtDate(key)}${c.receiverName?`, recibe ${c.receiverName}`:""}`} className={cls} onClick={()=>setSelected(selected===key?null:key)}>{inner}</button>
+            : <div key={key} className={cls}>{inner}</div>;
+        })}
+      </div>
+      <p className="text-xs text-[var(--dim)] mt-2"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#F3E3B8] border border-[#C5962C] align-middle mr-1" />Día de pago · <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#DCEBF3] border border-[#2E86AB] align-middle mr-1" />Día de entrega. Toque un día marcado para ver el detalle.</p>
+      {sel && (
+        <div className="bg-[var(--surface2)] rounded-2xl p-3 mt-2">
+          <div className="flex justify-between gap-2 items-start">
+            <div>
+              <p className="font-display font-bold text-sm">Periodo {sel.index+1} · {fmtDate(sel.date)}</p>
+              <p className="text-sm mt-0.5">{sel.receiverName ? <>Recibe <b>{sel.receiverName}</b> · <b>{money(sel.amount)}</b></> : "Pendiente de sorteo"}</p>
+              <p className="text-sm">Cada participante paga <b>{money(td.amountPerQuincena)}</b></p>
+            </div>
+            <button type="button" aria-label="Cerrar detalle del día" className={btnGhost} onClick={()=>setSelected(null)}>×</button>
+          </div>
+          <div className="space-y-1 mt-2">
+            {activeParts.map(pt=>{
+              const pay = td.payments.find(x=>x.participantId===pt.id && x.quincenaIndex===sel.index);
+              const st = pay?.status || "pending";
+              return <p key={pt.id} className="text-sm flex justify-between gap-2"><span>{pt.name}</span><span className={`text-xs font-bold rounded-full px-2 py-0.5 shrink-0 ${st==="paid"?"bg-green-100 text-green-900":st==="late"?"bg-red-100 text-red-900":"bg-amber-100 text-amber-900"}`}>{st==="paid"?"Pagado":st==="late"?"Atrasado":"Pendiente"}{pay?.paidDate?` · ${fmtDate(pay.paidDate)}`:""}</span></p>;
+            })}
+            {activeParts.length===0 && <p className="text-sm text-[var(--dim)]">Agregue participantes.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Instalación en el celular (aplicación instalable, pensada primero para el teléfono) ----
 // El manifiesto (generado al cargar en main.tsx, con las rutas reales de los iconos) y las
 // metaetiquetas de index.html declaran la aplicación como instalable: icono propio, pantalla
@@ -1482,6 +1585,7 @@ export function App(){
                     {td.invitations.filter(iv=>iv.status!=="pending").length>0 && <p className="text-xs text-[var(--dim)] mt-2">{td.invitations.filter(iv=>iv.status==="accepted").length} aceptada(s) · {td.invitations.filter(iv=>iv.status==="rejected").length} rechazada(s).</p>}
                   </div>
                 </div>
+                <TandaMonthCalendar td={td} />
                 <div>
                   <h4 className="font-display font-bold text-sm">Calendario de entregas</h4>
                   <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
