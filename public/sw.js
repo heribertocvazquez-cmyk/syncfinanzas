@@ -11,7 +11,7 @@
 // worker en espera que se active (SKIP_WAITING) y recarga. La sesión y los
 // datos no se tocan: viven en Supabase y la recarga solo cambia el código
 // de la aplicación.
-const SW_VERSION = "d945a70";
+const SW_VERSION = "637a7a5";
 const CACHE = `syncfinanzas-${SW_VERSION}`;
 const SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
