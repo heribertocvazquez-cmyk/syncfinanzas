@@ -8,6 +8,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveCo
 import { api } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
 import guiaVideo from "./assets/media-generation-video-explicativo-syncfinanzas-0-db93744d-d5cd-455b-a5df-f1f32c5644bc.mp4";
+import guiaInstruccionesVideo from "./assets/syncfinanzas-instrucciones-v3-63s.mp4";
 import guiaResumenPdf from "./assets/guia-resumen-registro.pdf";
 import guiaPlanificacionPdf from "./assets/guia-planificacion.pdf";
 import guiaDecisionesPdf from "./assets/guia-decisiones-patrimonio.pdf";
@@ -1558,6 +1559,11 @@ export function App(){
 
         {effTab==="guia" && (
           <section className="space-y-3">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
+              <h2 className="font-display font-bold text-base">Video de instrucciones</h2>
+              <p className="text-sm text-[var(--dim)] mt-1">En 1 minuto: cómo usar la app.</p>
+              <video controls preload="metadata" playsInline src={guiaInstruccionesVideo} className="w-full rounded-2xl mt-3 border border-[var(--border)]" aria-label="Video de instrucciones de SyncFinanzas" />
+            </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex items-center gap-2">
               <h2 className="font-display font-bold text-base flex-1 min-w-0">Instalación en el celular</h2>
               <button type="button" className={btnPrimary+" shrink-0"} onClick={handleInstallClick}>Cómo instalar</button>
