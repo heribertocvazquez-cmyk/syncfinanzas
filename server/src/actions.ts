@@ -1,6 +1,7 @@
 import { defineAction, rateLimitDb, z, type ActionsModule, type Ctx } from "./space-shim.js";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "./schema.js";
+import { supabaseAdmin } from "./supabase.js";
 import { issueInviteToken, inviteUrl, markToken, markTokensForInvitation, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
 import { mailConfigured, sendInviteEmail } from "./mail.js";
 
@@ -1295,6 +1296,46 @@ export const Actions = {
       if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede revisar las opiniones de los testers.");
       const rows = await ctx.db.select().from(schema.testerFeedback).orderBy(desc(schema.testerFeedback.createdAt)).limit(100);
       return { feedback: rows.map(r => ({ id: r.id, createdAt: r.createdAt.toISOString(), nombre: r.nombre, correo: r.correo, calificacionGeneral: r.calificacionGeneral, facilidadUso: r.facilidadUso, queFunciono: r.queFunciono, queFallo: r.queFallo, sugerencia: r.sugerencia, modulo: r.modulo, dispositivo: r.dispositivo })) };
+    },
+  }),
+  // Registro de usuarios de la app (para revisar cuántos usuarios hay):
+  // consulta los usuarios de Supabase Auth desde el servidor (clave de
+  // servicio, paginado) y los combina con los perfiles de la app para el
+  // nombre. Solo el administrador del hogar puede consultarlo; sin hogar,
+  // solo el dueño de su propia cuenta. Un usuario sin perfil aparece igual,
+  // con su correo y sus fechas: lo que se cuenta es quién ha entrado a la
+  // app, no solo quién está en un hogar.
+  listAppUsers: defineAction({
+    description: "Lists the app users from Supabase Auth, newest first, with registration date and last sign-in.",
+    request: z.object({ householdId: z.number().optional() }),
+    response: z.object({ total: z.number(), users: z.array(z.object({ id: z.string(), name: z.string().nullable(), email: z.string().nullable(), createdAt: z.string(), lastSignInAt: z.string().nullable() })) }),
+    async handler(ctx) {
+      if (ctx.householdId != null && ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede revisar los usuarios de la app.");
+      const admin = supabaseAdmin();
+      const all: { id: string; email?: string | null; created_at: string; last_sign_in_at?: string | null; user_metadata?: Record<string, unknown> }[] = [];
+      let page = 1;
+      for (;;) {
+        const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 100 });
+        if (error) throw new Error("No se pudo consultar los usuarios de la app.");
+        const users = data.users ?? [];
+        all.push(...users);
+        if (users.length < 100 || page >= 100) break;
+        page++;
+      }
+      const ids = all.map(u => u.id);
+      const names = new Map<string, string>();
+      if (ids.length > 0) {
+        const rows = await ctx.db.select().from(schema.profiles).where(inArray(schema.profiles.userId, ids));
+        for (const r of rows) if (r.userId && r.name) names.set(r.userId, r.name);
+      }
+      const users = all.map(u => ({
+        id: u.id,
+        name: names.get(u.id) ?? (typeof u.user_metadata?.name === "string" ? (u.user_metadata.name as string) : null),
+        email: u.email ?? null,
+        createdAt: u.created_at,
+        lastSignInAt: u.last_sign_in_at ?? null,
+      })).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      return { total: users.length, users };
     },
   }),
   // Avisos dentro de la app (campanita + insignia del icono): cada usuario

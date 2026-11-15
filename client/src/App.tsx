@@ -547,6 +547,10 @@ export function App(){
   // perfil actual es administrador; el servidor vuelve a verificar el rol.
   const meEarly = data ? (data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null) : null;
   const fbQuery=useQuery({queryKey:["testerFeedback"],queryFn:()=>api.listTesterFeedback({householdId:data!.household!.id}),enabled:!!data?.household && (!meEarly || meEarly.role==="admin")});
+  // Registro de usuarios de la app: total y lista de quienes han entrado.
+  // Solo lo ve el administrador del hogar; el servidor vuelve a verificar
+  // el rol. Sin hogar, el dueño de la cuenta lo consulta sin householdId.
+  const appUsersQuery=useQuery({queryKey:["appUsers"],queryFn:()=>api.listAppUsers({householdId:data!.household!.id}),enabled:!!data?.household && (!meEarly || meEarly.role==="admin")});
   // Avisos dentro de la app (campanita + insignia del icono): cada usuario
   // ve solo sus propios avisos. Si la tabla aún no existe, la lista sale
   // vacía y nada se rompe.
@@ -1850,6 +1854,27 @@ export function App(){
                     </div>
                   ))}
                 </div>}
+              </div>
+            )}
+            {isAdmin && (
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+                <h3 className="font-display font-bold">Usuarios de la app</h3>
+                <p className="text-xs text-[var(--dim)] mt-1">Quiénes han entrado a la app. Solo lo ve el administrador.</p>
+                {appUsersQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando usuarios…</p>
+                : appUsersQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar los usuarios.</p>
+                : !appUsersQuery.data || appUsersQuery.data.total===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin usuarios todavía.</p>
+                : <>
+                  <p className="text-sm mt-2"><b>{appUsersQuery.data.total}</b> {appUsersQuery.data.total===1?"usuario ha entrado":"usuarios han entrado"} a la app.</p>
+                  <div className="divide-y divide-[var(--border)] mt-2">
+                    {appUsersQuery.data.users.map(u=>(
+                      <div key={u.id} className="py-2.5 text-sm">
+                        <div className="flex justify-between gap-2"><b>{u.name || u.email || "Usuario"}</b><span className="text-xs text-[var(--dim)] shrink-0">{u.lastSignInAt?`Último acceso: ${fmtDate(u.lastSignInAt.slice(0,10))}`:"Sin accesos registrados"}</span></div>
+                        {u.email && <p className="text-xs text-[var(--dim)]">{u.email}</p>}
+                        <p className="text-xs text-[var(--dim)]">Registro: {fmtDate(u.createdAt.slice(0,10))}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>}
               </div>
             )}
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
