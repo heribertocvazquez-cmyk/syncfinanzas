@@ -350,6 +350,33 @@ export const goalPlans = pgTable("goal_plans", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
+// Arqueo de efectivo (auditoría): recuento de lo que dice la app contra lo
+// contado en físico, por cada cuenta y en efectivo. El arqueo solo muestra
+// la diferencia; nunca cambia los saldos. Las tablas se crean con
+// supabase/cash-counts.sql; RLS con denegación total, solo service_role.
+// accountId null = Efectivo (movimientos sin cuenta). accountName es una
+// foto del nombre al momento del arqueo, por si la cuenta se renombra o se
+// elimina después. Solo el administrador hace el arqueo en modo Familiar.
+export const cashCounts = pgTable("cash_counts", {
+  id: serial("id").primaryKey(),
+  householdId: integer("household_id").notNull(),
+  createdByName: text("created_by_name").notNull().default(""),
+  note: text("note").notNull().default(""),
+  totalApp: doublePrecision("total_app").notNull().default(0),
+  totalCounted: doublePrecision("total_counted").notNull().default(0),
+  totalDiff: doublePrecision("total_diff").notNull().default(0),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+export const cashCountLines = pgTable("cash_count_lines", {
+  id: serial("id").primaryKey(),
+  countId: integer("count_id").notNull(),
+  accountId: integer("account_id"),
+  accountName: text("account_name").notNull(),
+  appBalance: doublePrecision("app_balance").notNull(),
+  countedAmount: doublePrecision("counted_amount").notNull(),
+  difference: doublePrecision("difference").notNull(),
+});
+
 // Avisos dentro de la app (campanita con puntito rojo + insignia del icono).
 // Se crean en el servidor: nuevo integrante en el hogar, gasto mayor que el
 // límite del hogar, presupuesto del mes excedido. La tabla se crea con

@@ -79,6 +79,43 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
 // Meses en formato YYYY-MM; las fechas de movimientos son YYYY-MM-DD.
 const ymOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 const ymParts = (ym: string) => { const [y = 2026, m = 1] = ym.split("-").map(Number); return { y, m }; };
+// ---- Arqueo de efectivo (auditoría) ----
+// Saldos que dice la app, con la misma lógica que getOverview: movimientos
+// activos (sin reversiones ni reversados), saldo inicial más movimientos por
+// cuenta, y el efectivo como los movimientos sin cuenta (unassignedNet).
+// El servidor calcula estos saldos: el cliente solo anota lo contado.
+async function appBalancesForHousehold(db: Ctx["db"], householdId: number) {
+  const accountsR = await db.select().from(schema.accounts).where(eq(schema.accounts.householdId, householdId));
+  const movsR = await db.select().from(schema.movements).where(eq(schema.movements.householdId, householdId));
+  const fundMovsR = await db.select().from(schema.fundMovements).where(eq(schema.fundMovements.householdId, householdId));
+  const reversedIds = new Set(movsR.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
+  const activeMovs = movsR.filter(m => m.reversalOfId == null && !reversedIds.has(m.id));
+  const rows = accountsR.map(a => {
+    let bal = a.initialBalance;
+    for (const m of activeMovs) {
+      if (m.accountId === a.id) {
+        if (m.type === "income") bal += m.amount;
+        else if (m.type === "expense" || m.type === "debt_payment") bal -= m.amount;
+        else if (m.type === "transfer") bal -= m.amount;
+      }
+      if (m.toAccountId === a.id && m.type === "transfer") bal += m.amount;
+    }
+    for (const fm of fundMovsR) {
+      const anyFm = fm as unknown as { accountId?: number | null };
+      if (anyFm.accountId === a.id) { if (fm.type === "contribution") bal -= fm.amount; else bal += fm.amount; }
+    }
+    return { accountId: a.id, accountName: a.name, appBalance: Math.round(bal * 100) / 100 };
+  });
+  const cashApp = Math.round(activeMovs.filter(m => m.accountId == null).reduce((s, m) => s + (m.type === "income" ? m.amount : (m.type === "expense" || m.type === "debt_payment") ? -m.amount : 0), 0) * 100) / 100;
+  return { rows, cashApp };
+}
+// Solo el administrador hace el arqueo en modo Familiar. En modo Personal
+// el único perfil es el dueño (administrador), así que no se restringe.
+async function requireCashCountAdmin(ctx: Ctx, householdId: number) {
+  const hh = await ctx.db.select().from(schema.households).where(eq(schema.households.id, householdId)).limit(1);
+  if (!hh[0]) throw new Error("No se encontró el hogar indicado.");
+  if (hh[0].mode === "familiar" && ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede hacer el arqueo de efectivo.");
+}
 const monthDiff = (fromYm: string, toYm: string) => { const a = ymParts(fromYm); const b = ymParts(toYm); return (b.y - a.y) * 12 + (b.m - a.m); };
 const ymAdd = (ym: string, n: number) => { const { y, m } = ymParts(ym); return ymOf(new Date(y, m - 1 + n, 1)); };
 const monthLabelEs = (ym: string) => { const { y, m } = ymParts(ym); return new Date(y, m - 1, 1).toLocaleDateString("es-MX", { month: "long", year: "numeric" }); };
@@ -1511,6 +1548,7 @@ export const Actions = {
       await db.delete(schema.tandas).where(eq(schema.tandas.householdId, hid));
       await db.delete(schema.movements).where(eq(schema.movements.householdId, hid));
       try { await db.delete(schema.goalPlans).where(eq(schema.goalPlans.householdId, hid)); } catch { /* tabla aún no creada */ }
+      try { const ccs = await db.select({ id: schema.cashCounts.id }).from(schema.cashCounts).where(eq(schema.cashCounts.householdId, hid)); for (const c of ccs) await db.delete(schema.cashCountLines).where(eq(schema.cashCountLines.countId, c.id)); await db.delete(schema.cashCounts).where(eq(schema.cashCounts.householdId, hid)); } catch { /* tablas aún no creadas */ }
       await db.delete(schema.fundMovements).where(eq(schema.fundMovements.householdId, hid));
       await db.delete(schema.funds).where(eq(schema.funds.householdId, hid));
       await db.delete(schema.budgets).where(eq(schema.budgets.householdId, hid));
@@ -1629,6 +1667,65 @@ export const Actions = {
         lastSignInAt: u.last_sign_in_at ?? null,
       })).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
       return { total: users.length, users };
+    },
+  }),
+  // Arqueo de efectivo (auditoría): recuento de lo que dice la app contra
+  // lo contado en físico, por cada cuenta y en efectivo. El arqueo solo
+  // muestra la diferencia; nunca cambia los saldos. Las líneas se guardan
+  // con el saldo que decía la app al momento del arqueo. Solo el
+  // administrador hace el arqueo en modo Familiar (lo verifica también el
+  // despachador por membresía). Si falta correr supabase/cash-counts.sql,
+  // guardar avisa y la lista sale vacía, sin romper la app.
+  saveCashCount: defineAction({
+    description: "Guarda un arqueo de efectivo: compara lo contado en físico con el saldo que dice la app, por cada cuenta y en efectivo, y guarda la diferencia sin cambiar los saldos.",
+    request: z.object({ householdId: z.number(), lines: z.array(z.object({ accountId: z.number().nullable(), counted: z.number().min(0).max(999999999) })).min(1).max(100), note: z.string().max(200).default("") }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      await rateLimit("saveCashCount", 10, 60_000);
+      const db = ctx.db;
+      await requireCashCountAdmin(ctx, args.householdId);
+      const balances = await appBalancesForHousehold(db, args.householdId);
+      const byId = new Map(balances.rows.map(r => [r.accountId, r]));
+      const seen = new Set<string>();
+      const lines = args.lines.map(l => {
+        const key = l.accountId == null ? "cash" : `acc-${l.accountId}`;
+        if (seen.has(key)) throw new Error("Una cuenta aparece dos veces en el arqueo.");
+        seen.add(key);
+        const appBalance = l.accountId == null ? balances.cashApp : byId.get(l.accountId)?.appBalance;
+        if (appBalance == null) throw new Error("Una de las cuentas no pertenece a este hogar.");
+        const counted = Math.round(l.counted * 100) / 100;
+        return { accountId: l.accountId, accountName: l.accountId == null ? "Efectivo" : byId.get(l.accountId)!.accountName, appBalance, countedAmount: counted, difference: Math.round((counted - appBalance) * 100) / 100 };
+      });
+      const totalApp = Math.round(lines.reduce((s, l) => s + l.appBalance, 0) * 100) / 100;
+      const totalCounted = Math.round(lines.reduce((s, l) => s + l.countedAmount, 0) * 100) / 100;
+      const totalDiff = Math.round((totalCounted - totalApp) * 100) / 100;
+      let countId: number;
+      try {
+        const [row] = await db.insert(schema.cashCounts).values({ householdId: args.householdId, createdByName: await inviterDisplayName(ctx, args.householdId), note: args.note || "", totalApp, totalCounted, totalDiff }).returning({ id: schema.cashCounts.id });
+        if (!row) throw new Error("No se pudo guardar el arqueo.");
+        countId = row.id;
+        await db.insert(schema.cashCountLines).values(lines.map(l => ({ countId, accountId: l.accountId, accountName: l.accountName, appBalance: l.appBalance, countedAmount: l.countedAmount, difference: l.difference })));
+      } catch (e) {
+        if (e instanceof Error && /does not exist/i.test(e.message)) throw new Error("Para guardar el arqueo, primero ejecute supabase/cash-counts.sql en el SQL Editor de Supabase.");
+        throw e;
+      }
+      await logActivity(ctx, args.householdId, "Arqueo de efectivo", `Diferencia total ${moneyShort(totalDiff)}`);
+      ctx.invalidateQueries();
+      return { ok: true, id: countId };
+    },
+  }),
+  listCashCounts: defineAction({
+    description: "Lists the saved cash counts (arqueos de efectivo) for the household, newest first, with their lines.",
+    request: z.object({ householdId: z.number() }),
+    response: z.object({ counts: z.array(z.object({ id: z.number(), createdAt: z.string(), createdByName: z.string(), note: z.string(), totalApp: z.number(), totalCounted: z.number(), totalDiff: z.number(), lines: z.array(z.object({ accountId: z.number().nullable(), accountName: z.string(), appBalance: z.number(), countedAmount: z.number(), difference: z.number() })) })) }),
+    async handler(ctx, args) {
+      await requireCashCountAdmin(ctx, args.householdId);
+      try {
+        const counts = await ctx.db.select().from(schema.cashCounts).where(eq(schema.cashCounts.householdId, args.householdId)).orderBy(desc(schema.cashCounts.createdAt)).limit(50);
+        if (counts.length === 0) return { counts: [] };
+        const lines = await ctx.db.select().from(schema.cashCountLines).where(inArray(schema.cashCountLines.countId, counts.map(c => c.id)));
+        return { counts: counts.map(c => ({ id: c.id, createdAt: c.createdAt.toISOString(), createdByName: c.createdByName, note: c.note, totalApp: c.totalApp, totalCounted: c.totalCounted, totalDiff: c.totalDiff, lines: lines.filter(l => l.countId === c.id).map(l => ({ accountId: l.accountId, accountName: l.accountName, appBalance: l.appBalance, countedAmount: l.countedAmount, difference: l.difference })) })) };
+      } catch { return { counts: [] }; }
     },
   }),
   // Avisos dentro de la app (campanita + insignia del icono): cada usuario

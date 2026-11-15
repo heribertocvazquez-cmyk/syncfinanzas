@@ -342,6 +342,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["gast", "registr"], q: "¿Cómo registro un gasto?", a: "En Movimientos, escriba el importe, elija el tipo de gasto y pulse Registrar. En modo Personal también puede usar Gasto del día en Personal. Elija de dónde se descuenta: Efectivo o una de sus cuentas.", go: "movimientos", goLabel: "Ir a Movimientos" },
   { keys: ["ingres", "registr"], q: "¿Cómo registro un ingreso?", a: "En Movimientos, elija Ingreso, escriba el importe y pulse Registrar.", go: "movimientos", goLabel: "Ir a Movimientos" },
   { keys: ["cuenta", "agreg", "banc", "efectivo"], q: "¿Cómo agrego una cuenta?", a: "En Cuentas, pulse Nueva cuenta, escriba el nombre, el tipo y el saldo inicial.", go: "cuentas", goLabel: "Ir a Cuentas" },
+  { keys: ["arqueo", "auditor", "conteo", "recuento", "cierre de caja"], q: "¿Cómo hago un arqueo de efectivo?", a: "En Cuentas, pulse Arqueo de efectivo y anote lo que contó en físico por cada cuenta y en efectivo. La app muestra al lado lo que dice la app y la diferencia: en rojo si falta dinero, en verde si sobra, y Sin diferencia cuando coincide. El arqueo no cambia los saldos, solo guarda el recuento para revisarlo después.", go: "cuentas", goLabel: "Ir a Cuentas" },
   { keys: ["tanda"], q: "¿Cómo creo una tanda?", a: "En Tandas, escriba el nombre, el monto y el número de participantes, elija la regla si alguien no paga, el tesorero y el día de reunión, y pulse Crear tanda. Después invite por correo a los participantes. En cada ronda verá la ficha, el pase de lista y los saldos separados.", go: "tandas", goLabel: "Ir a Tandas" },
   { keys: ["invit", "persona", "unir", "alguien", "invito a mi pareja"], q: "¿Cómo invito a alguien?", a: "En Perfiles, escriba el correo de la persona y pulse Invitar. Recibirá un enlace directo para entrar a su hogar.", go: "perfiles", goLabel: "Ir a Perfiles" },
   { keys: ["espacio", "hogar", "inici", "empez"], q: "¿Cómo creo mi espacio?", a: "Para crear su espacio, elija Personal o Familiar, escriba el nombre de su hogar y sus datos, y pulse Crear hogar.", go: "hogar", goLabel: "Ir a Hogar" },
@@ -556,6 +557,10 @@ export function App(){
   // Solo lo ve el administrador del hogar; el servidor vuelve a verificar
   // el rol. Sin hogar, el dueño de la cuenta lo consulta sin householdId.
   const appUsersQuery=useQuery({queryKey:["appUsers"],queryFn:()=>api.listAppUsers({householdId:data!.household!.id}),enabled:!!data?.household && (!meEarly || meEarly.role==="admin")});
+  // Arqueos de efectivo: historial de recuentos guardados. Solo los
+  // consulta el administrador del hogar; el servidor vuelve a verificar
+  // el rol. Si la tabla aún no existe, la lista sale vacía.
+  const ccQuery=useQuery({queryKey:["cashCounts"],queryFn:()=>api.listCashCounts({householdId:data!.household!.id}),enabled:!!data?.household && (!meEarly || meEarly.role==="admin")});
   // Avisos dentro de la app (campanita + insignia del icono): cada usuario
   // ve solo sus propios avisos. Si la tabla aún no existe, la lista sale
   // vacía y nada se rompe.
@@ -647,6 +652,12 @@ export function App(){
   const [accFormName,setAccFormName]=useState(""); const [accType,setAccType]=useState<"bank"|"cash"|"credit"|"investment"|"loan">("bank"); const [accVis,setAccVis]=useState<"private"|"shared">("shared"); const [accInit,setAccInit]=useState("0"); const [editingAcc,setEditingAcc]=useState<number|null>(null);
   const saveAcc=useMutation({mutationFn:async()=>await api.saveAccount({id:editingAcc??undefined,householdId:data!.household!.id,name:accFormName,type:accType,visibility:accVis,initialBalance:Number(accInit)||0}),onSuccess:()=>{inv();setAccFormName("");setEditingAcc(null);setSavedNotice("Cuenta guardada.");}});
   const delAcc=useMutation({mutationFn:async(id:number)=>await api.deleteAccount({id}),onSuccess:inv});
+
+  // Arqueo de efectivo (auditoría): lo contado en físico por cada cuenta y
+  // en efectivo, contra lo que dice la app. La diferencia se calcula en
+  // pantalla y el servidor la vuelve a calcular al guardar.
+  const [ccOpen,setCcOpen]=useState(false); const [ccCounted,setCcCounted]=useState<Record<string,string>>({}); const [ccNote,setCcNote]=useState(""); const [ccError,setCcError]=useState(""); const [ccExpanded,setCcExpanded]=useState<number|null>(null);
+  const saveCc=useMutation({mutationFn:async()=>{ const lines: {accountId:number|null;counted:number}[] = []; const cash=ccCounted["cash"]; if(cash!=null && cash!=="" && Number(cash)>=0) lines.push({accountId:null,counted:Number(cash)}); for(const a of data!.accounts){ const v=ccCounted[`acc-${a.id}`]; if(v!=null && v!=="" && Number(v)>=0) lines.push({accountId:a.id,counted:Number(v)}); } if(lines.length===0) throw new Error("Anote al menos una cantidad contada."); return await api.saveCashCount({householdId:data!.household!.id,lines,note:ccNote}); },onSuccess:()=>{inv(); qc.invalidateQueries({queryKey:["cashCounts"]}); setCcCounted({}); setCcNote(""); setCcError(""); setCcOpen(false); setSavedNotice("Arqueo guardado.");},onError:(e:Error)=>{setCcError(e.message);}});
 
   // budget
   const [budCat,setBudCat]=useState(""); const [budMonth,setBudMonth]=useState(monthNow()); const [budAmount,setBudAmount]=useState(""); const [budVis,setBudVis]=useState<"private"|"shared">("shared");
@@ -1213,7 +1224,7 @@ export function App(){
           </section>
         )}
 
-        {effTab==="cuentas" && (
+        {effTab==="cuentas" && (<>
           <section className="grid md:grid-cols-[320px_1fr] gap-3 items-start">
             <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAcc.mutate();}}>
               <h2 className="font-display font-bold text-base">{editingAcc?"Editar cuenta":"Nueva cuenta"}</h2>
@@ -1232,7 +1243,45 @@ export function App(){
               {data.accounts.length===0 && <Empty title="Sin cuentas" body="Cree su primera cuenta." action={{label:"+ Agregar cuenta",onClick:()=>focusField("acc-name")}} />}
             </div>
           </section>
-        )}
+          {isAdmin && (
+            <div className="mt-3">
+              <button type="button" aria-label={ccOpen?"Cerrar el arqueo de efectivo":"Abrir el arqueo de efectivo"} className={btnPrimary} onClick={()=>{ setCcOpen(!ccOpen); setCcError(""); }}>{ccOpen?"Cerrar arqueo":"Arqueo de efectivo"}</button>
+              {ccOpen && (()=>{ const rows=[{key:"cash",name:"Efectivo",app:s.unassignedNet},...data.accounts.map(a=>({key:`acc-${a.id}`,name:a.name,app:a.balance}))]; const countedRows=rows.filter(r=>{const v=ccCounted[r.key]; return v!=null&&v!==""&&Number(v)>=0&&!Number.isNaN(Number(v));}); const totalApp=Math.round(countedRows.reduce((x,r)=>x+r.app,0)*100)/100; const totalCounted=Math.round(countedRows.reduce((x,r)=>x+Number(ccCounted[r.key]),0)*100)/100; const totalDiff=Math.round((totalCounted-totalApp)*100)/100; return (
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5 mt-3">
+                <h2 className="font-display font-bold text-base">Arqueo de efectivo</h2>
+                <p className="text-sm text-[var(--dim)] mt-1">Anote lo que contó en físico. El arqueo no cambia los saldos, solo muestra la diferencia para revisarla después.</p>
+                <div className="divide-y divide-[var(--border)] mt-2">
+                  {rows.map(r=>{ const v=ccCounted[r.key]??""; const n=Number(v); const has=v!==""&&!Number.isNaN(n)&&n>=0; const d=has?Math.round((n-r.app)*100)/100:0; return (
+                  <div key={r.key} className="py-2.5 grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_auto_auto_auto] gap-2 items-center">
+                    <div><p className="font-semibold text-sm">{r.name}</p><p className="text-xs text-[var(--dim)]">En la app: {money2(r.app)}</p></div>
+                    <div><Label htmlFor={`cc-${r.key}`}>Contado ($)</Label><input id={`cc-${r.key}`} aria-label={`Cantidad contada en ${r.name}`} type="number" min="0" step="0.01" className={inputCls+" w-32"} value={v} onChange={e=>setCcCounted({...ccCounted,[r.key]:e.target.value})} placeholder="0.00" /></div>
+                    <div className="sm:text-right">{!has ? <span className="text-xs text-[var(--dim)]">Sin contar</span> : d===0 ? <span className="text-xs font-bold text-[var(--green)]">Sin diferencia</span> : <span className={`text-xs font-bold ${d<0?"text-[var(--red)]":"text-[var(--green)]"}`}>{d<0?`Falta ${money2(-d)}`:`Sobra ${money2(d)}`}</span>}</div>
+                  </div>); })}
+                </div>
+                <div className="flex flex-wrap gap-4 text-sm mt-2 pt-2 border-t border-[var(--border)]"><span>En la app: <b>{money2(totalApp)}</b></span><span>Contado: <b>{money2(totalCounted)}</b></span><span>Diferencia: {countedRows.length===0 ? <b className="text-[var(--dim)]">Sin contar</b> : totalDiff===0 ? <b className="text-[var(--green)]">Sin diferencia</b> : <b className={totalDiff<0?"text-[var(--red)]":"text-[var(--green)]"}>{totalDiff<0?`Falta ${money2(-totalDiff)}`:`Sobra ${money2(totalDiff)}`}</b>}</span></div>
+                <div className="mt-3"><Label htmlFor="cc-note">Nota (opcional)</Label><input id="cc-note" aria-label="Nota del arqueo, opcional" className={inputCls} value={ccNote} onChange={e=>setCcNote(e.target.value)} placeholder="Ej. Arqueo de cierre de mes" /></div>
+                {ccError && <p className="text-sm text-[var(--red)] mt-2" role="alert">{ccError}</p>}
+                <div className="flex gap-2 mt-3"><button type="button" className={btnPrimary} disabled={saveCc.isPending} onClick={()=>saveCc.mutate()}>{saveCc.isPending?"Guardando…":"Guardar arqueo"}</button><button type="button" className={btnGhost} onClick={()=>{ setCcOpen(false); setCcError(""); }}>Cancelar</button></div>
+              </div>); })()}
+              <div className="mt-3">
+                <h3 className="font-display font-bold">Historial de arqueos</h3>
+                {ccQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando arqueos…</p>
+                : ccQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar los arqueos.</p>
+                : !ccQuery.data || ccQuery.data.counts.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin arqueos guardados todavía.</p>
+                : <div className="space-y-2 mt-2">
+                  {ccQuery.data.counts.map(c=>(
+                    <div key={c.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
+                      <div className="flex justify-between gap-2 items-start"><div><p className="font-display font-bold text-sm">Arqueo · {fmtDate(c.createdAt.slice(0,10))}</p><p className="text-xs text-[var(--dim)]">{c.createdByName}{c.note?` · ${c.note}`:""}</p><p className="text-xs text-[var(--dim)] mt-1">En la app {money2(c.totalApp)} · Contado {money2(c.totalCounted)}</p></div><p className={`font-display font-extrabold shrink-0 ${c.totalDiff===0?"text-[var(--green)]":c.totalDiff<0?"text-[var(--red)]":"text-[var(--green)]"}`}>{c.totalDiff===0?"Sin diferencia":c.totalDiff<0?`Falta ${money2(-c.totalDiff)}`:`Sobra ${money2(c.totalDiff)}`}</p></div>
+                      <button type="button" aria-label={`Ver detalle del arqueo del ${fmtDate(c.createdAt.slice(0,10))}`} className="text-xs underline mt-2" onClick={()=>setCcExpanded(ccExpanded===c.id?null:c.id)}>{ccExpanded===c.id?"Ocultar detalle":"Ver detalle"}</button>
+                      {ccExpanded===c.id && <div className="divide-y divide-[var(--border)] mt-2">{c.lines.map(l=>(<div key={l.accountId??"cash"} className="py-2 flex flex-wrap justify-between gap-2 text-sm"><span>{l.accountName}</span><span className="text-[var(--dim)]">App {money2(l.appBalance)} · Contado {money2(l.countedAmount)} · {l.difference===0?<b className="text-[var(--green)]">Sin diferencia</b>:l.difference<0?<b className="text-[var(--red)]">Falta {money2(-l.difference)}</b>:<b className="text-[var(--green)]">Sobra {money2(l.difference)}</b>}</span></div>))}</div>}
+                    </div>
+                  ))}
+                </div>}
+              </div>
+            </div>
+          )}
+        </>)}
+
 
         {effTab==="presupuestos" && (
           <section>
@@ -1815,7 +1864,7 @@ export function App(){
                       <button type="button" aria-label={`Leer la guía en PDF del segmento ${g.title}`} className={btnGhost+" shrink-0"} onClick={()=>setGuidePdf({title:g.title,src:GUIDE_PDF_BY_GROUP[g.title]||""})}>Guía en PDF</button>
                     </div>
                     <div className="divide-y divide-[var(--border)]">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", guia:"Instalación, video y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático y arqueo de efectivo.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", guia:"Instalación, video y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
                     </div>
                   </div>
                 ))}
