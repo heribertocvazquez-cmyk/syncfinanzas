@@ -204,8 +204,8 @@ function TandaMonthCalendar({td}:{td:TandaCal}){
           <button type="button" aria-label="Volver al mes actual" className={btnGhost} onClick={()=>setView({y:now.getFullYear(), m:now.getMonth()})}>Hoy</button>
         </div>
       </div>
-      <div className="bg-[#FBF6E9] border border-[var(--gold)] rounded-2xl p-3 space-y-1 mt-2">
-        <p className="text-sm font-bold text-[#6B4E0A]">{payLine}</p>
+      <div className="bg-[#FBF6E9] dark:bg-[#2E2617] border border-[var(--gold)] rounded-2xl p-3 space-y-1 mt-2">
+        <p className="text-sm font-bold text-[#6B4E0A] dark:text-[#E3C078]">{payLine}</p>
         <p className="text-sm font-bold text-[#1D5A75]">{recLine}</p>
       </div>
       <div className="grid grid-cols-7 gap-1 mt-2">
@@ -220,17 +220,17 @@ function TandaMonthCalendar({td}:{td:TandaCal}){
           const inner = (<>
             <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isToday?"bg-[var(--accent)] text-white":""}`}>{d}</span>
             {c && <>
-              <span className="block mt-0.5 text-[9px] leading-[1.15] font-bold rounded px-0.5 py-px bg-[#F3E3B8] text-[#6B4E0A]">Pagar {money(td.amountPerQuincena)}</span>
-              {c.receiverName && <span className="block mt-0.5 text-[9px] leading-[1.15] font-bold rounded px-0.5 py-px bg-[#DCEBF3] text-[#1D5A75] truncate">Recibe: {c.receiverName}</span>}
+              <span className="block mt-0.5 text-[9px] leading-[1.15] font-bold rounded px-0.5 py-px bg-[#F3E3B8] dark:bg-[#453A1B] text-[#6B4E0A] dark:text-[#E8C86A]">Pagar {money(td.amountPerQuincena)}</span>
+              {c.receiverName && <span className="block mt-0.5 text-[9px] leading-[1.15] font-bold rounded px-0.5 py-px bg-[#DCEBF3] dark:bg-[#16303F] text-[#1D5A75] dark:text-[#8FC7E8] truncate">Recibe: {c.receiverName}</span>}
             </>}
           </>);
-          const cls = `min-h-[54px] rounded-lg border p-1 text-left align-top ${c ? "border-[var(--gold)] bg-[#FBF6E9]" : "border-[var(--border)]"} ${isPast && c ? "opacity-60" : ""} ${isToday && !c ? "ring-2 ring-[var(--accent)]" : ""} ${selected===key ? "ring-2 ring-[var(--gold)]" : ""}`;
+          const cls = `min-h-[54px] rounded-lg border p-1 text-left align-top ${c ? "border-[var(--gold)] bg-[#FBF6E9] dark:bg-[#2E2617]" : "border-[var(--border)]"} ${isPast && c ? "opacity-60" : ""} ${isToday && !c ? "ring-2 ring-[var(--accent)]" : ""} ${selected===key ? "ring-2 ring-[var(--gold)]" : ""}`;
           return c
             ? <button key={key} type="button" aria-label={`Periodo ${c.index+1} el ${fmtDate(key)}${c.receiverName?`, recibe ${c.receiverName}`:""}`} className={cls} onClick={()=>setSelected(selected===key?null:key)}>{inner}</button>
             : <div key={key} className={cls}>{inner}</div>;
         })}
       </div>
-      <p className="text-xs text-[var(--dim)] mt-2"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#F3E3B8] border border-[#C5962C] align-middle mr-1" />Día de pago · <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#DCEBF3] border border-[#2E86AB] align-middle mr-1" />Día de entrega. Toque un día marcado para ver el detalle.</p>
+      <p className="text-xs text-[var(--dim)] mt-2"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#F3E3B8] dark:bg-[#453A1B] border border-[#C5962C] align-middle mr-1" />Día de pago · <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#DCEBF3] dark:bg-[#16303F] border border-[#2E86AB] align-middle mr-1" />Día de entrega. Toque un día marcado para ver el detalle.</p>
       {sel && (
         <div className="bg-[var(--surface2)] rounded-2xl p-3 mt-2">
           <div className="flex justify-between gap-2 items-start">
@@ -355,6 +355,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["perfil", "pareja", "familiar", "a mi pareja"], q: "¿Cómo agrego a mi pareja?", a: "En Perfiles puede ver a las personas del hogar y agregar a su pareja o familiares.", go: "perfiles", goLabel: "Ir a Perfiles" },
   { keys: ["saldo", "disponible", "cuanto me queda", "restante", "queda"], q: "¿Cuánto me queda?", a: "Su saldo disponible está en Inicio, en la tarjeta de arriba.", go: "inicio", goLabel: "Ir a Inicio" },
   { keys: ["grafic", "ingresos vs gastos"], q: "¿Dónde veo las gráficas?", a: "Las gráficas están en Inicio y aparecen cuando hay movimientos.", go: "inicio", goLabel: "Ir a Inicio" },
+  { keys: ["modo oscuro", "modo claro", "oscuro", "claro", "noche", "tema oscuro", "tema claro"], q: "¿Cómo cambio a modo oscuro o claro?", a: "Arriba, junto a la campanita, pulse el botón de la luna o del sol para cambiar entre modo oscuro y modo claro. Su elección se guarda para la próxima vez.", go: "inicio", goLabel: "Ir a Inicio" },
   { keys: ["modo", "cambi", "personal"], q: "¿Cómo cambio el modo?", a: "El modo se elige al crear el espacio y se cambia en Hogar.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["contrase", "clave", "correo", "mi cuenta"], q: "¿Cómo es mi cuenta?", a: "Su cuenta se crea con su correo y una contraseña de al menos 12 caracteres." },
   { keys: ["fondo", "apart"], q: "¿Cómo creo un fondo?", a: "En Fondos, cree un apartado con su meta y agregue dinero desde sus cuentas.", go: "fondos", goLabel: "Ir a Fondos" },
@@ -524,6 +525,8 @@ export function App(){
   // Aviso de actualización: cuando el service worker nuevo queda en espera,
   // la app muestra el aviso con el botón Actualizar. Al actualizar solo
   // cambia el código; la sesión y los datos no se tocan.
+  const [darkMode,setDarkMode]=useState(()=>{ try{ return document.documentElement.classList.contains("dark"); }catch{ return false; } });
+  const toggleTheme=()=>{ const next=!darkMode; setDarkMode(next); try{ localStorage.setItem("sf-theme", next?"dark":"light"); }catch{} try{ document.documentElement.classList.toggle("dark", next); }catch{} };
   const [updateAvailable,setUpdateAvailable]=useState(false); const [updateApplying,setUpdateApplying]=useState(false); const [updateChecking,setUpdateChecking]=useState(false); const [updateCheckMsg,setUpdateCheckMsg]=useState<string|null>(null);
   useEffect(()=>{
     const onUpdate=()=>setUpdateAvailable(true);
@@ -942,6 +945,13 @@ export function App(){
               <p className="text-[11px] text-[var(--dim)] mt-1.5">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}{me?` · ${fullName(me)} · ${me.role==="admin"?"Administrador":"Integrante"}`:""}</p>
             </div>
             <div className="flex gap-2 shrink-0 pt-0.5">
+              <button type="button" className="relative shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={darkMode?"Cambiar a modo claro":"Cambiar a modo oscuro"} title={darkMode?"Modo claro":"Modo oscuro"} onClick={toggleTheme}>
+                {darkMode ? (
+                  <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                ) : (
+                  <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                )}
+              </button>
               <button type="button" className="relative shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={unreadCount>0?`Notificaciones: ${unreadCount} sin leer`:"Notificaciones"} onClick={()=>setNotifOpen(o=>!o)}>
                 <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
                 {unreadCount>0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-[var(--red)] text-white text-[11px] font-bold flex items-center justify-center">{unreadCount>99?"99+":unreadCount}</span>}
@@ -1360,7 +1370,7 @@ export function App(){
           <section className="grid md:grid-cols-[320px_1fr] gap-3 items-start">
             <div style={{gridColumn:"1 / -1"}} className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3 flex flex-wrap items-center gap-2">
               <div className="flex-1 min-w-[200px]"><p className="font-display font-bold">Perfil en uso</p><p className="text-xs opacity-80">Lo que ve en este dispositivo.</p></div>
-              <select aria-label="Perfil actual en este dispositivo" className="rounded-xl bg-white text-black px-3 py-2.5 font-semibold" value={me?me.id:""} onChange={e=>pickProfile(Number(e.target.value))}>
+              <select aria-label="Perfil actual en este dispositivo" className="rounded-xl bg-[var(--surface)] text-[var(--text)] px-3 py-2.5 font-semibold" value={me?me.id:""} onChange={e=>pickProfile(Number(e.target.value))}>
                 {data.profiles.map(x=><option key={x.id} value={x.id}>{fullName(x)} — {x.role==="admin"?"Administrador":"Integrante"}</option>)}
               </select>
               <span className="text-sm font-bold">{isAdmin?"Ve todo lo compartido.":"Ve lo compartido y sus privados."}</span>
@@ -1570,11 +1580,11 @@ export function App(){
                         <div key={it.participantId} className="flex flex-wrap items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-2xl px-3 py-2">
                           <span className="text-sm flex-1 min-w-[120px]"><b>{it.name}</b> <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${it.status==="paid"?"bg-green-100 text-green-900":it.status==="late"?"bg-red-100 text-red-900":"bg-amber-100 text-amber-900"}`}>{it.status==="paid"?"Pagado":it.status==="late"?"Atrasado":"Pendiente"}</span>{it.paidDate && <span className="text-xs text-[var(--dim)]"> · pagó el {fmtDate(it.paidDate)}</span>}{it.verified===1 && <span className="text-xs text-[var(--green)]"> · Verificado</span>}{it.fineAmount>0 && <span className="text-xs text-[var(--red)]"> · Multa {money(it.fineAmount)}</span>}</span>
                           <span className="flex flex-wrap gap-1">
-                            {it.status!=="paid" && <button aria-label={`Marcar pagado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-white rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"paid"})}>Marcar pagado</button>}
-                            {it.status==="pending" && <button aria-label={`Marcar atrasado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-white rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"late"})}>Marcar atrasado</button>}
-                            {it.status==="late" && td.fineAmount>0 && <button aria-label={`Aplicar multa a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-white rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>addFine.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,reason:"retardo"})}>Aplicar multa {money(td.fineAmount)}</button>}
+                            {it.status!=="paid" && <button aria-label={`Marcar pagado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"paid"})}>Marcar pagado</button>}
+                            {it.status==="pending" && <button aria-label={`Marcar atrasado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"late"})}>Marcar atrasado</button>}
+                            {it.status==="late" && td.fineAmount>0 && <button aria-label={`Aplicar multa a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>addFine.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,reason:"retardo"})}>Aplicar multa {money(td.fineAmount)}</button>}
                             {it.status==="paid" && it.verified!==1 && <button aria-label={`Verificar pago de ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--green)] text-white rounded-full px-2 py-1 text-xs font-bold" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,verified:true})}>Verificar pago</button>}
-                            {it.proofUrl && <button aria-label={`Ver comprobante de ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-white rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setReceiptView(it.proofUrl)}>Ver comprobante</button>}
+                            {it.proofUrl && <button aria-label={`Ver comprobante de ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setReceiptView(it.proofUrl)}>Ver comprobante</button>}
                           </span>
                         </div>
                         );
@@ -1603,7 +1613,7 @@ export function App(){
                       {td.fines.map(f=>{ const pn = td.participants.find(p=>p.id===f.participantId)?.name || "Participante"; return (
                         <div key={f.id} className="flex flex-wrap items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-2xl px-3 py-2">
                           <span className="text-sm flex-1 min-w-[120px]"><b>{pn}</b> · {money(f.amount)} · {f.reason==="falta"?"Falta":"Retardo"} · periodo {f.quincenaIndex+1} · <b>{f.status==="pagada"?"Pagada":"Pendiente"}</b></span>
-                          {f.status==="pendiente" && <button aria-label={`Marcar pagada la multa de ${pn}`} className="bg-white rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>payFine.mutate({tandaId:td.id,fineId:f.id})}>Marcar pagada</button>}
+                          {f.status==="pendiente" && <button aria-label={`Marcar pagada la multa de ${pn}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>payFine.mutate({tandaId:td.id,fineId:f.id})}>Marcar pagada</button>}
                         </div>
                       ); })}
                     </div>
@@ -1676,8 +1686,8 @@ export function App(){
                           <span className="block mt-1.5 space-y-1">
                             <span className="block text-xs">Entrega: {dv?.organizerConfirmed===1 ? <b className="text-[var(--green)]">Confirmada por el organizador</b> : "Sin confirmar por el organizador"} · Recepción: {dv?.receiverConfirmed===1 ? <b className="text-[var(--green)]">Confirmada por quien recibe</b> : "Sin confirmar por quien recibe"}</span>
                             <span className="flex flex-wrap gap-1">
-                              {dv?.organizerConfirmed!==1 && <button aria-label={`Confirmar entrega del periodo ${c.index+1} de ${td.name}`} className="bg-white rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>confirmDelivery.mutate({tandaId:td.id,quincenaIndex:c.index,receiverId:c.receiverId,by:"organizador"})}>Confirmo entrega</button>}
-                              {dv?.receiverConfirmed!==1 && <button aria-label={`Confirmar recepción del periodo ${c.index+1} de ${td.name}`} className="bg-white rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>confirmDelivery.mutate({tandaId:td.id,quincenaIndex:c.index,receiverId:c.receiverId,by:"receptor"})}>Confirmo recepción</button>}
+                              {dv?.organizerConfirmed!==1 && <button aria-label={`Confirmar entrega del periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>confirmDelivery.mutate({tandaId:td.id,quincenaIndex:c.index,receiverId:c.receiverId,by:"organizador"})}>Confirmo entrega</button>}
+                              {dv?.receiverConfirmed!==1 && <button aria-label={`Confirmar recepción del periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>confirmDelivery.mutate({tandaId:td.id,quincenaIndex:c.index,receiverId:c.receiverId,by:"receptor"})}>Confirmo recepción</button>}
                             </span>
                           </span>
                         ); })()}
@@ -1704,12 +1714,12 @@ export function App(){
                               <span key={pt.id} className={`rounded-2xl px-3 py-2 text-xs font-semibold ${verified?"bg-green-100 text-green-900":paid?"bg-amber-100 text-amber-900":"bg-[var(--surface2)]"}`}>
                                 <span className="block">{pt.name}: {verified?`Pago verificado${pay?.paidDate?` · pagó el ${fmtDate(pay.paidDate)}`:""}`:paid?`Pagado, en revisión${pay?.proofUrl?" (con comprobante)":" (sin comprobante)"}${pay?.paidDate?` · ${fmtDate(pay.paidDate)}`:""}`:"Pendiente"}</span>
                                 <span className="flex flex-wrap gap-1 mt-1.5">
-                                  {pay?.proofUrl && <span className="flex items-center gap-1"><img src={pay.proofUrl} alt={`Comprobante de pago de ${pt.name} periodo ${c.index+1}`} className="w-8 h-8 object-cover rounded-md border border-[var(--border)]" /><button aria-label={`Ver comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-white rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setReceiptView(pay.proofUrl)}>Ver comprobante</button></span>}
-                                  <label className="bg-white rounded-full px-2 py-1 font-bold border border-[var(--border)] cursor-pointer" aria-label={`Subir comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`}>{pay?.proofUrl?"Cambiar comprobante":"Subir comprobante"}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de ${pt.name} periodo ${c.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProof.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,file:f}); e.target.value=""; }} /></label>
+                                  {pay?.proofUrl && <span className="flex items-center gap-1"><img src={pay.proofUrl} alt={`Comprobante de pago de ${pt.name} periodo ${c.index+1}`} className="w-8 h-8 object-cover rounded-md border border-[var(--border)]" /><button aria-label={`Ver comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setReceiptView(pay.proofUrl)}>Ver comprobante</button></span>}
+                                  <label className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)] cursor-pointer" aria-label={`Subir comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`}>{pay?.proofUrl?"Cambiar comprobante":"Subir comprobante"}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de ${pt.name} periodo ${c.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProof.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,file:f}); e.target.value=""; }} /></label>
                                   {!verified && <button aria-label={`Verificar y confirmar el pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--green)] text-white rounded-full px-2 py-1 font-bold" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:true})}>Verificar pago</button>}
-                                  {verified && <button aria-label={`Retirar la verificación del pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-white rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:false})}>Retirar verificación</button>}
-                                  <button aria-label={`${paid?"Marcar pendiente":"Marcar pagado sin comprobante"} a ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-white rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,status:paid?"pending":"paid"})}>{paid?"Marcar pendiente":"Marcar pagado"}</button>
-                                  {!paid && <button aria-label={`Enviar recordatorio a ${pt.name} periodo ${c.index+1}`} className="bg-white rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>remindPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index})}>{pay?.reminderSent?"Recordatorio enviado":"Enviar recordatorio"}</button>}
+                                  {verified && <button aria-label={`Retirar la verificación del pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:false})}>Retirar verificación</button>}
+                                  <button aria-label={`${paid?"Marcar pendiente":"Marcar pagado sin comprobante"} a ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,status:paid?"pending":"paid"})}>{paid?"Marcar pendiente":"Marcar pagado"}</button>
+                                  {!paid && <button aria-label={`Enviar recordatorio a ${pt.name} periodo ${c.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>remindPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index})}>{pay?.reminderSent?"Recordatorio enviado":"Enviar recordatorio"}</button>}
                                 </span>
                               </span>
                             );
@@ -1944,7 +1954,7 @@ export function App(){
       {receiptView && <div className="fixed inset-0 z-50 bg-black/85 flex flex-col items-center justify-center p-3" role="dialog" aria-label="Fotografía del comprobante en tamaño completo">
         <img src={receiptView} alt="Fotografía del comprobante adjunta al gasto, en tamaño completo" className="max-h-[78vh] w-auto rounded-2xl object-contain" />
         <p className="text-white/80 text-xs mt-3">Comprobante del gasto.</p>
-        <button aria-label="Cerrar fotografía del comprobante" className="mt-3 bg-white text-black font-bold rounded-full px-6 py-2.5" onClick={()=>setReceiptView(null)}>Cerrar</button>
+        <button aria-label="Cerrar fotografía del comprobante" className="mt-3 bg-[var(--surface)] text-[var(--text)] font-bold rounded-full px-6 py-2.5" onClick={()=>setReceiptView(null)}>Cerrar</button>
       </div>}
     </div>
   );

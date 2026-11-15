@@ -57,6 +57,17 @@ try {
   // estático y las metaetiquetas de index.html.
 }
 
+// Modo claro / oscuro: se aplica antes de pintar para que la app no
+// parpadee al abrir. La elección guardada del usuario (localStorage
+// "sf-theme") manda; la primera vez se usa lo que prefiere el navegador.
+try {
+  const stored = localStorage.getItem("sf-theme");
+  const dark = stored ? stored === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.classList.toggle("dark", dark);
+} catch {
+  // Sin almacenamiento disponible: queda el modo claro.
+}
+
 // Service worker (solo en producción): guarda la cáscara de la aplicación
 // para que la instalada se abra rápido y siga mostrando la pantalla
 // principal sin conexión. Los datos siempre se consultan en línea.

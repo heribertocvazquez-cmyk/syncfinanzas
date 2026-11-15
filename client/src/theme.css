@@ -2,6 +2,11 @@
 @import "tailwindcss";
 @import "tailwindcss-safe-area";
 
+/* Variante oscura por clase: las clases dark: de Tailwind se activan
+   cuando <html> lleva la clase "dark", que pone el botón del encabezado
+   (o la preferencia del navegador la primera vez). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --text-xs: 12px; --text-xs--line-height: 16px;
   --text-sm: 14px; --text-sm--line-height: 20px;
@@ -14,15 +19,20 @@
   --font-display: "Manrope", system-ui, sans-serif;
 }
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #F4F6F5; --surface: #FFFFFF; --surface2: #EAF0EE;
   --text: #13262E; --dim: #5B6E73; --border: #DCE6E3;
   --accent: #0E2F3D; --accent-text: #FFFFFF; --gold: #C5962C; --green: #1B7A4D; --red: #B42318;
   --radius: 16px;
   --space-surface: var(--surface); --space-surface-alt: var(--surface2); --space-muted: var(--dim); --space-border: var(--border); --space-accent: var(--accent);
 }
-@media (prefers-color-scheme: dark) {
-  :root { --bg:#0C1A20; --surface:#13262E; --surface2:#1A323E; --text:#EFF6F4; --dim:#9AB0B5; --border:#23404C; --accent:#E8B84A; --accent-text:#13262E; }
+/* Modo oscuro (clase "dark" en <html>): mismos fondos oscuros que antes
+   daba la preferencia del sistema, con verde, rojo y dorado aclarados
+   para que los textos de esos colores se lean sobre fondo oscuro. */
+:root.dark {
+  color-scheme: dark;
+  --bg:#0C1A20; --surface:#13262E; --surface2:#1A323E; --text:#EFF6F4; --dim:#9AB0B5; --border:#23404C;
+  --accent:#E8B84A; --accent-text:#13262E; --gold:#D9A93F; --green:#4CAF7D; --red:#F26D5F;
 }
 @layer base {
   button, [role="button"], select, summary, input:not([type="checkbox"],[type="radio"]) { min-height: 2.25rem; }
