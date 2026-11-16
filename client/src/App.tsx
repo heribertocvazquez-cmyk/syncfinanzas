@@ -742,7 +742,7 @@ export function App(){
   useEffect(()=>{ try{ const nav=navigator as Navigator & { setAppBadge?: (n?:number)=>Promise<void>; clearAppBadge?: ()=>Promise<void> }; if(unreadCount>0) void nav.setAppBadge?.(unreadCount); else void nav.clearAppBadge?.(); }catch{} },[unreadCount]);
 
   // onboarding state
-  const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;householdName:string;invitedName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500");
+  const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;email:string;householdName:string;invitedName:string|null;kind:"household"|"tanda";tandaId:number|null;tandaName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500");
   const findInv=useMutation({mutationFn:async()=>await api.findInvitations({email:invEmail}),onSuccess:(r)=>{setInvFound(r.invitations);setInvSearched(true);}});
   const respondInv=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:joinFirst||undefined,lastName:joinLast||undefined}),onSuccess:inv});
   const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero personal":hhName):hhName,currency:"MXN",cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:()=>{ inv(); setChartsSeen(false); try{ localStorage.setItem("sf-first-guide-pending","1"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
@@ -776,6 +776,9 @@ export function App(){
   // y visible, seguido de los pasos para entrar. El mismo mensaje se copia
   // y se comparte por WhatsApp.
   const inviteMessage=(url:string)=>`${url}\nLe invito a SyncFinanzas, la app para llevar el dinero del hogar.\nPara entrar:\n1. Abra este enlace.\n2. Cree su cuenta con su correo y una contraseña.\n3. Acepte la invitación y entre al hogar.`;
+  // Mensaje de invitación a una tanda: el enlace va primero, seguido de los
+  // pasos para entrar. El mismo mensaje se copia y se comparte por WhatsApp.
+  const tandaInviteMessage=(url:string,tandaName:string)=>`${url}\nLe invito a participar en la tanda ${tandaName} en SyncFinanzas.\nPara entrar:\n1. Abra este enlace.\n2. Cree su cuenta con el correo invitado y una contraseña.\n3. Acepte la invitación y participe en la tanda.`;
   useEffect(()=>{
     const token = readInviteToken();
     if (!token) return;
@@ -786,7 +789,7 @@ export function App(){
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
     if (tokenInvite.kind==="general") { if (!tokenRaw) throw new Error("Falta el enlace de invitación."); return await api.acceptGeneralInvite({token: tokenRaw}); }
     if (tokenInvite.kind==="household" && tokenInvite.invitationId) return await api.respondInvitation({id: tokenInvite.invitationId, accept: true, firstName: joinFirst||undefined, lastName: joinLast||undefined});
-    if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: true, name: joinFirst||undefined});
+    if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: true, name: [joinFirst, joinLast].filter(Boolean).join(" ")||undefined});
     throw new Error("No se pudo identificar la invitación del enlace.");
   },onSuccess:()=>{ setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); }});
   const rejectTokenInvite=useMutation({mutationFn:async()=>{
@@ -963,7 +966,7 @@ export function App(){
   const uploadProof=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;file:File})=>{ const r=await fileToBase64(v.file); return await api.setTandaPayment({householdId:data!.household!.id,tandaId:v.tandaId,participantId:v.participantId,quincenaIndex:v.quincenaIndex,status:"paid",proof:{dataBase64:r.dataBase64,mimeType:r.mimeType}}); },onSuccess:inv});
   const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
   const createTandaInv=useMutation({mutationFn:async(v:{tandaId:number})=>await api.createTandaInvitation({householdId:data!.household!.id,tandaId:v.tandaId,email:tInvEmail[v.tandaId]||"",invitedName:tInvName[v.tandaId]||undefined}),onSuccess:(r,v)=>{inv();setTInvResult(p=>({...p,[v.tandaId]:{emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}}));setTInvEmail(p=>({...p,[v.tandaId]:""}));setTInvName(p=>({...p,[v.tandaId]:""}));}});
-  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:tJoinName[v.id]||undefined}),onSuccess:inv});
+  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:inv});
   const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:data!.household!.id,tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
   const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:data!.household!.id,...v}),onSuccess:inv});
   const [mvProfile,setMvProfile]=useState("");
@@ -1143,17 +1146,28 @@ export function App(){
             <div className="flex gap-2"><input aria-label="Correo para buscar invitación" type="email" placeholder="tu@correo.com" className={inputCls} value={invEmail} onChange={e=>setInvEmail(e.target.value)} /><button type="button" className={btnPrimary} onClick={()=>findInv.mutate()} disabled={!invEmail || findInv.isPending}>Buscar invitación</button></div>
             {invSearched && invFound.length===0 && <p className="text-sm text-[var(--dim)]">No hay invitación pendiente para ese correo.</p>}
             {invFound.map(iv=>(
-              <div key={iv.id} className="border border-[var(--border)] rounded-2xl p-3 space-y-2">
-                <p className="text-sm"><b>Invitación pendiente</b> para unirse a <b>“{iv.householdName}”</b>{iv.invitedName?` · confirme su nombre:`:" · confirme su nombre:"}</p>
+              <div key={`${iv.kind}-${iv.id}`} className="border border-[var(--border)] rounded-2xl p-3 space-y-2">
+                {iv.kind==="tanda"
+                  ? <p className="text-sm"><b>Invitación pendiente</b> para participar en la tanda <b>“{iv.tandaName}”</b>{iv.invitedName?` · confirme su nombre:`:" · confirme su nombre:"}</p>
+                  : <p className="text-sm"><b>Invitación pendiente</b> para unirse a <b>“{iv.householdName}”</b>{iv.invitedName?` · confirme su nombre:`:" · confirme su nombre:"}</p>}
                 <div className="grid grid-cols-2 gap-2">
                   <input aria-label="Tu nombre al aceptar la invitación" placeholder="Nombre" className={inputCls} value={joinFirst} onChange={e=>setJoinFirst(e.target.value)} />
                   <input aria-label="Tu apellido al aceptar la invitación" placeholder="Apellido" className={inputCls} value={joinLast} onChange={e=>setJoinLast(e.target.value)} />
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" aria-label={`Aceptar invitación a ${iv.householdName}`} className={btnPrimary} onClick={()=>respondInv.mutate({id:iv.id,accept:true})} disabled={respondInv.isPending}>Aceptar y entrar al hogar</button>
-                  <button type="button" aria-label={`Rechazar invitación a ${iv.householdName}`} className={btnGhost} onClick={()=>respondInv.mutate({id:iv.id,accept:false})} disabled={respondInv.isPending}>Rechazar</button>
+                  {iv.kind==="tanda" ? (
+                    <>
+                      <button type="button" aria-label={`Aceptar invitación a la tanda ${iv.tandaName}`} className={btnPrimary} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:true,name:[joinFirst, joinLast].filter(Boolean).join(" ")||undefined})} disabled={respondTandaInv.isPending}>Aceptar y participar</button>
+                      <button type="button" aria-label={`Rechazar invitación a la tanda ${iv.tandaName}`} className={btnGhost} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:false})} disabled={respondTandaInv.isPending}>Rechazar</button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" aria-label={`Aceptar invitación a ${iv.householdName}`} className={btnPrimary} onClick={()=>respondInv.mutate({id:iv.id,accept:true})} disabled={respondInv.isPending}>Aceptar y entrar al hogar</button>
+                      <button type="button" aria-label={`Rechazar invitación a ${iv.householdName}`} className={btnGhost} onClick={()=>respondInv.mutate({id:iv.id,accept:false})} disabled={respondInv.isPending}>Rechazar</button>
+                    </>
+                  )}
                 </div>
-                {respondInv.error && <p className="text-sm text-[var(--red)]">{String(respondInv.error)}</p>}
+                {(respondInv.error || respondTandaInv.error) && <p className="text-sm text-[var(--red)]">{String(respondInv.error || respondTandaInv.error)}</p>}
               </div>
             ))}
           </div>
@@ -2259,10 +2273,14 @@ export function App(){
                     </div>}
                     {createTandaInv.error && <p className="text-sm text-[var(--red)] mt-1">{String(createTandaInv.error)}</p>}
                     {(() => { const tRes = tInvResult[td.id]; if (!tRes) return null; return (
-                      <div className="text-sm space-y-2 mt-2">
-                        {tRes.emailSent
-                          ? <p className="text-[var(--green)]">Correo enviado.</p>
-                          : <><p className="text-[var(--red)]">Copie el enlace y envíelo usted:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{tRes.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(tRes.inviteUrl)}>{copiedLink===tRes.inviteUrl?"Enlace copiado":"Copiar enlace"}</button></>}
+                      <div className="text-sm space-y-2 mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+                        <p className="font-bold">Enlace de invitación listo{tRes.emailSent?" · también se envió el correo.":""}</p>
+                        <p className="break-all bg-[var(--surface)] border border-[var(--border)] rounded-xl p-2 text-xs">{tRes.inviteUrl}</p>
+                        <div className="flex gap-2 flex-wrap">
+                          <button type="button" className={btnPrimary+" flex-1"} onClick={()=>copyLink(tandaInviteMessage(tRes.inviteUrl, td.name))}>{copiedLink===tandaInviteMessage(tRes.inviteUrl, td.name)?"Invitación copiada":"Copiar invitación"}</button>
+                          <a className={btnGhost+" flex-1 flex items-center justify-center text-center"} href={`https://wa.me/?text=${encodeURIComponent(tandaInviteMessage(tRes.inviteUrl, td.name))}`} target="_blank" rel="noreferrer">Compartir por WhatsApp</a>
+                        </div>
+                        {!tRes.emailConfigured && <p className="text-xs text-[var(--dim)]">El correo no está configurado; comparta el enlace por WhatsApp.</p>}
                       </div>
                     ); })()}
                     {td.invitations.filter(iv=>iv.status==="pending").map(iv=>(
@@ -2272,7 +2290,7 @@ export function App(){
                         <div className="flex gap-2 flex-wrap">
                           <button aria-label={`Aceptar invitación de ${iv.email} a ${td.name}`} className={btnPrimary} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:true})} disabled={respondTandaInv.isPending}>Aceptar y participar</button>
                           <button aria-label={`Rechazar invitación de ${iv.email} a ${td.name}`} className={btnGhost} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:false})} disabled={respondTandaInv.isPending}>Rechazar</button>
-                          {p.canManage && <button aria-label={`Reenviar invitación de ${iv.email} a ${td.name}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"tanda",invitationId:iv.id,tandaId:td.id})}>Reenviar correo</button>}
+                          {p.canManage && <button aria-label={`Reenviar invitación de ${iv.email} a ${td.name}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"tanda",invitationId:iv.id,tandaId:td.id})}>Reenviar invitación</button>}
                         </div>
                       </div>
                     ))}

@@ -1694,17 +1694,23 @@ export const Actions = {
     },
   }),
   findInvitations: defineAction({
-    description: "Finds pending invitations for an email across households, with the inviting household name.",
+    description: "Finds pending invitations for an email across households, with the inviting household name. Includes tanda invitations, so someone invited to a tanda can find it by email even if they lost the link.",
     request: z.object({ email: z.string().email() }),
-    response: z.object({ invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), householdId: z.number(), householdName: z.string() })) }),
+    response: z.object({ invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), householdId: z.number(), householdName: z.string(), kind: z.enum(["household", "tanda"]), tandaId: z.number().nullable(), tandaName: z.string().nullable() })) }),
     async handler(ctx, args) {
       await rateLimit("findInvitations", 20, 60_000);
       const db = ctx.db;
       const email = args.email.trim().toLowerCase();
       const all = await db.select().from(schema.invitations);
       const mine = all.filter(i=>i.email.toLowerCase()===email && i.status==="pending");
+      const tAll = await db.select().from(schema.tandaInvitations);
+      const tMine = tAll.filter(i=>i.email.toLowerCase()===email && i.status==="pending");
       const hhs = await db.select().from(schema.households);
-      return { invitations: mine.map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, householdId: i.householdId, householdName: hhs.find(h=>h.id===i.householdId)?.name || "Hogar" })) };
+      const tds = await db.select().from(schema.tandas);
+      return { invitations: [
+        ...mine.map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, householdId: i.householdId, householdName: hhs.find(h=>h.id===i.householdId)?.name || "Hogar", kind: "household" as const, tandaId: null as number | null, tandaName: null as string | null })),
+        ...tMine.map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, householdId: i.householdId, householdName: hhs.find(h=>h.id===i.householdId)?.name || "Hogar", kind: "tanda" as const, tandaId: i.tandaId, tandaName: tds.find(t=>t.id===i.tandaId)?.name ?? null })),
+      ] };
     },
   }),
   resolveInvite: defineAction({
@@ -2038,10 +2044,10 @@ export const Actions = {
     },
   }),
   respondTandaInvitation: defineAction({
-    description: "Accepts or rejects a tanda invitation. Accepting adds the person as a visible participant of that tanda with the name they choose (never taken from their email).",
+    description: "Accepts or rejects a tanda invitation. Accepting adds the person as a visible participant of that tanda with the name they choose (never taken from their email), and also brings them into the tanda's household (member profile + membership), like accepting a household invitation: without membership they would never see the tanda.",
     request: z.object({ id: z.number(), accept: z.boolean(), name: z.string().optional() }),
-    response: z.object({ ok: z.literal(true), participantId: z.number().optional(), tandaId: z.number().optional() }),
-    async handler(ctx, args): Promise<{ ok: true; participantId?: number; tandaId?: number }> {
+    response: z.object({ ok: z.literal(true), participantId: z.number().optional(), tandaId: z.number().optional(), householdId: z.number().optional() }),
+    async handler(ctx, args): Promise<{ ok: true; participantId?: number; tandaId?: number; householdId?: number }> {
       const db = ctx.db;
       const rows = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.id, args.id));
       const inv = rows[0]; if (!inv) throw new Error("Invitación de tanda no encontrada.");
@@ -2061,7 +2067,29 @@ export const Actions = {
       }
       await db.update(schema.tandaInvitations).set({ status: "accepted" }).where(eq(schema.tandaInvitations.id, args.id));
       await markTokensForInvitation(db, null, inv.id, "accepted");
-      ctx.invalidateQueries(); return { ok: true, participantId, tandaId: inv.tandaId };
+      // Al aceptar, la persona entra al hogar de la tanda (perfil de
+      // integrante + membresía), igual que al aceptar una invitación al
+      // hogar: sin membresía nunca vería la tanda, porque el hogar se
+      // resuelve desde household_members.
+      const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, inv.householdId));
+      const already = profs.find(pr=>(pr.email||"").toLowerCase()===inv.email.toLowerCase());
+      let profileId = already?.id;
+      if (!already) {
+        const [firstWord, ...rest] = name.split(/\s+/);
+        const first = firstWord || name;
+        const [r] = await db.insert(schema.profiles).values({ householdId: inv.householdId, userId: ctx.user.id, name: first, lastName: rest.join(" ") || null, role: "member", email: inv.email, kind: "adult", monthlyIncome: 0, fixedCommitments: 0 }).returning({ id: schema.profiles.id });
+        profileId = r?.id;
+      }
+      if (profileId) {
+        await db.update(schema.profiles).set({ userId: ctx.user.id }).where(eq(schema.profiles.id, profileId));
+        const existingMember = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, inv.householdId));
+        if (!existingMember.some(m => m.userId === ctx.user.id)) {
+          await db.insert(schema.householdMembers).values({ householdId: inv.householdId, userId: ctx.user.id, profileId, role: "member" });
+        }
+      }
+      await logActivity(ctx, inv.householdId, "Nuevo participante en la tanda", `${name} · ${td.name}`);
+      await notifyHousehold(ctx, inv.householdId, { type: "nuevo_integrante", title: "Nuevo participante en la tanda", body: `${name} se unió a la tanda ${td.name}.`, target: "tandas" }, ctx.user.id);
+      ctx.invalidateQueries(); return { ok: true, participantId, tandaId: inv.tandaId, householdId: inv.householdId };
     },
   }),
   rateOrganizer: defineAction({
