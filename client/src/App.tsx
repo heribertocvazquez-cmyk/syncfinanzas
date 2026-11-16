@@ -144,7 +144,10 @@ function renderDonutIcon(p: any){
 // la dona vuelve completa y la línea desaparece. Tocar el segmento ya
 // marcado lo desmarca sin abrir la ventana. El centro muestra siempre
 // el total del mes. Sin tooltip: ningún recuadro debe aparecer al tocar ni
-// al pasar sobre la dona.
+// al pasar sobre la dona. La animación de la dona está apagada
+// (isAnimationActive={false}): Recharts reinicia la animación cada vez que
+// cambia la selección y mientras corre esconde las etiquetas, por eso el
+// símbolo del rubro desaparecía al tocar un segmento.
 function CategoryChart({data, onSelect, detailOpen}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void; detailOpen:boolean}){
   const [selName, setSelName] = useState<string|null>(null);
   // Al cerrar la ventana de detalle, la dona vuelve completa.
@@ -164,7 +167,7 @@ function CategoryChart({data, onSelect, detailOpen}:{data:CatSlice[]; onSelect:(
     <div className="relative mx-auto w-44 h-44" role="img" aria-label="Gráfica de gasto por categoría.">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" onClick={(d)=>{ handleSelect(d as unknown as CatSlice); }} style={{cursor:"pointer"}} label={renderDonutIcon} labelLine={false} activeIndex={activeIdx < 0 ? undefined : activeIdx} activeShape={(props: any)=><Sector {...props} outerRadius={Number(props.outerRadius) + 6} />}>
+          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" isAnimationActive={false} onClick={(d)=>{ handleSelect(d as unknown as CatSlice); }} style={{cursor:"pointer"}} label={renderDonutIcon} labelLine={false} activeIndex={activeIdx < 0 ? undefined : activeIdx} activeShape={(props: any)=><Sector {...props} outerRadius={Number(props.outerRadius) + 6} />}>
             {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} fillOpacity={sel && d.name!==sel.name ? 0.4 : 1} />)}
           </Pie>
         </PieChart>
@@ -862,6 +865,7 @@ export function App(){
   const [incExpDetail,setIncExpDetail]=useState<{kind:"income"|"expense";month:string;label:string}|null>(null);
   const [catDetail,setCatDetail]=useState<{categoryId:number|null;name:string;total:number;month:string}|null>(null);
   const [showBalanceBreakdown,setShowBalanceBreakdown]=useState(false);
+  const [showSummary,setShowSummary]=useState(false);
   const [showHomeMovs,setShowHomeMovs]=useState(false);
   const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
@@ -1300,6 +1304,8 @@ export function App(){
   // reversados ni reversiones), para que la suma coincida con la barra.
   const incExpMovs = incExpDetail ? data.movements.filter(m=> m.date.startsWith(incExpDetail.month) && !m.isReversed && !m.reversalOfId && (incExpDetail.kind==="income" ? m.type==="income" : (m.type==="expense"||m.type==="debt_payment"))).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
   const catDetailMovs = catDetail ? data.movements.filter(m=> (m.categoryId??null)===catDetail.categoryId && m.date.startsWith(catDetail.month) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && m.reversalOfId==null).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
+  // Texto de la banda movible del resumen: la banda lo repite dos veces para un ciclo continuo sin cortes.
+  const bannerText = `Disponible ${money(s.availableFree)} · Entradas ${money(s.monthIncome)} · Salidas ${money(s.monthExpense)} · Neto ${money(s.monthNet)} · `;
   const getCatName=(id:number|null)=>data.categories.find(c=>c.id===id)?.name||"—";
   const getAccName=(id:number|null)=>data.accounts.find(a=>a.id===id)?.name||"Efectivo";
   const incExpByAcc: {key:string;name:string;total:number;movs:typeof incExpMovs}[] = (()=>{ const groups=new Map<string,{name:string;total:number;movs:typeof incExpMovs}>(); for(const m of incExpMovs){ const key=m.accountId==null?"efectivo":`cta-${m.accountId}`; const g=groups.get(key) ?? {name:getAccName(m.accountId),total:0,movs:[]}; g.total+=m.amount; g.movs.push(m); groups.set(key,g); } return [...groups.entries()].map(([key,g])=>({key,...g})).sort((a,b)=>b.total-a.total); })();
@@ -1432,26 +1438,17 @@ export function App(){
         {!appInstalled && !installDismissed && <div className="mb-3"><InstallCard installed={appInstalled} onInstall={handleInstallClick} onDismiss={dismissInstall} /></div>}
         {effTab==="inicio" && (
           <section>
-            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3.5">
-              <p className="text-sm opacity-80">Disponible · {s.currentMonth}</p>
-              <p className="font-display text-3xl font-extrabold mt-1">{money2(s.availableFree)}</p>
-              <p className="text-sm opacity-80 mt-1">Total {money2(s.totalBalance)} − fondos apartados {money2(s.fundsReserved)}.</p>
-              <button type="button" aria-expanded={showBalanceBreakdown} onClick={()=>setShowBalanceBreakdown(v=>!v)} className="text-sm font-bold underline underline-offset-2 opacity-90 mt-1">Ver cómo se forma {showBalanceBreakdown?"‹":"›"}</button>
-              {showBalanceBreakdown && (
-                <div className="mt-2 text-sm space-y-1">
-                  {s.openingBalance!==0 && <div className="flex justify-between gap-2"><span className="opacity-80">Saldo inicial</span><b>{money(s.openingBalance)}</b></div>}
-                  {s.priorMonthsNet!==0 && <div className="flex justify-between gap-2"><span className="opacity-80">Meses anteriores</span><b>{money(s.priorMonthsNet)}</b></div>}
-                  {s.monthNet!==0 && <div className="flex justify-between gap-2"><span className="opacity-80">Neto del mes</span><b>{money(s.monthNet)}</b></div>}
-                  {s.fundsFromAccounts!==0 && <div className="flex justify-between gap-2"><span className="opacity-80">{s.fundsFromAccounts>0?"Salidas a fondos":"Entradas desde fondos"}</span><b>{s.fundsFromAccounts>0?`−${money(s.fundsFromAccounts)}`:`+${money(-s.fundsFromAccounts)}`}</b></div>}
-                  <div className="flex justify-between gap-2 border-t border-white/25 pt-1"><span className="opacity-80">Total</span><b>{money2(s.totalBalance)}</b></div>
-                </div>
-              )}
-              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
-                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Entradas</p><p className="font-display font-bold">{money(s.monthIncome)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Salidas</p><p className="font-display font-bold">{money(s.monthExpense)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Neto</p><p className="font-display font-bold">{money(s.monthNet)}</p></div>
-              </div>
-            </div>
+            {/* Banda movible del resumen del mes (opción 1): franja dorada
+                delgada con los importes pasando en ciclo continuo. Al
+                tocarla se abre la ventana con la tarjeta completa del
+                resumen. La banda se ve igual en modo claro y oscuro
+                (dorado fijo, texto oscuro fijo). */}
+            <button type="button" aria-label="Ver el resumen completo del mes" onClick={()=>setShowSummary(true)} className="block w-full overflow-hidden rounded-full bg-[#E8B84A] text-[#13262E] py-2 text-sm font-bold">
+              <span className="sf-banner-track">
+                <span>{bannerText}</span>
+                <span className="sf-banner-dup" aria-hidden="true">{bannerText}</span>
+              </span>
+            </button>
 
             {data.movements.length>0 && (
             <div className="grid md:grid-cols-2 gap-3 mt-3">
@@ -2579,6 +2576,38 @@ export function App(){
           <div className="flex gap-2 mt-4">
             <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setCatDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
             <button type="button" className={btnGhost} onClick={()=>setCatDetail(null)}>Cerrar</button>
+          </div>
+        </div>
+      </div>}
+      {showSummary && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Resumen del mes de ${fmtMonth(s.currentMonth)}`} onClick={()=>{setShowSummary(false); setShowBalanceBreakdown(false);}}>
+        <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4" onClick={e=>e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">RESUMEN · {fmtMonth(s.currentMonth).toUpperCase()}</p>
+              <p className="font-display font-bold text-lg leading-tight">Resumen del mes</p>
+            </div>
+            <button type="button" aria-label="Cerrar el resumen del mes" onClick={()=>{setShowSummary(false); setShowBalanceBreakdown(false);}} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+          </div>
+          <p className="text-sm text-[var(--dim)] mt-2">Disponible · {s.currentMonth}</p>
+          <p className="font-display text-3xl font-extrabold mt-1">{money2(s.availableFree)}</p>
+          <p className="text-sm text-[var(--dim)] mt-1">Total {money2(s.totalBalance)} − fondos apartados {money2(s.fundsReserved)}.</p>
+          <button type="button" aria-expanded={showBalanceBreakdown} onClick={()=>setShowBalanceBreakdown(v=>!v)} className="text-sm font-bold underline underline-offset-2 mt-1">Ver cómo se forma {showBalanceBreakdown?"‹":"›"}</button>
+          {showBalanceBreakdown && (
+            <div className="mt-2 text-sm space-y-1">
+              {s.openingBalance!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Saldo inicial</span><b>{money(s.openingBalance)}</b></div>}
+              {s.priorMonthsNet!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Meses anteriores</span><b>{money(s.priorMonthsNet)}</b></div>}
+              {s.monthNet!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Neto del mes</span><b>{money(s.monthNet)}</b></div>}
+              {s.fundsFromAccounts!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">{s.fundsFromAccounts>0?"Salidas a fondos":"Entradas desde fondos"}</span><b>{s.fundsFromAccounts>0?`−${money(s.fundsFromAccounts)}`:`+${money(-s.fundsFromAccounts)}`}</b></div>}
+              <div className="flex justify-between gap-2 border-t border-[var(--border)] pt-1"><span className="text-[var(--dim)]">Total</span><b>{money2(s.totalBalance)}</b></div>
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+            <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Entradas</p><p className="font-display font-bold">{money(s.monthIncome)}</p></div>
+            <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Salidas</p><p className="font-display font-bold">{money(s.monthExpense)}</p></div>
+            <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Neto</p><p className="font-display font-bold">{money(s.monthNet)}</p></div>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button type="button" className={btnGhost+" flex-1"} onClick={()=>{setShowSummary(false); setShowBalanceBreakdown(false);}}>Cerrar</button>
           </div>
         </div>
       </div>}

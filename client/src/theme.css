@@ -47,4 +47,14 @@
 @media (display-mode: standalone) {
   body { overscroll-behavior-y: none; }
 }
+/* Banda movible del resumen de Inicio: los importes pasan en ciclo
+   continuo (contenido duplicado en el HTML para un ciclo sin cortes).
+   Con movimiento reducido, la banda no se anima: muestra una sola
+   copia de los importes, que puede partirse en dos renglones. */
+.sf-banner-track { display: inline-flex; white-space: nowrap; animation: sf-banner-scroll 22s linear infinite; will-change: transform; }
+@keyframes sf-banner-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) {
+  .sf-banner-track { animation: none; white-space: normal; }
+  .sf-banner-dup { display: none; }
+}
 input,select,textarea { font-size:16px; }
