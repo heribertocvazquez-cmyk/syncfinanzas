@@ -67,7 +67,7 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   deleteCategoryRule: { table: "categoryRules", idField: "id" },
 };
 
-const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation", "listTesterFeedback"]);
+const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation"]);
 
 async function householdIdForRow(
   db: ReturnType<typeof getDb>,

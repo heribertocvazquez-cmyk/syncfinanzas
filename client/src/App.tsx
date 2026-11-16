@@ -21,11 +21,11 @@ import { APP_UPDATE_EVENT, applyAppUpdate, checkForAppUpdate } from "./serviceWo
 import { clearDeferredInstallPrompt, consumeDeferredInstallPrompt } from "./installPrompt";
 import appIcon512 from "./assets/app-icon-512.png";
 
-type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"guia";
+type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"guia"|"desarrollador";
 const TABS: {id:Tab;label:string}[] = [
   {id:"inicio",label:"Inicio"},{id:"personal",label:"Personal"},{id:"movimientos",label:"Movimientos"},{id:"cuentas",label:"Cuentas"},{id:"presupuestos",label:"Presupuestos"},
   {id:"fondos",label:"Fondos"},{id:"aportaciones",label:"Aportaciones"},{id:"metas",label:"Metas"},{id:"acuerdos",label:"Acuerdos"},{id:"tandas",label:"Tandas"},
-  {id:"patrimonio",label:"Patrimonio"},{id:"categorias",label:"Categorías"},{id:"perfiles",label:"Perfiles"},{id:"hogar",label:"Hogar"},{id:"guia",label:"Guía de uso"},
+  {id:"patrimonio",label:"Patrimonio"},{id:"categorias",label:"Categorías"},{id:"perfiles",label:"Perfiles"},{id:"hogar",label:"Hogar"},{id:"guia",label:"Guía de uso"},{id:"desarrollador",label:"Desarrollador"},
 ];
 // Los módulos se agrupan por función: varios se desprenden de otros (Aportaciones se calcula
 // desde Movimientos; Fondos son apartados dentro de Cuentas; Presupuestos vigilan Categorías).
@@ -63,6 +63,7 @@ const TAB_ICONS: Record<Tab, ReactNode> = {
   perfiles: tabIcon(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>),
   hogar: tabIcon(<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>),
   guia: tabIcon(<><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></>),
+  desarrollador: tabIcon(<><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></>),
 };
 // Guía en PDF de cada segmento: se abre dentro de la aplicación, en la pestaña Guía de uso.
 const GUIDE_PDF_BY_GROUP: Record<string,string> = {
@@ -654,6 +655,13 @@ export function App(){
   const [myEmail,setMyEmail]=useState("");
   useEffect(()=>{ let alive=true; supabase.auth.getUser().then(({data:u})=>{ if(alive) setMyEmail((u.user?.email||"").trim().toLowerCase()); }).catch(()=>{}); return ()=>{ alive=false; }; },[]);
   const isAppOwner = myEmail === "heribertocvazquez@gmail.com";
+  // Secciones plegables de Hogar y del módulo Desarrollador: nacen plegadas
+  // para que Hogar no ocupe toda la pantalla al entrar.
+  const [activityOpen,setActivityOpen]=useState(false);
+  const [quickGuideOpen,setQuickGuideOpen]=useState(false);
+  const [updatesOpen,setUpdatesOpen]=useState(false);
+  const [devFeedbackOpen,setDevFeedbackOpen]=useState(false);
+  const [devUsersOpen,setDevUsersOpen]=useState(false);
   const checkUpdatesManually=async()=>{
     setUpdateChecking(true); setUpdateCheckMsg(null);
     const r=await checkForAppUpdate();
@@ -667,10 +675,10 @@ export function App(){
   const q=useQuery({queryKey:["overview"],queryFn:()=>api.getOverview({})});
   const inv=()=>{ qc.invalidateQueries({queryKey:["overview"]}); qc.invalidateQueries({queryKey:["notifications"]}); };
   const data=q.data;
-  // Opiniones de testers (segunda etapa): se consultan solo si hay hogar y el
-  // perfil actual es administrador; el servidor vuelve a verificar el rol.
+  // Opiniones de testers (segunda etapa): se consultan solo si hay hogar y
+  // la sesión es del dueño de la app; el servidor vuelve a verificar el correo.
   const meEarly = data ? (data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null) : null;
-  const fbQuery=useQuery({queryKey:["testerFeedback"],queryFn:()=>api.listTesterFeedback({householdId:data!.household!.id}),enabled:!!data?.household && (!meEarly || meEarly.role==="admin")});
+  const fbQuery=useQuery({queryKey:["testerFeedback"],queryFn:()=>api.listTesterFeedback({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
   // Registro de usuarios de la app: total y lista de quienes han entrado.
   // Solo lo ve el dueño de la app; el servidor vuelve a verificar el correo.
   const appUsersQuery=useQuery({queryKey:["appUsers"],queryFn:()=>api.listAppUsers({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
@@ -1302,6 +1310,8 @@ export function App(){
   // de iniciar sesión y al reabrirla, se ven saldo, gráficas, movimientos y las
   // tarjetas principales, sin abrir el menú ni ir a otra pestaña.
   const s=data.summary; const hh=data.household; const effTab:Tab = tab; const goTab=(x:Tab)=>{setTab(x); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
+  // Módulo Desarrollador: solo aparece en el menú para el dueño de la app.
+  const drawerGroups: {title:string; tabs:Tab[]}[] = isAppOwner ? [...DRAWER_GROUPS, {title:"Desarrollador", tabs:["desarrollador"]}] : DRAWER_GROUPS;
   // Ir a un módulo y dejar el campo del importe a la vista con el cursor listo:
   // cambia de pestaña y, cuando el formulario ya se pintó, lo desplaza al centro
   // (así el encabezado fijo no lo tapa) y le da el foco para escribir.
@@ -1390,7 +1400,7 @@ export function App(){
           <p className="font-display text-2xl font-extrabold">{money2(s.availableFree)}</p>
         </div>
         <nav id="menu-modulos" aria-label="Módulos" className="flex-1 overflow-y-auto px-3 py-3">
-          {DRAWER_GROUPS.map(g=>(
+          {drawerGroups.map(g=>(
             <div key={g.title} className="mt-4 first:mt-0">
               <p className="px-2 text-[11px] font-bold tracking-widest text-[var(--dim)]">{g.title.toUpperCase()}</p>
               <ul className="mt-1 space-y-0.5">
@@ -2478,14 +2488,22 @@ export function App(){
               {pinMsg && <p className="text-sm text-[var(--green)] mt-2">{pinMsg}</p>}
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
-              <h3 className="font-display font-bold">Registro de actividad reciente</h3>
-              <p className="text-xs text-[var(--dim)] mt-1">Últimas 30.</p>
+              <button type="button" aria-expanded={activityOpen} aria-label={activityOpen?"Ocultar el registro de actividad reciente":"Ver el registro de actividad reciente"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setActivityOpen(v=>!v)}>
+                <span><span className="font-display font-bold">Registro de actividad reciente</span><span className="block text-xs text-[var(--dim)] mt-0.5">Últimas 30 · {data.activity.length} registrada{data.activity.length===1?"":"s"}</span></span>
+                <span className="text-sm font-bold underline shrink-0">{activityOpen?"Ocultar":"Ver"}</span>
+              </button>
+              {activityOpen && (<>
               {data.activity.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Aún no hay operaciones registradas.</p> : <div className="divide-y divide-[var(--border)] mt-2">
                 {data.activity.map(a=><div key={a.id} className="py-2 text-sm"><p><b>{a.action}</b>{a.detail?` — ${a.detail}`:""}</p><p className="text-xs text-[var(--dim)]">{new Date(a.createdAt).toLocaleString("es-MX",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</p></div>)}
               </div>}
+              </>)}
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
-              <h3 className="font-display font-bold">Guía rápida</h3>
+              <button type="button" aria-expanded={quickGuideOpen} aria-label={quickGuideOpen?"Ocultar la guía rápida":"Ver la guía rápida"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setQuickGuideOpen(v=>!v)}>
+                <span className="font-display font-bold">Guía rápida</span>
+                <span className="text-sm font-bold underline shrink-0">{quickGuideOpen?"Ocultar":"Ver"}</span>
+              </button>
+              {quickGuideOpen && (
               <ol className="list-decimal ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
                 <li>Cree sus cuentas en <b>Cuentas</b>, con el saldo actual.</li>
                 <li>Agregue a su pareja en <b>Perfiles</b>.</li>
@@ -2493,55 +2511,18 @@ export function App(){
                 <li>Cree los <b>Presupuestos</b> del mes.</li>
                 <li>Aparte en <b>Fondos</b>, defina una <b>Meta</b> y registre su <b>Patrimonio</b>.</li>
               </ol>
+              )}
             </div>
-            {isAdmin && (
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
-                <h3 className="font-display font-bold">Opiniones de testers</h3>
-                <p className="text-xs text-[var(--dim)] mt-1">Opiniones enviadas desde el formulario público. Solo las ve el administrador.</p>
-                {fbQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando opiniones…</p>
-                : fbQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar las opiniones.</p>
-                : !fbQuery.data || fbQuery.data.feedback.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin opiniones todavía. Cuando un tester envíe la suya, aparecerá aquí.</p>
-                : <div className="divide-y divide-[var(--border)] mt-2">
-                  {fbQuery.data.feedback.map(f=>(
-                    <div key={f.id} className="py-2.5 text-sm">
-                      <div className="flex justify-between gap-2"><b>{f.nombre || "Tester"}</b><span className="text-xs text-[var(--dim)] shrink-0">{fmtDate(f.createdAt.slice(0,10))}</span></div>
-                      <p className="mt-0.5"><Stars value={f.calificacionGeneral} /> <span className="text-xs text-[var(--dim)]">General · Facilidad {f.facilidadUso}/5</span></p>
-                      <p className="text-xs text-[var(--dim)]">{f.modulo || "Sin módulo"} · {f.dispositivo || "Sin dispositivo"}{f.correo?` · ${f.correo}`:""}</p>
-                      {f.queFunciono && <p className="mt-1"><b>Funcionó:</b> {f.queFunciono}</p>}
-                      {f.queFallo && <p><b>Falló:</b> {f.queFallo}</p>}
-                      {f.sugerencia && <p><b>Sugerencia:</b> {f.sugerencia}</p>}
-                    </div>
-                  ))}
-                </div>}
-              </div>
-            )}
-            {isAppOwner && (
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
-                <h3 className="font-display font-bold">Usuarios de la app</h3>
-                <p className="text-xs text-[var(--dim)] mt-1">Quiénes han entrado a la app. Solo lo ve el dueño de la app.</p>
-                {appUsersQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando usuarios…</p>
-                : appUsersQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar los usuarios.</p>
-                : !appUsersQuery.data || appUsersQuery.data.total===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin usuarios todavía.</p>
-                : <>
-                  <p className="text-sm mt-2"><b>{appUsersQuery.data.total}</b> {appUsersQuery.data.total===1?"usuario ha entrado":"usuarios han entrado"} a la app.</p>
-                  <div className="divide-y divide-[var(--border)] mt-2">
-                    {appUsersQuery.data.users.map(u=>(
-                      <div key={u.id} className="py-2.5 text-sm">
-                        <div className="flex justify-between gap-2"><b>{u.name || u.email || "Usuario"}</b><span className="text-xs text-[var(--dim)] shrink-0">{u.lastSignInAt?`Último acceso: ${fmtDate(u.lastSignInAt.slice(0,10))}`:"Sin accesos registrados"}</span></div>
-                        {u.email && <p className="text-xs text-[var(--dim)]">{u.email}</p>}
-                        <p className="text-xs text-[var(--dim)]">Registro: {fmtDate(u.createdAt.slice(0,10))}</p>
-                      </div>
-                    ))}
-                  </div>
-                </>}
-              </div>
-            )}
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
-              <h3 className="font-display font-bold">Actualizaciones de la aplicación</h3>
-              <p className="text-xs text-[var(--dim)] mt-1">Versión: {APP_VERSION}</p>
-              <p className="text-sm text-[var(--dim)] mt-1">Al actualizar no se cierra su sesión ni se borran sus datos.</p>
+              <button type="button" aria-expanded={updatesOpen} aria-label={updatesOpen?"Ocultar las actualizaciones de la aplicación":"Ver las actualizaciones de la aplicación"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setUpdatesOpen(v=>!v)}>
+                <span><span className="font-display font-bold">Actualizaciones de la aplicación</span><span className="block text-xs text-[var(--dim)] mt-0.5">Versión: {APP_VERSION}</span></span>
+                <span className="text-sm font-bold underline shrink-0">{updatesOpen?"Ocultar":"Ver"}</span>
+              </button>
+              {updatesOpen && (<>
+              <p className="text-sm text-[var(--dim)] mt-2">Al actualizar no se cierra su sesión ni se borran sus datos.</p>
               <button type="button" className={btnGhost+" mt-2"} disabled={updateChecking} onClick={()=>{ void checkUpdatesManually(); }}>{updateChecking?"Revisando…":"Buscar actualizaciones"}</button>
               {updateCheckMsg && <p className="text-sm mt-2" role="status">{updateCheckMsg}</p>}
+              </>)}
             </div>
             <div className="pt-1">
               <button type="button" aria-label="Reiniciar la aplicación y borrar todos los datos" onClick={()=>{ setResetStep(1); setResetWord(""); }} className="text-xs text-[var(--dim)] underline">Reiniciar la aplicación</button>
@@ -2582,6 +2563,60 @@ export function App(){
                   )}
                 </div>
               )}
+            </div>
+          </section>
+        )}
+        {effTab==="desarrollador" && isAppOwner && (
+          <section className="max-w-2xl space-y-3">
+            <h2 className="font-display font-bold text-base">Desarrollador</h2>
+            <p className="text-sm text-[var(--dim)]">Herramientas del dueño de la app: opiniones de los testers y registro de usuarios.</p>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+              <button type="button" aria-expanded={devFeedbackOpen} aria-label={devFeedbackOpen?"Ocultar las opiniones de los testers":"Ver las opiniones de los testers"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setDevFeedbackOpen(v=>!v)}>
+                <span><span className="font-display font-bold">Opiniones de testers</span><span className="block text-xs text-[var(--dim)] mt-0.5">{fbQuery.data ? `${fbQuery.data.feedback.length} opinion${fbQuery.data.feedback.length===1?"":"es"}` : "Opiniones enviadas desde el formulario público."}</span></span>
+                <span className="text-sm font-bold underline shrink-0">{devFeedbackOpen?"Ocultar":"Ver"}</span>
+              </button>
+              {devFeedbackOpen && (<>
+                <p className="text-xs text-[var(--dim)] mt-2">Solo las ve el dueño de la app.</p>
+                {fbQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando opiniones…</p>
+                : fbQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar las opiniones.</p>
+                : !fbQuery.data || fbQuery.data.feedback.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin opiniones todavía. Cuando un tester envíe la suya, aparecerá aquí.</p>
+                : <div className="divide-y divide-[var(--border)] mt-2">
+                  {fbQuery.data.feedback.map(f=>(
+                    <div key={f.id} className="py-2.5 text-sm">
+                      <div className="flex justify-between gap-2"><b>{f.nombre || "Tester"}</b><span className="text-xs text-[var(--dim)] shrink-0">{fmtDate(f.createdAt.slice(0,10))}</span></div>
+                      <p className="mt-0.5"><Stars value={f.calificacionGeneral} /> <span className="text-xs text-[var(--dim)]">General · Facilidad {f.facilidadUso}/5</span></p>
+                      <p className="text-xs text-[var(--dim)]">{f.modulo || "Sin módulo"} · {f.dispositivo || "Sin dispositivo"}{f.correo?` · ${f.correo}`:""}</p>
+                      {f.queFunciono && <p className="mt-1"><b>Funcionó:</b> {f.queFunciono}</p>}
+                      {f.queFallo && <p><b>Falló:</b> {f.queFallo}</p>}
+                      {f.sugerencia && <p><b>Sugerencia:</b> {f.sugerencia}</p>}
+                    </div>
+                  ))}
+                </div>}
+              </>)}
+            </div>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+              <button type="button" aria-expanded={devUsersOpen} aria-label={devUsersOpen?"Ocultar los usuarios de la app":"Ver los usuarios de la app"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setDevUsersOpen(v=>!v)}>
+                <span><span className="font-display font-bold">Usuarios de la app</span><span className="block text-xs text-[var(--dim)] mt-0.5">{appUsersQuery.data ? `${appUsersQuery.data.total} usuario${appUsersQuery.data.total===1?"":"s"} han entrado` : "Quiénes han entrado a la app."}</span></span>
+                <span className="text-sm font-bold underline shrink-0">{devUsersOpen?"Ocultar":"Ver"}</span>
+              </button>
+              {devUsersOpen && (<>
+                <p className="text-xs text-[var(--dim)] mt-2">Solo lo ve el dueño de la app.</p>
+                {appUsersQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando usuarios…</p>
+                : appUsersQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar los usuarios.</p>
+                : !appUsersQuery.data || appUsersQuery.data.total===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin usuarios todavía.</p>
+                : <>
+                  <p className="text-sm mt-2"><b>{appUsersQuery.data.total}</b> {appUsersQuery.data.total===1?"usuario ha entrado":"usuarios han entrado"} a la app.</p>
+                  <div className="divide-y divide-[var(--border)] mt-2">
+                    {appUsersQuery.data.users.map(u=>(
+                      <div key={u.id} className="py-2.5 text-sm">
+                        <div className="flex justify-between gap-2"><b>{u.name || u.email || "Usuario"}</b><span className="text-xs text-[var(--dim)] shrink-0">{u.lastSignInAt?`Último acceso: ${fmtDate(u.lastSignInAt.slice(0,10))}`:"Sin accesos registrados"}</span></div>
+                        {u.email && <p className="text-xs text-[var(--dim)]">{u.email}</p>}
+                        <p className="text-xs text-[var(--dim)]">Registro: {fmtDate(u.createdAt.slice(0,10))}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>}
+              </>)}
             </div>
           </section>
         )}

@@ -2361,11 +2361,11 @@ export const Actions = {
   // supabase/feedback.sql). Sin edición ni borrado por ahora. El despachador
   // (api/actions.ts) ya exige membresía por householdId y rol de administrador.
   listTesterFeedback: defineAction({
-    description: "Lists the testers' feedback for the household administrator, newest first.",
+    description: "Lists the testers' feedback for the app owner, newest first.",
     request: z.object({ householdId: z.number() }),
     response: z.object({ feedback: z.array(z.object({ id: z.number(), createdAt: z.string(), nombre: z.string().nullable(), correo: z.string().nullable(), calificacionGeneral: z.number(), facilidadUso: z.number(), queFunciono: z.string().nullable(), queFallo: z.string().nullable(), sugerencia: z.string().nullable(), modulo: z.string().nullable(), dispositivo: z.string().nullable() })) }),
     async handler(ctx) {
-      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede revisar las opiniones de los testers.");
+      if (!isAppOwner(ctx)) throw new Error("Solo el dueño de la app puede revisar las opiniones de los testers.");
       const rows = await ctx.db.select().from(schema.testerFeedback).orderBy(desc(schema.testerFeedback.createdAt)).limit(100);
       return { feedback: rows.map(r => ({ id: r.id, createdAt: r.createdAt.toISOString(), nombre: r.nombre, correo: r.correo, calificacionGeneral: r.calificacionGeneral, facilidadUso: r.facilidadUso, queFunciono: r.queFunciono, queFallo: r.queFallo, sugerencia: r.sugerencia, modulo: r.modulo, dispositivo: r.dispositivo })) };
     },
@@ -2373,10 +2373,9 @@ export const Actions = {
   // Registro de usuarios de la app (para revisar cuántos usuarios hay):
   // consulta los usuarios de Supabase Auth desde el servidor (clave de
   // servicio, paginado) y los combina con los perfiles de la app para el
-  // nombre. Solo el administrador del hogar puede consultarlo; sin hogar,
-  // solo el dueño de su propia cuenta. Un usuario sin perfil aparece igual,
-  // con su correo y sus fechas: lo que se cuenta es quién ha entrado a la
-  // app, no solo quién está en un hogar.
+  // nombre. Solo el dueño de la app puede consultarlo. Un usuario sin perfil
+  // aparece igual, con su correo y sus fechas: lo que se cuenta es quién ha
+  // entrado a la app, no solo quién está en un hogar.
   listAppUsers: defineAction({
     description: "Lists the app users from Supabase Auth, newest first, with registration date and last sign-in.",
     request: z.object({ householdId: z.number().optional() }),
