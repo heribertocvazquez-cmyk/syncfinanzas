@@ -48,3 +48,13 @@
   body { overscroll-behavior-y: none; }
 }
 input,select,textarea { font-size:16px; }
+
+/* Burbujas de gasto por categoría: flotan con un movimiento leve. */
+@keyframes sf-bubble-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+.sf-bubble { animation: sf-bubble-float 5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .sf-bubble { animation: none; }
+}

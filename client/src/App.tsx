@@ -7,8 +7,6 @@ import { supabase } from "./supabase";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
-import guiaVideo from "./assets/media-generation-video-explicativo-syncfinanzas-0-db93744d-d5cd-455b-a5df-f1f32c5644bc.mp4";
-import guiaTandasVideo from "./assets/WhatsApp Video 2026-11-14 at 18.12.06.mp4";
 import guiaResumenPdf from "./assets/guia-resumen-registro.pdf";
 import guiaPlanificacionPdf from "./assets/guia-planificacion.pdf";
 import guiaDecisionesPdf from "./assets/guia-decisiones-patrimonio.pdf";
@@ -122,9 +120,10 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
 type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
 // Gráfica de dona de gasto por categoría. La dona solo muestra el gasto del
-// mes y al tocarla no se abre ningún detalle; los movimientos de cada rubro
-// se ven al tocar su renglón en la lista de abajo, que abre una vista aparte
-// (ventana con desplazamiento propio, como el detalle de ingresos vs gastos).
+// mes y al tocarla no se abre ningún detalle; cada rubro es una burbuja del
+// tamaño de su gasto, que flota con un movimiento leve. Al tocar una
+// burbuja se abre la ventana aparte con sus gastos (desplazamiento propio,
+// como el detalle de ingresos vs gastos).
 function CategoryChart({data, onSelect}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void}){
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const total=data.reduce((a,d)=>a+d.total,0);
@@ -143,16 +142,22 @@ function CategoryChart({data, onSelect}:{data:CatSlice[]; onSelect:(d:CatSlice)=
         <b className="font-display text-lg leading-tight">{money2(total)}</b>
       </div>
     </div>
-    <p className="text-xs text-[var(--dim)] mt-2">Toque un rubro para ver sus gastos.</p>
-    <div className="mt-2 space-y-2">
+    <p className="text-xs text-[var(--dim)] mt-2">Toque una burbuja para ver sus gastos.</p>
+    <div className="mt-3 flex flex-wrap items-start justify-center gap-x-3 gap-y-4">
       {data.map((d,i)=>{
+        const max=Math.max(...data.map(x=>x.total));
+        const size=64+56*Math.sqrt(max>0?d.total/max:0);
+        const color=DONUT_COLORS[i%DONUT_COLORS.length];
         return (
-        <div key={d.name} className="w-full text-left">
-          <button type="button" aria-label={`Ver los gastos de ${d.name}`} className="w-full text-left" onClick={()=>onSelect(d)}>
-            <div className="flex justify-between gap-2 text-sm"><span className="inline-flex items-center gap-2 min-w-0" style={{color:DONUT_COLORS[i%DONUT_COLORS.length]}}><CatIcon name={d.name} size="sm" className="text-inherit" /><span className="text-[var(--text)] truncate">{d.name}</span></span><b className="shrink-0">{money(d.total)} · {d.pct}% ▸</b></div>
-            <div className="h-1.5 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className="h-full rounded-full" style={{width:`${Math.min(100,Math.max(0,d.pct))}%`, background:DONUT_COLORS[i%DONUT_COLORS.length]}} /></div>
-          </button>
-        </div>
+        <button key={d.name} type="button" aria-label={`Ver los gastos de ${d.name}: ${money(d.total)}, ${d.pct} por ciento`} className="sf-bubble flex w-[92px] flex-col items-center gap-1.5" style={{animationDelay:`${(i%5)*0.7}s`,animationDuration:`${4.5+(i%3)}s`}} onClick={()=>onSelect(d)}>
+          <span className="flex items-center justify-center rounded-full text-white shadow-md" style={{width:size,height:size,background:color}} aria-hidden="true">
+            <span className="flex flex-col items-center leading-tight px-1">
+              <CatIcon name={d.name} size="md" className="text-white" />
+              <span className="text-[11px] font-extrabold mt-0.5">{d.pct}%</span>
+            </span>
+          </span>
+          <span className="text-center text-xs leading-tight text-[var(--text)]"><span className="block font-bold truncate max-w-[92px]">{d.name}</span><span className="block text-[var(--dim)]">{money(d.total)}</span></span>
+        </button>
         );
       })}
     </div>
@@ -2036,20 +2041,9 @@ export function App(){
 
         {effTab==="guia" && (
           <section className="space-y-3">
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-              <h2 className="font-display font-bold text-base">Video: lleve su grupo sin libreta</h2>
-              <p className="text-sm text-[var(--dim)] mt-1">La app organiza la tanda de su grupo, sin libretas ni mensajes perdidos.</p>
-              <video controls preload="metadata" playsInline src={guiaTandasVideo} className="w-full rounded-2xl mt-3 border border-[var(--border)]" aria-label="Video: la tanda de su grupo sin libreta" />
-            </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex items-center gap-2">
               <h2 className="font-display font-bold text-base flex-1 min-w-0">Instalación en el celular</h2>
               <button type="button" className={btnPrimary+" shrink-0"} onClick={handleInstallClick}>Cómo instalar</button>
-            </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-              <h2 className="font-display font-bold text-base">Video explicativo (10 segundos)</h2>
-              <p className="text-sm text-[var(--dim)] mt-1">Recorrido de 10 segundos.</p>
-              <video controls preload="auto" playsInline src={guiaVideo} className="w-full rounded-2xl mt-3 border border-[var(--border)]" aria-label="Video explicativo de SyncFinanzas" />
-              <div className="mt-3"><a href={guiaVideo} download="video-explicativo-syncfinanzas.mp4" className={btnGhost} aria-label="Descargar el video explicativo de SyncFinanzas">Descargar el video</a></div>
             </div>
             <div className="grid sm:grid-cols-3 gap-2">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto y los gastos se registran solos.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
@@ -2067,7 +2061,7 @@ export function App(){
                       <button type="button" aria-label={`Leer la guía en PDF del segmento ${g.title}`} className={btnGhost+" shrink-0"} onClick={()=>setGuidePdf({title:g.title,src:GUIDE_PDF_BY_GROUP[g.title]||""})}>Guía en PDF</button>
                     </div>
                     <div className="divide-y divide-[var(--border)]">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático y arqueo de cuentas.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", guia:"Instalación, video y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático y arqueo de cuentas.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", guia:"Instalación y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
                     </div>
                   </div>
                 ))}
