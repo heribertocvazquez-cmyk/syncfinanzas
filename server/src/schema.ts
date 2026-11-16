@@ -390,12 +390,24 @@ export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
   householdId: integer("household_id").notNull(),
   userId: uuid("user_id").notNull(),
-  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida", "ajuste_gasto", "ajuste_sobrante"] }).notNull(),
+  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "presupuesto_80", "gasto_anomalo", "suscripcion_sube", "tarjeta_corte", "tarjeta_pago", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida", "ajuste_gasto", "ajuste_sobrante"] }).notNull(),
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   amount: doublePrecision("amount"),
   target: text("target").notNull().default("inicio"),
   isRead: integer("is_read").notNull().default(0),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+// Reglas de auto-categorización: si el concepto de un movimiento contiene la
+// palabra (keyword), la app pone sola esa categoría. La tabla se crea con
+// supabase/category-rules.sql; RLS con denegación total, solo service_role.
+export const categoryRules = pgTable("category_rules", {
+  id: serial("id").primaryKey(),
+  householdId: integer("household_id").notNull(),
+  keyword: text("keyword").notNull(),
+  categoryId: integer("category_id").notNull(),
+  isActive: integer("is_active").notNull().default(1),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 

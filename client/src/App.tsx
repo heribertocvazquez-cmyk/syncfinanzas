@@ -3,6 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaTopScrim } from "./components/SafeArea";
 import { readInviteToken, type InvitePreview } from "./components/AuthGate";
 import { fileToBase64 } from "./lib/file";
+import { matchRule, normText, parseReceiptText, parseVoiceText, suggestCategoryId } from "./lib/smart";
+import { readReceiptText } from "./lib/ocr";
+import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
+import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
 import { supabase } from "./supabase";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "./api";
@@ -77,33 +81,6 @@ function monthNow(){ return todayISO().slice(0,7); }
 const TYPE_LABEL: Record<string,string> = { income:"Ingreso", expense:"Gasto", transfer:"Transferencia", debt_payment:"Pago de deuda", bank:"Bancaria", cash:"Efectivo", credit:"Tarjeta de crédito", investment:"Inversión", loan:"Préstamo" };
 // Iconos de línea (SVG, sin emojis) por categoría, con fondo transparente:
 // solo se ven en las gráficas y sus leyendas, con el trazo sobre el fondo de la app.
-const CATEGORY_ICONS: Record<string, ReactNode> = {
-  "Salario": <><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></>,
-  "Negocio": <><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M2 13h20"/></>,
-  "Inversión": <><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></>,
-  "Renta": <><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 21v-4h6v4M8 7h2M14 7h2M8 11h2M14 11h2"/></>,
-  "Pensión": <><path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></>,
-  "Apoyo familiar": <><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
-  "Otro ingreso": <><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></>,
-  "Alimentación": <><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></>,
-  "Vivienda": <><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></>,
-  "Transporte": <><path d="M5 11l1.6-4.2A2 2 0 0 1 8.5 5.5h7a2 2 0 0 1 1.9 1.3L19 11"/><rect x="3" y="11" width="18" height="5" rx="1"/><circle cx="7.5" cy="18" r="1.8"/><circle cx="16.5" cy="18" r="1.8"/></>,
-  "Salud": <><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></>,
-  "Educación": <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></>,
-  "Servicios": <><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></>,
-  "Entretenimiento": <><circle cx="12" cy="12" r="9"/><path d="M10 8.5l6 3.5-6 3.5V8.5z"/></>,
-  "Ropa": <><path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></>,
-  "Mascotas": <><circle cx="6.5" cy="8" r="1.6"/><circle cx="10.5" cy="5.5" r="1.6"/><circle cx="14.5" cy="5.5" r="1.6"/><circle cx="18" cy="8" r="1.6"/><path d="M12 11c-3 0-5.5 2.2-5.5 4.8 0 1.6 1.2 2.7 2.8 2.7 1 0 1.8-.5 2.7-.5s1.7.5 2.7.5c1.6 0 2.8-1.1 2.8-2.7 0-2.6-2.5-4.8-5.5-4.8z"/></>,
-  "Deudas": <><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></>,
-  "Impuestos": <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></>,
-  "Viajes": <><path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></>,
-  "Cuidado personal": <><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"/></>,
-  "Otro gasto": <><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.2"/></>,
-  "__otro__": <><path d="M5 3h14v18l-2.3-1.5L14.4 21l-2.4-1.5L9.6 21l-2.3-1.5L5 21V3z"/><path d="M9 8h6M9 12h6"/></>,
-};
-function CatIcon({name, size="md", className=""}:{name:string; size?:"sm"|"md"; className?:string}){
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 ${size==="sm"?"w-3.5 h-3.5":"w-4 h-4"} ${className||"text-[var(--gold)]"}`} aria-hidden="true">{CATEGORY_ICONS[name] ?? CATEGORY_ICONS["__otro__"]}</svg>;
-}
 // Convierte cualquier foto (incluida WebP) a JPEG reducido para la lectura automática del comprobante.
 async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:string;preview:string}>{
   const url=URL.createObjectURL(file);
@@ -119,47 +96,50 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 
 const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
 type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
-// Gráfica de dona de gasto por categoría. La dona solo muestra el gasto del
-// mes y al tocarla no se abre ningún detalle; cada rubro es una burbuja del
-// tamaño de su gasto, que flota con un movimiento leve. Al tocar una
-// burbuja se abre la ventana aparte con sus gastos (desplazamiento propio,
-// como el detalle de ingresos vs gastos).
+// Gráfica de dona de gasto por categoría. Solo la dona: al tocar un
+// segmento, el centro muestra ese rubro con su monto y porcentaje; al tocar
+// el centro se abre la ventana aparte con sus gastos (desplazamiento
+// propio, como el detalle de ingresos vs gastos). Debajo, una leyenda de
+// puntos de color que también selecciona el rubro. Sin lista y sin burbujas.
 function CategoryChart({data, onSelect}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void}){
+  // Solo la dona: sin lista y sin burbujas. Al tocar un segmento, el centro
+  // muestra ese rubro con su monto y porcentaje; al tocar el centro se abre
+  // la ventana con sus gastos registrados. La leyenda de puntos de color
+  // también selecciona el rubro.
+  const [selected,setSelected]=useState<CatSlice|null>(null);
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const total=data.reduce((a,d)=>a+d.total,0);
   return <div className="mt-2">
     <div className="relative mx-auto w-44 h-44" role="img" aria-label="Gráfica de gasto por categoría.">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none">
-            {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} />)}
+          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" onClick={(d)=>{ const s=d as unknown as CatSlice; setSelected(prev=>prev && prev.name===s.name?null:s); }} style={{cursor:"pointer"}}>
+            {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} opacity={selected?(d.name===selected.name?1:0.45):1} />)}
           </Pie>
           <Tooltip formatter={(v)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,"Gastado"]} />
         </PieChart>
       </ResponsiveContainer>
-      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <span className="text-xs text-[var(--dim)]">Total</span>
-        <b className="font-display text-lg leading-tight">{money2(total)}</b>
-      </div>
-    </div>
-    <p className="text-xs text-[var(--dim)] mt-2">Toque una burbuja para ver sus gastos.</p>
-    <div className="mt-3 flex flex-wrap items-start justify-center gap-x-3 gap-y-4">
-      {data.map((d,i)=>{
-        const max=Math.max(...data.map(x=>x.total));
-        const size=64+56*Math.sqrt(max>0?d.total/max:0);
-        const color=DONUT_COLORS[i%DONUT_COLORS.length];
-        return (
-        <button key={d.name} type="button" aria-label={`Ver los gastos de ${d.name}: ${money(d.total)}, ${d.pct} por ciento`} className="sf-bubble flex w-[92px] flex-col items-center gap-1.5" style={{animationDelay:`${(i%5)*0.7}s`,animationDuration:`${4.5+(i%3)}s`}} onClick={()=>onSelect(d)}>
-          <span className="flex items-center justify-center rounded-full text-white shadow-md" style={{width:size,height:size,background:color}} aria-hidden="true">
-            <span className="flex flex-col items-center leading-tight px-1">
-              <CatIcon name={d.name} size="md" className="text-white" />
-              <span className="text-[11px] font-extrabold mt-0.5">{d.pct}%</span>
-            </span>
-          </span>
-          <span className="text-center text-xs leading-tight text-[var(--text)]"><span className="block font-bold truncate max-w-[92px]">{d.name}</span><span className="block text-[var(--dim)]">{money(d.total)}</span></span>
+      {selected ? (
+        <button type="button" aria-label={`Ver los gastos de ${selected.name}: ${money(selected.total)}, ${selected.pct} por ciento`} className="absolute inset-0 flex flex-col items-center justify-center" onClick={()=>onSelect(selected)}>
+          <span className="text-xs text-[var(--dim)] max-w-[110px] truncate px-1">{selected.name}</span>
+          <b className="font-display text-lg leading-tight">{money2(selected.total)}</b>
+          <span className="text-xs text-[var(--dim)]">{selected.pct}% · Toque para ver sus gastos</span>
         </button>
-        );
-      })}
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <span className="text-xs text-[var(--dim)]">Total</span>
+          <b className="font-display text-lg leading-tight">{money2(total)}</b>
+        </div>
+      )}
+    </div>
+    <p className="text-xs text-[var(--dim)] mt-2">Toque un segmento de la dona para ver el rubro.</p>
+    <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1.5">
+      {data.map((d,i)=>(
+        <button key={d.name} type="button" aria-label={`Ver el rubro ${d.name}: ${money(d.total)}, ${d.pct} por ciento`} aria-pressed={selected?.name===d.name} className={`flex items-center gap-1.5 text-xs ${selected?.name===d.name?"font-bold":""}`} onClick={()=>setSelected(prev=>prev && prev.name===d.name?null:d)}>
+          <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{background:DONUT_COLORS[i%DONUT_COLORS.length]}} aria-hidden="true" />
+          <span>{d.name} · {d.pct}%</span>
+        </button>
+      ))}
     </div>
   </div>;
 }
@@ -398,7 +378,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["sueldo", "salario", "mi sueldo", "mi salario"], q: "¿Cómo registro mi sueldo?", a: "En Personal, escriba su sueldo mensual y pulse Guardar sueldo.", go: "personal", goLabel: "Ir a Personal" },
   { keys: ["presupuest", "limite"], q: "¿Cómo creo un presupuesto?", a: "En Presupuestos, elija la categoría, escriba el límite del mes y pulse Guardar. Los gastos de esa categoría en el mes se descuentan solos del presupuesto, sin hacer nada más.", go: "presupuestos", goLabel: "Ir a Presupuestos" },
   { keys: ["pagar presupuesto", "pago desde inicio", "aportar desde inicio"], q: "¿Cómo pago un presupuesto desde Inicio?", a: "En Inicio, toque la tarjeta del presupuesto, escriba el importe, elija de dónde se descuenta (Efectivo o una cuenta) y pulse Guardar pago. El gasto se asigna a esa categoría y se resta de la cuenta elegida. Lo mismo con las metas y el patrimonio.", go: "inicio", goLabel: "Ir a Inicio" },
-  { keys: ["comprobante", "foto", "ticket", "escanear", "leer el comprobante"], q: "¿Cómo leo un comprobante?", a: "En Movimientos, en Más opciones, suba la foto del comprobante. Si la lectura automática está configurada, los gastos se crean solos; si no, registre el gasto manualmente.", go: "movimientos", goLabel: "Ir a Movimientos" },
+  { keys: ["comprobante", "foto", "ticket", "escanear", "leer el comprobante"], q: "¿Cómo leo un comprobante?", a: "En Movimientos, en Más opciones, suba la foto del comprobante y pulse Leer el comprobante: la app lee el total en su dispositivo, sin costo, y llena el importe, el concepto y la categoría. Revise antes de guardar.", go: "movimientos", goLabel: "Ir a Movimientos" },
   { keys: ["revers", "revier", "revierto", "revertir", "deshacer", "corregir", "eliminar", "borrar un", "gast"], q: "¿Cómo reverso un movimiento?", a: "En Movimientos, pulse Reversar junto al movimiento. El registro queda, pero ya no cuenta en los totales.", go: "movimientos", goLabel: "Ir a Movimientos" },
   { keys: ["categor", "subcategor", "tipo de gasto", "una categoria"], q: "¿Cómo agrego una categoría?", a: "En Categorías puede ver, agregar y quitar categorías y subcategorías.", go: "categorias", goLabel: "Ir a Categorías" },
   { keys: ["perfil", "pareja", "familiar", "a mi pareja"], q: "¿Cómo agrego a mi pareja?", a: "En Perfiles puede ver a las personas del hogar y agregar a su pareja o familiares.", go: "perfiles", goLabel: "Ir a Perfiles" },
@@ -657,6 +637,60 @@ export function App(){
   const markNotifRead=useMutation({mutationFn:async(id:number)=>await api.markNotificationRead({id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
   const markAllNotifRead=useMutation({mutationFn:async()=>await api.markAllNotificationsRead({householdId:data!.household!.id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
   const openNotif=(n:{id:number;target:string})=>{ void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); goTab(n.target as Tab); };
+  // Reglas de auto-categorización: si el concepto contiene la palabra, la
+  // app pone sola esa categoría. Si la tabla aún no existe (falta correr
+  // supabase/category-rules.sql), la lista sale vacía.
+  const rulesQuery=useQuery({queryKey:["categoryRules"],queryFn:()=>api.listCategoryRules({householdId:data!.household!.id}),enabled:!!data?.household});
+  const rules=rulesQuery.data?.rules ?? [];
+  const saveRule=useMutation({mutationFn:async(v:{keyword:string;categoryId:number})=>await api.saveCategoryRule({householdId:data!.household!.id,...v}),onSuccess:()=>{ qc.invalidateQueries({queryKey:["categoryRules"]}); }});
+  const delRule=useMutation({mutationFn:async(id:number)=>await api.deleteCategoryRule({id}),onSuccess:()=>{ qc.invalidateQueries({queryKey:["categoryRules"]}); }});
+  // Avisos periódicos de tarjetas (corte y pago): una revisión por día.
+  const periodicCheckedRef=useRef(false);
+  useEffect(()=>{
+    if(!data?.household || periodicCheckedRef.current) return;
+    periodicCheckedRef.current=true;
+    let today="";
+    try{ today=todayISO(); if(localStorage.getItem("sf-periodic-alerts-date")===today) return; }catch{ return; }
+    void api.checkPeriodicAlerts({householdId:data.household.id}).then((r)=>{ try{ localStorage.setItem("sf-periodic-alerts-date",today); }catch{} if(r.created>0) qc.invalidateQueries({queryKey:["notifications"]}); }).catch(()=>{});
+  },[data?.household]);
+  // Bloqueo con PIN local de 4 dígitos (solo en este dispositivo; no cifra
+  // los datos). Se pide al entrar si está activado y al volver a la app
+  // después de más de 10 minutos fuera.
+  const [pinSetState,setPinSetState]=useState<boolean>(()=>pinIsSet());
+  const [pinLocked,setPinLocked]=useState<boolean>(()=>pinIsSet() && !pinUnlocked());
+  const [pinInput,setPinInput]=useState(""); const [pinError,setPinError]=useState(""); const [pinBusy,setPinBusy]=useState(false);
+  const [pinCurrent,setPinCurrent]=useState(""); const [pinNew1,setPinNew1]=useState(""); const [pinNew2,setPinNew2]=useState(""); const [pinMsg,setPinMsg]=useState("");
+  const lastHiddenRef=useRef(0);
+  useEffect(()=>{
+    const onVis=()=>{ if(document.hidden){ lastHiddenRef.current=Date.now(); } else if(pinIsSet() && Date.now()-lastHiddenRef.current>10*60*1000){ pinLock(); setPinLocked(true); } };
+    document.addEventListener("visibilitychange",onVis);
+    return ()=>document.removeEventListener("visibilitychange",onVis);
+  },[]);
+  const unlockPin=async()=>{
+    if(pinInput.length!==4){ setPinError("Escriba los 4 dígitos."); return; }
+    setPinBusy(true);
+    const ok=await pinCheck(pinInput);
+    setPinBusy(false);
+    if(ok){ pinMarkUnlocked(); setPinLocked(false); setPinInput(""); setPinError(""); }
+    else setPinError("PIN incorrecto. Inténtelo de nuevo.");
+  };
+  const createPin=async()=>{
+    if(!/^\d{4}$/.test(pinNew1)){ setPinMsg("El PIN debe tener 4 dígitos."); return; }
+    if(pinNew1!==pinNew2){ setPinMsg("Los dos PIN no coinciden."); return; }
+    await pinSet(pinNew1);
+    setPinSetState(true); setPinNew1(""); setPinNew2(""); setPinMsg("PIN activado en este dispositivo.");
+  };
+  const changePin=async()=>{
+    if(!/^\d{4}$/.test(pinNew1)){ setPinMsg("El PIN nuevo debe tener 4 dígitos."); return; }
+    if(pinNew1!==pinNew2){ setPinMsg("Los dos PIN no coinciden."); return; }
+    if(!(await pinCheck(pinCurrent))){ setPinMsg("El PIN actual no coincide."); return; }
+    await pinSet(pinNew1);
+    setPinCurrent(""); setPinNew1(""); setPinNew2(""); setPinMsg("PIN cambiado.");
+  };
+  const removePin=async()=>{
+    if(!(await pinCheck(pinCurrent))){ setPinMsg("El PIN actual no coincide."); return; }
+    pinRemove(); setPinSetState(false); setPinCurrent(""); setPinMsg("PIN quitado.");
+  };
   // Insignia del icono de la app instalada: número de avisos sin leer; se
   // quita cuando ya no hay. Solo funciona en navegadores que la soportan
   // (Android con Chrome y iPhone con iOS 16.4 o posterior).
@@ -734,7 +768,22 @@ export function App(){
 
   // movement form
   const [mvType,setMvType]=useState<"income"|"expense"|"transfer"|"debt_payment">("expense"); const [mvStep,setMvStep]=useState(1); const [mvAmount,setMvAmount]=useState(""); const [mvConcept,setMvConcept]=useState(""); const [mvAccount,setMvAccount]=useState(""); const [mvToAccount,setMvToAccount]=useState(""); const [mvCat,setMvCat]=useState(""); const [mvSub,setMvSub]=useState(""); const [mvDate,setMvDate]=useState(todayISO()); const [mvVis,setMvVis]=useState<"private"|"shared">("shared"); const [mvSearch,setMvSearch]=useState(""); const [mvFilter,setMvFilter]=useState("all"); const [editingMv,setEditingMv]=useState<number|null>(null);
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();setMvAmount("");setMvConcept("");setEditingMv(null);setReceipt(null);setMvStep(1);setSavedNotice("Movimiento guardado.");}});
+  // Regla de auto-categorización aplicada en cada formulario (se muestra y
+  // se puede corregir). La regla solo llena la categoría cuando está vacía
+  // o cuando la categoría actual la puso una regla: si la persona eligió
+  // otra categoría a mano, no se le cambia.
+  const [appliedRuleMv,setAppliedRuleMv]=useState<{keyword:string;categoryName:string}|null>(null);
+  const [appliedRulePers,setAppliedRulePers]=useState<{keyword:string;categoryName:string}|null>(null);
+  const applyRuleTo=(concept:string,target:"mv"|"pers")=>{
+    if(!data) return;
+    const r=matchRule(rules,concept);
+    if(!r){ if(target==="mv") setAppliedRuleMv(null); else setAppliedRulePers(null); return; }
+    const cat=data.categories.find(c=>c.id===r.categoryId);
+    if(!cat) return;
+    if(target==="mv"){ if(mvCat==="" || appliedRuleMv){ setMvCat(String(r.categoryId)); setAppliedRuleMv({keyword:r.keyword,categoryName:cat.name}); } }
+    else { if(persCat==="" || appliedRulePers){ setPersCat(String(r.categoryId)); setAppliedRulePers({keyword:r.keyword,categoryName:cat.name}); } }
+  };
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();setMvAmount("");setMvConcept("");setMvCat("");setMvSub("");setAppliedRuleMv(null);setEditingMv(null);setReceipt(null);setMvStep(1);setSavedNotice("Movimiento guardado.");}});
   const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:inv});
   const [confirmReverseId,setConfirmReverseId]=useState<number|null>(null);
   const revMv=useMutation({mutationFn:async(id:number)=>await api.reverseMovement({id}),onSuccess:()=>{inv();setConfirmReverseId(null);}});
@@ -824,11 +873,11 @@ export function App(){
   const [resetStep,setResetStep]=useState(0); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false); const [savedNotice,setSavedNotice]=useState<string|null>(null);
   const savedNoticeRef=useRef<HTMLDivElement|null>(null);
   useEffect(()=>{ if(savedNotice){ savedNoticeRef.current?.scrollIntoView({behavior:"smooth",block:"center"}); } },[savedNotice]);
-  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
+  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); localStorage.removeItem("sf-pin-hash"); sessionStorage.removeItem("sf-pin-unlocked"); localStorage.removeItem("sf-periodic-alerts-date"); }catch{} }});
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setPersStep(1);setSavedNotice("Gasto del día guardado.");}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setAppliedRulePers(null);setPersStep(1);setSavedNotice("Gasto del día guardado.");}});
   // Acceso directo para registrar un gasto rápido (?accion=nuevo-gasto):
   // al entrar con ese parámetro, después de iniciar sesión y con el espacio
   // creado, se abre el formulario de gasto con el importe listo para escribir.
@@ -872,10 +921,10 @@ export function App(){
   const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:data!.household!.id,tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
   const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:data!.household!.id,...v}),onSuccess:inv});
   const [mvProfile,setMvProfile]=useState("");
-  const [receipt,setReceipt]=useState<{dataBase64:string;mimeType:string;preview:string}|null>(null);
-  const [persReceipt,setPersReceipt]=useState<{dataBase64:string;mimeType:string;preview:string}|null>(null);
+  const [receipt,setReceipt]=useState<{dataBase64:string;mimeType:string;preview:string;file?:File}|null>(null);
+  const [persReceipt,setPersReceipt]=useState<{dataBase64:string;mimeType:string;preview:string;file?:File}|null>(null);
   const [receiptView,setReceiptView]=useState<string|null>(null);
-  const pickReceipt=async(file:File|undefined,set:(v:{dataBase64:string;mimeType:string;preview:string}|null)=>void)=>{ if(!file) return; const r=await fileToBase64(file); set({dataBase64:r.dataBase64,mimeType:r.mimeType,preview:URL.createObjectURL(file)}); };
+  const pickReceipt=async(file:File|undefined,set:(v:{dataBase64:string;mimeType:string;preview:string;file?:File}|null)=>void)=>{ if(!file) return; const r=await fileToBase64(file); set({dataBase64:r.dataBase64,mimeType:r.mimeType,preview:URL.createObjectURL(file),file}); };
   const [editProfId,setEditProfId]=useState<number|null>(null); const [editProfName,setEditProfName]=useState(""); const [editProfLast,setEditProfLast]=useState("");
   const [profLast,setProfLast]=useState("");
   const [invEmail2,setInvEmail2]=useState(""); const [invName2,setInvName2]=useState("");
@@ -889,8 +938,137 @@ export function App(){
   const [mvSubFilter,setMvSubFilter]=useState("all"); const [newSubName,setNewSubName]=useState(""); const [newSubByCat,setNewSubByCat]=useState<Record<number,string>>({});
   const addSub=useMutation({mutationFn:async(v:{categoryId:number;name:string})=>await api.addSubcategory(v),onSuccess:inv});
   const removeSub=useMutation({mutationFn:async(v:{categoryId:number;name:string})=>await api.removeSubcategory(v),onSuccess:inv});
-  const [scanImg,setScanImg]=useState<{dataBase64:string;mimeType:string;preview:string}|null>(null); const [scanCat,setScanCat]=useState(""); const [scanPersImg,setScanPersImg]=useState<{dataBase64:string;mimeType:string;preview:string}|null>(null);
-  const scanRcpt=useMutation({mutationFn:async(v:{img:{dataBase64:string;mimeType:string};visibility:"shared"|"private";categoryId?:number|null;accountId?:number|null})=>await api.scanReceipt({householdId:data!.household!.id,image:v.img,visibility:v.visibility,categoryId:v.categoryId??null,accountId:v.accountId??null,profileId:me?me.id:null}),onSuccess:()=>{inv();setScanImg(null);setScanPersImg(null);setSavedNotice("Comprobante leído y gastos guardados.");}});
+  // Lectura de comprobantes en el dispositivo (Tesseract.js, gratis, sin
+  // servidor): se llena el importe, el concepto y la categoría; la persona
+  // revisa antes de guardar. El motor se carga solo al leer.
+  const [ocrBusyMv,setOcrBusyMv]=useState(false); const [ocrProgressMv,setOcrProgressMv]=useState(""); const [ocrErrorMv,setOcrErrorMv]=useState(""); const [ocrNoticeMv,setOcrNoticeMv]=useState("");
+  const [ocrBusyPers,setOcrBusyPers]=useState(false); const [ocrProgressPers,setOcrProgressPers]=useState(""); const [ocrErrorPers,setOcrErrorPers]=useState(""); const [ocrNoticePers,setOcrNoticePers]=useState("");
+  const runOcr=async(target:"mv"|"pers")=>{
+    const file=target==="mv"?receipt?.file:persReceipt?.file;
+    if(!file || !data) return;
+    const setBusy=target==="mv"?setOcrBusyMv:setOcrBusyPers;
+    const setProgress=target==="mv"?setOcrProgressMv:setOcrProgressPers;
+    const setError=target==="mv"?setOcrErrorMv:setOcrErrorPers;
+    const setNotice=target==="mv"?setOcrNoticeMv:setOcrNoticePers;
+    setBusy(true); setError(""); setNotice(""); setProgress("Preparando la lectura…");
+    try{
+      const jpeg=await imageFileToJpeg(file);
+      setProgress("Leyendo el comprobante en su dispositivo…");
+      const text=await readReceiptText(`data:${jpeg.mimeType};base64,${jpeg.dataBase64}`,(p)=>{ if(p.status==="recognizing text") setProgress(`Leyendo el comprobante… ${Math.round((p.progress||0)*100)}%`); });
+      const parsed=parseReceiptText(text);
+      if(parsed.total==null){ setError("No se pudo leer el total del comprobante. Verifique que la foto sea nítida o escriba el importe."); return; }
+      if(target==="mv"){
+        setMvAmount(String(parsed.total));
+        if(parsed.store){ setMvConcept(parsed.store); applyRuleTo(parsed.store,"mv"); }
+        if(parsed.date) setMvDate(parsed.date);
+        const catId=parsed.store?suggestCategoryId(data.categories,parsed.store,rules):null;
+        if(catId && mvCat==="") setMvCat(String(catId));
+        setNotice(`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de guardar.`);
+      } else {
+        setPersAmt(String(parsed.total));
+        if(parsed.store){ setPersConcept(parsed.store); applyRuleTo(parsed.store,"pers"); }
+        const catId=parsed.store?suggestCategoryId(data.categories,parsed.store,rules):null;
+        if(catId && persCat==="") setPersCat(String(catId));
+        setNotice(`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de guardar.`);
+      }
+    }catch{ setError("No se pudo leer el comprobante en este dispositivo. Revise su conexión o escriba el importe."); }
+    finally{ setBusy(false); setProgress(""); }
+  };
+  // Registro por voz con Web Speech API (gratis, en el navegador): dictar
+  // "gasté 320 en el súper" llena importe, concepto y categoría; se revisa
+  // antes de guardar. Si el navegador no lo soporta, se escribe el gasto.
+  type SpeechRecognitionLike={lang:string;interimResults:boolean;maxAlternatives:number;onresult:((e:{results:ArrayLike<ArrayLike<{transcript:string}>>})=>void)|null;onerror:((e:{error:string})=>void)|null;onend:(()=>void)|null;start:()=>void;stop:()=>void;};
+  const micIcon=<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 19v3"/></svg>;
+  const [voiceBusyMv,setVoiceBusyMv]=useState(false); const [voiceErrorMv,setVoiceErrorMv]=useState(""); const [voiceNoticeMv,setVoiceNoticeMv]=useState("");
+  const [voiceBusyPers,setVoiceBusyPers]=useState(false); const [voiceErrorPers,setVoiceErrorPers]=useState(""); const [voiceNoticePers,setVoiceNoticePers]=useState("");
+  const startVoice=(target:"mv"|"pers")=>{
+    const w=window as unknown as {SpeechRecognition?:new()=>SpeechRecognitionLike;webkitSpeechRecognition?:new()=>SpeechRecognitionLike};
+    const SR=w.SpeechRecognition || w.webkitSpeechRecognition;
+    const setBusy=target==="mv"?setVoiceBusyMv:setVoiceBusyPers;
+    const setError=target==="mv"?setVoiceErrorMv:setVoiceErrorPers;
+    const setNotice=target==="mv"?setVoiceNoticeMv:setVoiceNoticePers;
+    if(!SR){ setError("Su navegador no soporta el dictado por voz. Puede escribir el gasto."); return; }
+    if(!data) return;
+    const rec=new SR();
+    rec.lang="es-MX"; rec.interimResults=false; rec.maxAlternatives=1;
+    setBusy(true); setError(""); setNotice("");
+    rec.onresult=(e)=>{
+      const text=e.results[0]?.[0]?.transcript || "";
+      const parsed=parseVoiceText(text,data.categories,rules);
+      if(target==="mv"){
+        if(parsed.amount!=null) setMvAmount(String(parsed.amount));
+        if(parsed.concept){ setMvConcept(parsed.concept); applyRuleTo(parsed.concept,"mv"); }
+        if(parsed.categoryId!=null && mvCat==="") setMvCat(String(parsed.categoryId));
+        setNotice(parsed.amount!=null||parsed.concept?`Escuchado: «${parsed.heard}». Revise antes de guardar.`:"No se entendió el importe ni el concepto. Inténtelo de nuevo.");
+      } else {
+        if(parsed.amount!=null) setPersAmt(String(parsed.amount));
+        if(parsed.concept){ setPersConcept(parsed.concept); applyRuleTo(parsed.concept,"pers"); }
+        if(parsed.categoryId!=null && persCat==="") setPersCat(String(parsed.categoryId));
+        setNotice(parsed.amount!=null||parsed.concept?`Escuchado: «${parsed.heard}». Revise antes de guardar.`:"No se entendió el importe ni el concepto. Inténtelo de nuevo.");
+      }
+    };
+    rec.onerror=(e)=>{ setBusy(false); setError(e.error==="not-allowed"?"Permita el micrófono para dictar el gasto.":e.error==="no-speech"?"No se escuchó nada. Inténtelo de nuevo.":"No se pudo dictar el gasto."); };
+    rec.onend=()=>setBusy(false);
+    try{ rec.start(); }catch{ setBusy(false); }
+  };
+  // Importación y exportación CSV de movimientos.
+  type ImportRow={date:string;concept:string;type:"income"|"expense"|"transfer"|"debt_payment";amount:number;categoryId:number|null;categoryName:string;accountId:number|null;include:boolean;duplicate:boolean};
+  const [importOpen,setImportOpen]=useState(false); const [importRows,setImportRows]=useState<ImportRow[]|null>(null); const [importFileName,setImportFileName]=useState(""); const [importError,setImportError]=useState("");
+  const normalizeImportDate=(raw:string):string|null=>{
+    const s=raw.trim();
+    const m=/^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/.exec(s);
+    if(m) return `${m[1]}-${m[2]!.padStart(2,"0")}-${m[3]!.padStart(2,"0")}`;
+    const m2=/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/.exec(s);
+    if(m2) return `${m2[3]}-${m2[2]!.padStart(2,"0")}-${m2[1]!.padStart(2,"0")}`;
+    return null;
+  };
+  const exportCsv=()=>{
+    const rows:(string|number|null)[][]=[["Fecha","Concepto","Tipo","Categoría","Subcategoría","Cuenta","Importe","Visibilidad"]];
+    for(const m of filteredMovs) rows.push([m.date,m.concept,TYPE_LABEL[m.type]||m.type,getCatName(m.categoryId),m.subcategory||"",getAccName(m.accountId),m.amount,m.visibility==="shared"?"Compartido":"Privado"]);
+    downloadTextFile(`syncfinanzas-movimientos-${monthNow()}.csv`,toCsv(rows),"text/csv;charset=utf-8");
+  };
+  const handleImportFile=async(file:File|undefined)=>{
+    if(!file || !data) return;
+    setImportError("");
+    try{
+      const text=await file.text();
+      const grid=parseCsv(text);
+      if(grid.length<2){ setImportError("El archivo no tiene movimientos para importar."); return; }
+      const header=grid[0]!.map(h=>normText(h));
+      const findCol=(...names:string[])=>header.findIndex(h=>names.some(n=>h===n || h.includes(n)));
+      const cDate=findCol("fecha","date");
+      const cConcept=findCol("concepto","concept","descripcion","description");
+      const cAmount=findCol("importe","monto","amount","total");
+      const cType=findCol("tipo","type");
+      const cCat=findCol("categoria","category");
+      const cAcc=findCol("cuenta","account");
+      if(cDate<0 || cConcept<0 || cAmount<0){ setImportError("No se reconocieron las columnas. El archivo necesita al menos Fecha, Concepto e Importe."); return; }
+      const existing=new Set(data.movements.filter(m=>!m.isReversed && !m.reversalOfId).map(m=>`${m.date}|${normText(m.concept)}|${m.amount}|${m.type}`));
+      const rows:ImportRow[]=[];
+      for(const g of grid.slice(1)){
+        const dateRaw=(g[cDate]||"").trim();
+        const concept=(g[cConcept]||"").trim();
+        const amountRaw=(g[cAmount]||"").replace(/[$\s]/g,"").replace(/,/g,"");
+        const amount=Number(amountRaw);
+        if(!concept || !Number.isFinite(amount) || amount<=0) continue;
+        const date=normalizeImportDate(dateRaw) || todayISO();
+        const typeRaw=normText(g[cType]||"");
+        const type:ImportRow["type"]=typeRaw.includes("ingreso")||typeRaw==="income"?"income":typeRaw.includes("transfer")?"transfer":typeRaw.includes("deuda")||typeRaw.includes("debt")?"debt_payment":"expense";
+        const catText=cCat>=0?(g[cCat]||"").trim():"";
+        let categoryId=catText?(data.categories.find(c=>normText(c.name)===normText(catText))?.id ?? null):null;
+        if(!categoryId) categoryId=suggestCategoryId(data.categories,concept,rules);
+        const accText=cAcc>=0?(g[cAcc]||"").trim():"";
+        const accountId=accText?(data.accounts.find(a=>normText(a.name)===normText(accText))?.id ?? null):null;
+        const key=`${date}|${normText(concept)}|${amount}|${type}`;
+        rows.push({date,concept,type,amount,categoryId,categoryName:categoryId?getCatName(categoryId):"Sin categoría",accountId,include:!existing.has(key),duplicate:existing.has(key)});
+      }
+      if(rows.length===0){ setImportError("No se encontraron movimientos válidos en el archivo."); return; }
+      setImportRows(rows); setImportFileName(file.name);
+    }catch{ setImportError("No se pudo leer el archivo CSV."); }
+  };
+  const importMv=useMutation({mutationFn:async(rows:ImportRow[])=>await api.importMovements({householdId:data!.household!.id,movements:rows.filter(r=>r.include).map(r=>({type:r.type,amount:r.amount,concept:r.concept,categoryId:r.categoryId,date:r.date,visibility:"shared" as const,accountId:r.accountId}))}),onSuccess:(r)=>{ inv(); setImportRows(null); setImportOpen(false); setSavedNotice(`Se importaron ${r.imported} movimiento(s)${r.skipped?` · ${r.skipped} duplicado(s) no se importaron`:""}.`); }});
+  // Formulario de reglas en Categorías.
+  const [ruleKeyword,setRuleKeyword]=useState(""); const [ruleCat,setRuleCat]=useState("");
 
 
 
@@ -1306,7 +1484,7 @@ export function App(){
               </>}
               {mvStep===2 && <>
               {mvType!=="transfer" && <>
-                <div><Label htmlFor="mv-cat">{mvType==="income"?"Tipo de ingreso":"Tipo de gasto"}</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");}}><option value="">Sin categoría</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                <div><Label htmlFor="mv-cat">{mvType==="income"?"Tipo de ingreso":"Tipo de gasto"}</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");setAppliedRuleMv(null);}}><option value="">Sin categoría</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                 <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Nueva subcategoría…</option></select>                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Agregar “{newSubName||"…"}” a {selectedCat.name}?</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
                 </div>
               </>}
@@ -1314,7 +1492,11 @@ export function App(){
               <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
               </>}
               {mvStep===3 && <>
-              <div><Label htmlFor="mv-concept">Concepto</Label><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls} value={mvConcept} onChange={e=>setMvConcept(e.target.value)} placeholder="Ej. Súper semanal" /></div>
+              <div><Label htmlFor="mv-concept">Concepto</Label><div className="flex gap-2"><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls+" flex-1"} value={mvConcept} onChange={e=>{setMvConcept(e.target.value);applyRuleTo(e.target.value,"mv");}} placeholder="Ej. Súper semanal" />{(mvType==="expense"||mvType==="debt_payment") && <button type="button" aria-label={voiceBusyMv?"Escuchando…":"Dictar el gasto por voz"} title="Dictar por voz" className="shrink-0 w-11 rounded-xl border border-[var(--border)] bg-[var(--surface2)] flex items-center justify-center" disabled={voiceBusyMv} onClick={()=>startVoice("mv")}>{micIcon}</button>}</div>
+              {voiceBusyMv && <p className="text-xs text-[var(--dim)] mt-1">Escuchando… Diga, por ejemplo, «gasté 320 en el súper».</p>}
+              {voiceErrorMv && <p className="text-xs text-[var(--red)] mt-1">{voiceErrorMv}</p>}
+              {voiceNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{voiceNoticeMv}</p>}
+              {appliedRuleMv && <p className="text-xs text-[var(--dim)] mt-1">Regla aplicada: «{appliedRuleMv.keyword}» → {appliedRuleMv.categoryName}. Puede cambiarla en el paso 2.</p>}</div>
               <div><Label htmlFor="mv-account">{mvType==="income"?"¿A qué cuenta entra?":mvType==="transfer"?"¿De qué cuenta sale?":"¿De dónde se descuenta?"}</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>setMvAccount(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
               {mvType==="transfer" && <div><Label htmlFor="mv-to">Cuenta destino</Label><select id="mv-to" aria-label="Cuenta destino" className={inputCls} value={mvToAccount} onChange={e=>setMvToAccount(e.target.value)}><option value="">Seleccione…</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>}
               <div>
@@ -1328,17 +1510,13 @@ export function App(){
                 <input id="mv-receipt" aria-label="Adjuntar foto del comprobante" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setReceipt); }} />
                 <p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
                 {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>setReceipt(null)}>Quitar foto</button></div>}
-              </div>
-              <div className="border-2 border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-                <p className="font-display font-bold text-sm">Lectura automática</p>
-                                <p className="text-[11px] text-[var(--dim)] mt-1">Los gastos se crean solos.</p>
-                <input aria-label="Fotografía del comprobante para lectura automática" type="file" accept="image/*" className="w-full text-sm mt-2" onChange={e=>{ const f=e.target.files?.[0]; if(f) void imageFileToJpeg(f).then(setScanImg).catch(()=>setScanImg(null)); e.target.value=""; }} />
-                {scanImg && <div className="mt-2 space-y-2"><img src={scanImg.preview} alt="Vista previa del comprobante que se leerá automáticamente" className="w-full max-h-36 object-contain rounded-xl border border-[var(--border)] bg-white" />
-                  <div><Label htmlFor="scan-cat">Categoría (opcional)</Label><select id="scan-cat" aria-label="Categoría para los productos leídos del comprobante" className={inputCls} value={scanCat} onChange={e=>setScanCat(e.target.value)}><option value="">Automática</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                  <button type="button" aria-label="Leer el comprobante y crear los gastos automáticamente" className={btnPrimary+" w-full"} disabled={scanRcpt.isPending} onClick={()=>scanRcpt.mutate({img:{dataBase64:scanImg.dataBase64,mimeType:scanImg.mimeType},visibility:mvVis,categoryId:scanCat?Number(scanCat):null,accountId:mvAccount?Number(mvAccount):null})}>{scanRcpt.isPending?"Leyendo el comprobante…":"Leer comprobante y crear los gastos"}</button>
+                {receipt && (mvType==="expense"||mvType==="debt_payment") && <div className="mt-2">
+                  <button type="button" aria-label="Leer el comprobante y llenar el formulario" className={btnPrimary+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante"}</button>
+                  {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
+                  {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
+                  {ocrNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticeMv}</p>}
+                  <p className="text-[11px] text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
                 </div>}
-                {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Se crearon {scanRcpt.data.created} gasto(s) por {money2(scanRcpt.data.totalDetected)}.</p>}
-                {scanRcpt.error && <p className="text-sm text-[var(--red)] mt-2">{String(scanRcpt.error)}</p>}
               </div>
               <div><Label htmlFor="mv-profile">Hecho por</Label><select id="mv-profile" aria-label="Integrante que hizo el movimiento" className={inputCls} value={mvProfile} onChange={e=>setMvProfile(e.target.value)}><option value="">{me?`Yo (${fullName(me)})`:"El hogar"}</option>{data.profiles.filter(x=>x.kind==="adult").map(x=><option key={x.id} value={x.id}>{fullName(x)}</option>)}</select></div>
               <div>
@@ -1369,6 +1547,45 @@ export function App(){
                 <select aria-label="Filtrar por subcategoría" className={inputCls+" w-auto"} value={mvSubFilter} onChange={e=>setMvSubFilter(e.target.value)}><option value="all">Todas</option>{Array.from(new Set(data.categories.flatMap(c=>c.subcategories))).sort().map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="">Sin subcategoría</option></select>
               </div>
               <p className="text-xs text-[var(--dim)] mt-2">{filteredMovs.length} movimientos · Entradas {money(filteredMovs.filter(m=>m.type==="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))} · Salidas {money(filteredMovs.filter(m=>m.type!=="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))}</p>
+              <div className="flex gap-2 flex-wrap mt-2">
+                <button type="button" aria-label="Exportar los movimientos visibles a CSV" className={btnGhost} onClick={exportCsv}>Exportar CSV</button>
+                <button type="button" aria-label="Importar movimientos desde un archivo CSV" aria-expanded={importOpen} className={btnGhost} onClick={()=>{setImportOpen(o=>!o); setImportError("");}}>{importOpen?"Cerrar importación":"Importar CSV"}</button>
+              </div>
+              {importOpen && (
+                <div className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2">
+                  <p className="font-display font-bold text-sm">Importar movimientos</p>
+                  <p className="text-xs text-[var(--dim)]">Archivo CSV con columnas Fecha, Concepto e Importe (opcional: Tipo, Categoría, Cuenta). Se separan por coma o punto y coma.</p>
+                  <input aria-label="Elegir archivo CSV para importar" type="file" accept=".csv,text/csv" className="w-full text-sm" onChange={e=>{ void handleImportFile(e.target.files?.[0]); e.target.value=""; }} />
+                  {importFileName && <p className="text-xs text-[var(--dim)]">Archivo: {importFileName}</p>}
+                  {importError && <p className="text-sm text-[var(--red)]">{importError}</p>}
+                  {importRows && (
+                    <>
+                      <p className="text-sm"><b>{importRows.filter(r=>r.include).length}</b> por importar · <b>{importRows.filter(r=>r.duplicate).length}</b> posible(s) duplicado(s) no se importan.</p>
+                      <div className="max-h-64 overflow-auto border border-[var(--border)] rounded-xl bg-[var(--surface)]">
+                        <table className="w-full text-xs">
+                          <thead><tr className="text-left border-b border-[var(--border)]"><th className="p-2">Fecha</th><th className="p-2">Concepto</th><th className="p-2">Importe</th><th className="p-2">Categoría</th><th className="p-2">Importar</th></tr></thead>
+                          <tbody>
+                            {importRows.map((r,i)=>(
+                              <tr key={i} className={`border-b border-[var(--border)] last:border-0 ${r.duplicate?"opacity-60":""}`}>
+                                <td className="p-2 whitespace-nowrap">{fmtDate(r.date)}</td>
+                                <td className="p-2">{r.concept}{r.duplicate && <span className="block text-[var(--red)] font-bold">Posible duplicado</span>}</td>
+                                <td className="p-2 whitespace-nowrap">{money2(r.amount)}</td>
+                                <td className="p-2"><select aria-label={`Categoría de ${r.concept}`} className={inputCls+" text-xs py-1"} value={r.categoryId??""} onChange={e=>{ const v=e.target.value; setImportRows(rows=>rows!.map((x,j)=>j===i?{...x,categoryId:v?Number(v):null,categoryName:v?getCatName(Number(v)):"Sin categoría"}:x)); }}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind===(r.type==="income"?"income":"expense")).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></td>
+                                <td className="p-2"><input type="checkbox" aria-label={`Importar ${r.concept}`} checked={r.include} onChange={e=>setImportRows(rows=>rows!.map((x,j)=>j===i?{...x,include:e.target.checked}:x))} /></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="button" className={btnPrimary+" flex-1"} disabled={importMv.isPending || importRows.filter(r=>r.include).length===0} onClick={()=>importMv.mutate(importRows)}>{importMv.isPending?"Importando…":`Importar ${importRows.filter(r=>r.include).length} movimiento(s)`}</button>
+                        <button type="button" className={btnGhost} onClick={()=>{setImportRows(null);setImportFileName("");}}>Cancelar</button>
+                      </div>
+                      {importMv.error && <p className="text-sm text-[var(--red)]">{String(importMv.error)}</p>}
+                    </>
+                  )}
+                </div>
+              )}
               {revMv.error && <p className="text-sm text-[var(--red)] mt-2">{String(revMv.error)}</p>}
               {revMv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">Movimiento reversado.</p>}
               <div className="divide-y divide-[var(--border)] mt-2">
@@ -1648,6 +1865,22 @@ export function App(){
               ))}
             </div>
             {(addSub.error || removeSub.error) && <p className="text-sm text-[var(--red)] mt-2">{String(addSub.error || removeSub.error)}</p>}
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 mt-3">
+              <h3 className="font-display font-bold">Reglas de auto-categorización</h3>
+              <p className="text-sm text-[var(--dim)] mt-1">Si el concepto contiene una palabra, la app pone sola esa categoría. Ejemplo: «OXXO» → Alimentación.</p>
+              {rulesQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando reglas…</p>
+              : rulesQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar las reglas. Si es la primera vez, ejecute supabase/category-rules.sql en Supabase.</p>
+              : <>
+                <form className="grid md:grid-cols-[1fr_1fr_auto] gap-2 items-end mt-3" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!ruleKeyword.trim()||!ruleCat) return; saveRule.mutate({keyword:ruleKeyword.trim(),categoryId:Number(ruleCat)},{onSuccess:()=>{setRuleKeyword("");setRuleCat("");}});}}>
+                  <div><Label htmlFor="rule-keyword">Palabra o frase</Label><input id="rule-keyword" aria-label="Palabra o frase de la regla" className={inputCls} value={ruleKeyword} onChange={e=>setRuleKeyword(e.target.value)} placeholder="Ej. OXXO" /></div>
+                  <div><Label htmlFor="rule-cat">Categoría</Label><select id="rule-cat" aria-label="Categoría de la regla" className={inputCls} value={ruleCat} onChange={e=>setRuleCat(e.target.value)}><option value="">Seleccione…</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  <button className={btnPrimary} disabled={saveRule.isPending || !ruleKeyword.trim() || !ruleCat}>Agregar regla</button>
+                </form>
+                {saveRule.error && <p className="text-sm text-[var(--red)] mt-2">{String(saveRule.error)}</p>}
+                {rules.length===0 ? <p className="text-sm text-[var(--dim)] mt-3">Sin reglas todavía.</p> : <div className="divide-y divide-[var(--border)] mt-2">{rules.map(r=>(<div key={r.id} className="py-2 flex justify-between gap-2 text-sm"><span>Si el concepto contiene «<b>{r.keyword}</b>» → <b>{r.categoryName}</b></span><button type="button" aria-label={`Eliminar la regla ${r.keyword}`} className="text-xs underline text-[var(--red)] shrink-0" disabled={delRule.isPending} onClick={()=>delRule.mutate(r.id)}>Eliminar</button></div>))}</div>}
+                {delRule.error && <p className="text-sm text-[var(--red)] mt-2">{String(delRule.error)}</p>}
+              </>}
+            </div>
           </section>
         )}
 
@@ -1751,24 +1984,27 @@ export function App(){
                   <button type="button" className={btnPrimary+" w-full"} disabled={!persAmt} onClick={()=>{setPersStep(2); scrollFormTop("pers-exp-form");}}>Siguiente</button>
                   </>}
                   {persStep===2 && <>
-                  <div><Label htmlFor="pers-cat">Tipo de gasto</Label><select id="pers-cat" aria-label="Tipo de gasto del día" className={inputCls} value={persCat} onChange={e=>setPersCat(e.target.value)}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  <div><Label htmlFor="pers-cat">Tipo de gasto</Label><select id="pers-cat" aria-label="Tipo de gasto del día" className={inputCls} value={persCat} onChange={e=>{setPersCat(e.target.value);setAppliedRulePers(null);}}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                   <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setPersStep(1); scrollFormTop("pers-exp-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setPersStep(3); scrollFormTop("pers-exp-form");}}>Siguiente</button></div>
                   </>}
                   {persStep===3 && <>
-                  <div><Label htmlFor="pers-concept">Concepto del gasto</Label><input id="pers-concept" aria-label="Concepto del gasto del día" className={inputCls} value={persConcept} onChange={e=>setPersConcept(e.target.value)} placeholder="Ej. Alimentos, transporte, café…" /></div>
+                  <div><Label htmlFor="pers-concept">Concepto del gasto</Label><div className="flex gap-2"><input id="pers-concept" aria-label="Concepto del gasto del día" className={inputCls+" flex-1"} value={persConcept} onChange={e=>{setPersConcept(e.target.value);applyRuleTo(e.target.value,"pers");}} placeholder="Ej. Alimentos, transporte, café…" /><button type="button" aria-label={voiceBusyPers?"Escuchando…":"Dictar el gasto por voz"} title="Dictar por voz" className="shrink-0 w-11 rounded-xl border border-[var(--border)] bg-[var(--surface2)] flex items-center justify-center" disabled={voiceBusyPers} onClick={()=>startVoice("pers")}>{micIcon}</button></div>
+                  {voiceBusyPers && <p className="text-xs text-[var(--dim)] mt-1">Escuchando… Diga, por ejemplo, «gasté 320 en el súper».</p>}
+                  {voiceErrorPers && <p className="text-xs text-[var(--red)] mt-1">{voiceErrorPers}</p>}
+                  {voiceNoticePers && <p className="text-xs text-[var(--green)] mt-1">{voiceNoticePers}</p>}
+                  {appliedRulePers && <p className="text-xs text-[var(--dim)] mt-1">Regla aplicada: «{appliedRulePers.keyword}» → {appliedRulePers.categoryName}. Puede cambiarla en el paso 2.</p>}</div>
                   <div><Label htmlFor="pers-account">¿De dónde se descuenta?</Label><select id="pers-account" aria-label="Cuenta del gasto del día" className={inputCls} value={persAccount} onChange={e=>setPersAccount(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
                   <div>
                     <button type="button" aria-expanded={persMore} aria-label={persMore?"Ocultar más opciones del gasto del día":"Mostrar más opciones del gasto del día"} onClick={()=>setPersMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{persMore?"▾ Ocultar más opciones":"▸ Más opciones: comprobante"}</button>
                     {persMore && (<div className="space-y-2 mt-3">
-                  <div><Label htmlFor="pers-receipt">Foto del comprobante (opcional)</Label><input id="pers-receipt" aria-label="Adjuntar foto del comprobante del gasto del día" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setPersReceipt); }} />{persReceipt && <img src={persReceipt.preview} alt="Vista previa del comprobante del gasto del día" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)] mt-2" />}<p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante.</p></div>
-                  <div className="border-2 border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-                    <p className="font-display font-bold text-sm">Leer el comprobante</p>
-                    <p className="text-[11px] text-[var(--dim)] mt-1">Los gastos se registran solos.</p>
-                    <input aria-label="Fotografía del comprobante para lectura automática en Personal" type="file" accept="image/*" className="w-full text-sm mt-2" onChange={e=>{ const f=e.target.files?.[0]; if(f) void imageFileToJpeg(f).then(setScanPersImg).catch(()=>setScanPersImg(null)); e.target.value=""; }} />
-                    {scanPersImg && <div className="mt-2 space-y-2"><img src={scanPersImg.preview} alt="Vista previa del comprobante que se leerá en Personal" className="w-full max-h-32 object-contain rounded-xl border border-[var(--border)] bg-white" /><button type="button" aria-label="Leer el comprobante y registrar los gastos del día" className={btnPrimary+" w-full"} disabled={scanRcpt.isPending} onClick={()=>scanRcpt.mutate({img:{dataBase64:scanPersImg.dataBase64,mimeType:scanPersImg.mimeType},visibility:"private",accountId:persAccount?Number(persAccount):null})}>{scanRcpt.isPending?"Leyendo el comprobante…":"Leer comprobante y registrar los gastos"}</button></div>}
-                    {scanRcpt.isSuccess && scanRcpt.data && <p className="text-sm text-[var(--green)] mt-2">Se registraron {scanRcpt.data.created} gasto(s) por {money2(scanRcpt.data.totalDetected)}.</p>}
-                    {scanRcpt.error && <p className="text-sm text-[var(--red)] mt-2">{String(scanRcpt.error)}</p>}
-                  </div>
+                  <div><Label htmlFor="pers-receipt">Foto del comprobante (opcional)</Label><input id="pers-receipt" aria-label="Adjuntar foto del comprobante del gasto del día" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setPersReceipt); }} />{persReceipt && <img src={persReceipt.preview} alt="Vista previa del comprobante del gasto del día" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)] mt-2" />}<p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
+                  {persReceipt && <div className="mt-2">
+                    <button type="button" aria-label="Leer el comprobante y llenar el gasto del día" className={btnPrimary+" w-full"} disabled={ocrBusyPers} onClick={()=>void runOcr("pers")}>{ocrBusyPers?"Leyendo el comprobante…":"Leer el comprobante"}</button>
+                    {ocrProgressPers && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressPers}</p>}
+                    {ocrErrorPers && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorPers}</p>}
+                    {ocrNoticePers && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticePers}</p>}
+                    <p className="text-[11px] text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
+                  </div>}</div>
                     </div>)}
                   </div>
                   <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setPersStep(2); scrollFormTop("pers-exp-form");}}>Atrás</button><button className={btnPrimary+" flex-1"} disabled={savePersExp.isPending || !persAmt}>Finalizar</button></div>
@@ -2046,7 +2282,7 @@ export function App(){
               <button type="button" className={btnPrimary+" shrink-0"} onClick={handleInstallClick}>Cómo instalar</button>
             </div>
             <div className="grid sm:grid-cols-3 gap-2">
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto y los gastos se registran solos.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto y pulse Leer el comprobante: la app lee el total en su dispositivo y llena el gasto.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gráficas ingresos vs gastos</p><p className="text-sm text-[var(--dim)] mt-1">Por mes y por categoría.</p><button type="button" aria-label="Ir a Inicio para ver las gráficas" className={btnGhost+" mt-2"} onClick={()=>goTab("inicio")}>Ver gráficas</button></div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Tandas</p><p className="text-sm text-[var(--dim)] mt-1">Cree su tanda e invite por correo.</p><button type="button" aria-label="Ir a Tandas desde la guía" className={btnGhost+" mt-2"} onClick={()=>goTab("tandas")}>Ir a Tandas</button></div>
             </div>
@@ -2103,9 +2339,38 @@ export function App(){
                 <li>Lo privado solo lo ve su autor.</li>
                 <li>Límite de peticiones por minuto.</li>
                 <li>Sin claves en el código.</li>
+                <li>Bloqueo con PIN en este dispositivo (opcional).</li>
                 <li>Cierre de sesión en este dispositivo.</li>
                 <li><button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-3 py-2 text-sm font-bold" onClick={()=>{ void supabase.auth.signOut(); }}>Cerrar sesión en este dispositivo</button></li>
               </ul>
+            </div>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+              <h3 className="font-display font-bold">Bloqueo con PIN en este dispositivo</h3>
+              <p className="text-sm text-[var(--dim)] mt-1">Pide un PIN de 4 dígitos al reabrir la app en este dispositivo. Es un bloqueo local: no cifra sus datos y no impide entrar desde otro dispositivo con su cuenta.</p>
+              {pinSetState ? (
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm"><b>PIN activo</b> en este dispositivo.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label htmlFor="pin-current">PIN actual</Label><input id="pin-current" aria-label="PIN actual" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinCurrent} onChange={e=>setPinCurrent(e.target.value.replace(/\D/g,""))} /></div>
+                    <div><Label htmlFor="pin-new">PIN nuevo</Label><input id="pin-new" aria-label="PIN nuevo de 4 dígitos" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew1} onChange={e=>setPinNew1(e.target.value.replace(/\D/g,""))} /></div>
+                    <div><Label htmlFor="pin-new2">Repita el PIN nuevo</Label><input id="pin-new2" aria-label="Repita el PIN nuevo" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew2} onChange={e=>setPinNew2(e.target.value.replace(/\D/g,""))} /></div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button type="button" className={btnPrimary} onClick={()=>void changePin()}>Cambiar PIN</button>
+                    <button type="button" className={btnGhost} onClick={()=>void removePin()}>Quitar PIN</button>
+                    <button type="button" className={btnGhost} onClick={()=>{ pinLock(); setPinLocked(true); }}>Bloquear ahora</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label htmlFor="pin-new1">PIN de 4 dígitos</Label><input id="pin-new1" aria-label="PIN nuevo de 4 dígitos" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew1} onChange={e=>setPinNew1(e.target.value.replace(/\D/g,""))} /></div>
+                    <div><Label htmlFor="pin-new2b">Repita el PIN</Label><input id="pin-new2b" aria-label="Repita el PIN nuevo" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew2} onChange={e=>setPinNew2(e.target.value.replace(/\D/g,""))} /></div>
+                  </div>
+                  <button type="button" className={btnPrimary} onClick={()=>void createPin()}>Activar PIN</button>
+                </div>
+              )}
+              {pinMsg && <p className="text-sm text-[var(--green)] mt-2">{pinMsg}</p>}
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
               <h3 className="font-display font-bold">Registro de actividad reciente</h3>
@@ -2280,6 +2545,19 @@ export function App(){
         <p className="text-white/80 text-xs mt-3">Comprobante del gasto.</p>
         <button aria-label="Cerrar fotografía del comprobante" className="mt-3 bg-[var(--surface)] text-[var(--text)] font-bold rounded-full px-6 py-2.5" onClick={()=>setReceiptView(null)}>Cerrar</button>
       </div>}
+      {pinLocked && (
+        <div className="fixed inset-0 z-[70] bg-[var(--bg)] flex flex-col items-center justify-center p-6" role="dialog" aria-modal="true" aria-label="Desbloquear SyncFinanzas con PIN">
+          <p className="font-display font-extrabold text-xl">SyncFinanzas</p>
+          <p className="text-sm text-[var(--dim)] mt-2 text-center">Escriba su PIN de 4 dígitos para entrar.</p>
+          <form className="w-full max-w-xs mt-4 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); void unlockPin();}}>
+            <input aria-label="PIN de 4 dígitos" type="password" inputMode="numeric" maxLength={4} autoComplete="off" autoFocus className={inputCls+" text-center text-2xl font-bold tracking-[0.5em]"} value={pinInput} onChange={e=>setPinInput(e.target.value.replace(/\D/g,""))} />
+            {pinError && <p className="text-sm text-[var(--red)] text-center">{pinError}</p>}
+            <button className={btnPrimary+" w-full"} disabled={pinBusy || pinInput.length!==4}>{pinBusy?"Comprobando…":"Desbloquear"}</button>
+          </form>
+          <button type="button" className="text-xs underline mt-4" onClick={async()=>{ pinRemove(); setPinSetState(false); setPinLocked(false); try{ await supabase.auth.signOut(); }catch{} }}>Olvidé mi PIN · Cerrar sesión y quitar el PIN</button>
+          <p className="text-[11px] text-[var(--dim)] mt-4 text-center max-w-xs">Bloqueo local en este dispositivo: no cifra sus datos.</p>
+        </div>
+      )}
     </div>
   );
 }

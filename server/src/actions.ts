@@ -26,7 +26,7 @@ async function logActivity(ctx: Ctx, householdId: number, action: string, detail
 // la operación principal: si la tabla aún no existe (falta correr
 // supabase/notifications.sql), la inserción falla en silencio y la app
 // sigue funcionando sin avisos.
-type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante"; title: string; body: string; amount?: number | null; target: string };
+type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante"; title: string; body: string; amount?: number | null; target: string };
 async function notifyHousehold(ctx: Ctx, householdId: number, n: NotifInput, excludeUserId?: string | null) {
   try {
     const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
@@ -51,23 +51,61 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
     }
     if (args.categoryId) {
       const month = args.date.slice(0, 7);
+      const movs = await db.select().from(schema.movements).where(eq(schema.movements.householdId, args.householdId));
+      const reversedIds = new Set(movs.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
+      const active = movs.filter(m => m.reversalOfId == null && !reversedIds.has(m.id));
+      const cat = await db.select().from(schema.categories).where(eq(schema.categories.id, args.categoryId)).limit(1);
+      const catName = cat[0]?.name ?? "la categoría";
       const budgets = await db.select().from(schema.budgets).where(eq(schema.budgets.householdId, args.householdId));
       const mine = budgets.filter(b => b.categoryId === args.categoryId && b.month === month);
-      if (mine.length > 0) {
-        const cat = await db.select().from(schema.categories).where(eq(schema.categories.id, args.categoryId)).limit(1);
-        const catName = cat[0]?.name ?? "la categoría";
-        const movs = await db.select().from(schema.movements).where(eq(schema.movements.householdId, args.householdId));
-        const reversedIds = new Set(movs.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
-        for (const b of mine) {
-          // Un presupuesto es el límite de su categoría en el mes: cuentan
-          // todos los gastos de esa categoría (compartidos y privados),
-          // porque el gasto del día y otros gastos privados también se
-          // descuentan del presupuesto.
-          const spent = (excludeId: number | null) => movs.filter(m => m.reversalOfId == null && !reversedIds.has(m.id) && m.id !== excludeId && m.categoryId === b.categoryId && m.date.startsWith(b.month) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0);
-          const after = spent(null);
-          const before = spent(args.movementId);
-          if (before <= b.amount && after > b.amount) {
-            await notifyHousehold(ctx, args.householdId, { type: "presupuesto_excedido", title: "Presupuesto excedido", body: `El gasto de ${catName} llegó a ${moneyShort(after)} y superó su presupuesto de ${moneyShort(b.amount)}.`, amount: after, target: "presupuestos" });
+      for (const b of mine) {
+        // Un presupuesto es el límite de su categoría en el mes: cuentan
+        // todos los gastos de esa categoría (compartidos y privados),
+        // porque el gasto del día y otros gastos privados también se
+        // descuentan del presupuesto.
+        const spent = (excludeId: number | null) => active.filter(m => m.id !== excludeId && m.categoryId === b.categoryId && m.date.startsWith(b.month) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0);
+        const after = spent(null);
+        const before = spent(args.movementId);
+        // (c1) Presupuesto al 80%: solo al cruzar ese nivel, para no repetir.
+        if (b.amount > 0) {
+          const pctBefore = before / b.amount;
+          const pctAfter = after / b.amount;
+          if (pctBefore <= 0.8 && pctAfter > 0.8 && pctAfter <= 1) {
+            await notifyHousehold(ctx, args.householdId, { type: "presupuesto_80", title: "Presupuesto al 80%", body: `El gasto de ${catName} llegó a ${moneyShort(after)}, el 80% de su presupuesto de ${moneyShort(b.amount)}.`, amount: after, target: "presupuestos" });
+          }
+        }
+        // (c2) Presupuesto excedido: solo al cruzarlo.
+        if (before <= b.amount && after > b.amount) {
+          await notifyHousehold(ctx, args.householdId, { type: "presupuesto_excedido", title: "Presupuesto excedido", body: `El gasto de ${catName} llegó a ${moneyShort(after)} y superó su presupuesto de ${moneyShort(b.amount)}.`, amount: after, target: "presupuestos" });
+        }
+      }
+      // (d) Gasto anómalo: más del doble del promedio mensual de los últimos
+      // 3 meses completos en esa categoría y al menos $500. Una sola vez
+      // por mes y categoría.
+      const prevMonths = [ymAdd(month, -1), ymAdd(month, -2), ymAdd(month, -3)];
+      const prevTotals = prevMonths.map(ym => active.filter(m => m.categoryId === args.categoryId && m.date.startsWith(ym) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0));
+      const monthsWithData = prevTotals.filter(t => t > 0).length;
+      if (monthsWithData > 0) {
+        const avg = prevTotals.reduce((s, t) => s + t, 0) / monthsWithData;
+        if (avg > 0 && args.amount > 2 * avg && args.amount >= 500) {
+          if (!(await planNotifExists(ctx, args.householdId, "gasto_anomalo", month, catName))) {
+            await notifyHousehold(ctx, args.householdId, { type: "gasto_anomalo", title: "Gasto fuera de lo usual", body: `Un gasto de ${moneyShort(args.amount)} en ${catName} es más del doble de su promedio mensual (${moneyShort(avg)}). Revise que esté bien registrado.`, amount: args.amount, target: "movimientos" });
+          }
+        }
+      }
+      // (e) Suscripción que sube: mismo concepto que el mes pasado y más
+      // cara (al menos 5% y $20 más). Una sola vez por mes y concepto.
+      const mvRows = await db.select().from(schema.movements).where(eq(schema.movements.id, args.movementId)).limit(1);
+      const concept = mvRows[0]?.concept ?? "";
+      const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+      const conceptN = norm(concept);
+      if (conceptN.length >= 3) {
+        const prevYm = ymAdd(month, -1);
+        const prev = active.filter(m => m.id !== args.movementId && m.type === args.type && m.date.startsWith(prevYm) && norm(m.concept) === conceptN).sort((a, b) => b.date.localeCompare(a.date));
+        const last = prev[0];
+        if (last && args.amount >= last.amount * 1.05 && args.amount - last.amount >= 20) {
+          if (!(await planNotifExists(ctx, args.householdId, "suscripcion_sube", month, concept))) {
+            await notifyHousehold(ctx, args.householdId, { type: "suscripcion_sube", title: "Suscripción que subió de precio", body: `${concept} subió de ${moneyShort(last.amount)} a ${moneyShort(args.amount)}. Revise si quiere conservarlo.`, amount: args.amount, target: "movimientos" });
           }
         }
       }
@@ -77,6 +115,56 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
     // que el usuario lo acepte en Metas.
     await maybeAutoProposeRecorte(ctx, args.householdId);
   } catch { /* los avisos nunca bloquean el registro del gasto */ }
+}
+
+// Avisos periódicos sin banco: corte y pago de tarjetas de crédito. El
+// cliente llama a checkPeriodicAlerts una vez por día. Un aviso por tarjeta
+// y evento al mes, sin repetir. Nunca bloquea la app: si la tabla
+// notifications aún no existe (falta correr el SQL), no pasa nada.
+async function checkPeriodicAlerts(ctx: Ctx, householdId: number): Promise<{ created: number }> {
+  let created = 0;
+  try {
+    const db = ctx.db;
+    const now = new Date();
+    const curMonth = ymOf(now);
+    const day = now.getDate();
+    const hh = await db.select().from(schema.households).where(eq(schema.households.id, householdId)).limit(1);
+    const cutoffDay = hh[0]?.cutoffDay ?? 1;
+    const accounts = await db.select().from(schema.accounts).where(and(eq(schema.accounts.householdId, householdId), eq(schema.accounts.type, "credit")));
+    if (accounts.length === 0) return { created: 0 };
+    const daysInMonth = (y: number, m: number) => new Date(y, m, 0).getDate();
+    const clampCut = (y: number, m: number) => Math.min(cutoffDay, daysInMonth(y, m));
+    for (const acc of accounts) {
+      const y = now.getFullYear(), m = now.getMonth() + 1;
+      // Días hasta el próximo corte.
+      let daysToCut: number;
+      if (day <= clampCut(y, m)) daysToCut = clampCut(y, m) - day;
+      else {
+        const nm = m === 12 ? 1 : m + 1;
+        const ny = m === 12 ? y + 1 : y;
+        daysToCut = (daysInMonth(y, m) - day) + clampCut(ny, nm);
+      }
+      if (daysToCut <= 3) {
+        if (!(await planNotifExists(ctx, householdId, "tarjeta_corte", curMonth, acc.name))) {
+          await notifyHousehold(ctx, householdId, { type: "tarjeta_corte", title: "Se acerca el corte de su tarjeta", body: `${acc.name}: el corte es el día ${cutoffDay} de cada mes. Revise sus cargos antes del corte.`, target: "cuentas" });
+          created++;
+        }
+      }
+      // Días desde el último corte (para recordar el pago).
+      let lastCutYm = curMonth;
+      if (day < clampCut(y, m)) lastCutYm = ymAdd(curMonth, -1);
+      const { y: ly, m: lm } = ymParts(lastCutYm);
+      const lastCut = new Date(ly, lm - 1, Math.min(cutoffDay, daysInMonth(ly, lm)));
+      const daysSinceCut = Math.floor((now.getTime() - lastCut.getTime()) / 86400000);
+      if (daysSinceCut >= 0 && daysSinceCut <= 3) {
+        if (!(await planNotifExists(ctx, householdId, "tarjeta_pago", curMonth, acc.name))) {
+          await notifyHousehold(ctx, householdId, { type: "tarjeta_pago", title: "Ya pasó el corte de su tarjeta", body: `${acc.name}: el corte fue el día ${cutoffDay}. Revise su estado de cuenta y anote la fecha límite de pago.`, target: "cuentas" });
+          created++;
+        }
+      }
+    }
+  } catch { /* los avisos nunca bloquean la app */ }
+  return { created };
 }
 
 // ---- Plan de ahorro para una meta ----
@@ -150,7 +238,7 @@ const monthLabelEs = (ym: string) => { const { y, m } = ymParts(ym); return new 
 // falso y el aviso se intenta crear (y falla en silencio, como los demás).
 async function planNotifExists(ctx: Ctx, householdId: number, type: string, sinceYm: string, goalName: string) {
   try {
-    const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, householdId), eq(schema.notifications.type, type as "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida"), gte(schema.notifications.createdAt, new Date(`${sinceYm}-01T00:00:00.000Z`))));
+    const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, householdId), eq(schema.notifications.type, type as NotifInput["type"]), gte(schema.notifications.createdAt, new Date(`${sinceYm}-01T00:00:00.000Z`))));
     return rows.some(r => r.body.includes(goalName));
   } catch { return false; }
 }
@@ -2263,6 +2351,93 @@ export const Actions = {
     async handler(ctx, args): Promise<Ok> {
       try { await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id))); } catch { /* tabla aún no creada */ }
       ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+
+  // ---- Reglas de auto-categorización y avisos periódicos ----
+  listCategoryRules: defineAction({
+    description: "Lists the household's auto-categorisation rules (if the concept contains the word, the category is filled automatically). Returns an empty list if the table has not been created yet.",
+    request: z.object({ householdId: z.number() }),
+    response: z.object({ rules: z.array(z.object({ id: z.number(), keyword: z.string(), categoryId: z.number(), categoryName: z.string(), isActive: z.number() })) }),
+    async handler(ctx, args) {
+      try {
+        const rows = await ctx.db.select().from(schema.categoryRules).where(eq(schema.categoryRules.householdId, args.householdId)).orderBy(schema.categoryRules.id);
+        const cats = await ctx.db.select().from(schema.categories).where(eq(schema.categories.householdId, args.householdId));
+        return { rules: rows.map(r => ({ id: r.id, keyword: r.keyword, categoryId: r.categoryId, categoryName: cats.find(c => c.id === r.categoryId)?.name ?? "Sin categoría", isActive: r.isActive })) };
+      } catch { return { rules: [] }; }
+    },
+  }),
+  saveCategoryRule: defineAction({
+    description: "Creates or updates an auto-categorisation rule (keyword → category). If the table has not been created, it explains that supabase/category-rules.sql must be run first.",
+    request: z.object({ id: z.number().optional(), householdId: z.number(), keyword: z.string().min(1).max(60), categoryId: z.number() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      const db = ctx.db;
+      const keyword = args.keyword.trim();
+      if (!keyword) throw new Error("Escriba la palabra o frase de la regla.");
+      const cats = await db.select().from(schema.categories).where(eq(schema.categories.householdId, args.householdId));
+      if (!cats.some(c => c.id === args.categoryId)) throw new Error("La categoría no pertenece a este hogar.");
+      try {
+        if (args.id) {
+          const rows = await db.select().from(schema.categoryRules).where(eq(schema.categoryRules.id, args.id)).limit(1);
+          if (!rows[0] || rows[0].householdId !== args.householdId) throw new Error("Regla no encontrada.");
+          await db.update(schema.categoryRules).set({ keyword, categoryId: args.categoryId }).where(eq(schema.categoryRules.id, args.id));
+          ctx.invalidateQueries(); return { ok: true, id: args.id };
+        }
+        const [row] = await db.insert(schema.categoryRules).values({ householdId: args.householdId, keyword, categoryId: args.categoryId, isActive: 1 }).returning({ id: schema.categoryRules.id });
+        if (!row) throw new Error("No se pudo guardar la regla.");
+        ctx.invalidateQueries(); return { ok: true, id: row.id };
+      } catch (e) {
+        if (String(e).includes("does not exist")) throw new Error("Para guardar reglas, primero ejecute supabase/category-rules.sql en el SQL Editor de Supabase.");
+        throw e;
+      }
+    },
+  }),
+  deleteCategoryRule: defineAction({
+    description: "Deletes an auto-categorisation rule of the household.",
+    request: z.object({ id: z.number() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      try { await ctx.db.delete(schema.categoryRules).where(eq(schema.categoryRules.id, args.id)); } catch { /* tabla aún no creada: no había reglas */ }
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+  importMovements: defineAction({
+    description: "Imports movements from a CSV file (already reviewed on screen). Duplicates (same date, concept, amount and type as an existing active movement) are skipped. No alerts are created on import.",
+    request: z.object({ householdId: z.number(), movements: z.array(z.object({ type: z.enum(["income", "expense", "transfer", "debt_payment"]), amount: z.number().positive().max(100000000), concept: z.string().min(1).max(200), categoryId: z.number().nullable().optional(), subcategory: z.string().max(60).optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), visibility: z.enum(["shared", "private"]).default("shared"), accountId: z.number().nullable().optional() })).min(1).max(500) }),
+    response: z.object({ ok: z.boolean(), imported: z.number(), skipped: z.number(), total: z.number() }),
+    async handler(ctx, args) {
+      await rateLimit("importMovements", 5, 60_000);
+      const db = ctx.db;
+      const cats = await db.select().from(schema.categories).where(eq(schema.categories.householdId, args.householdId));
+      const accs = await db.select().from(schema.accounts).where(eq(schema.accounts.householdId, args.householdId));
+      const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+      const existing = await db.select().from(schema.movements).where(eq(schema.movements.householdId, args.householdId));
+      const reversedIds = new Set(existing.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
+      const keys = new Set(existing.filter(m => m.reversalOfId == null && !reversedIds.has(m.id)).map(m => `${m.date}|${norm(m.concept)}|${m.amount}|${m.type}`));
+      let imported = 0, skipped = 0;
+      const values: { householdId: number; type: string; amount: number; concept: string; accountId: number | null; toAccountId: number | null; categoryId: number | null; subcategory: string | null; date: string; visibility: string; profileId: string | null }[] = [];
+      for (const mv of args.movements) {
+        const key = `${mv.date}|${norm(mv.concept)}|${Math.round(mv.amount * 100) / 100}|${mv.type}`;
+        if (keys.has(key)) { skipped++; continue; }
+        keys.add(key);
+        values.push({ householdId: args.householdId, type: mv.type, amount: Math.round(mv.amount * 100) / 100, concept: mv.concept.trim(), accountId: mv.accountId != null && accs.some(a => a.id === mv.accountId) ? mv.accountId : null, toAccountId: null, categoryId: mv.categoryId != null && cats.some(c => c.id === mv.categoryId) ? mv.categoryId : null, subcategory: mv.subcategory || null, date: mv.date, visibility: mv.visibility, profileId: null });
+        imported++;
+      }
+      if (values.length > 0) {
+        await db.insert(schema.movements).values(values as never);
+        await logActivity(ctx, args.householdId, "Movimientos importados", `${values.length} movimiento(s) desde CSV`);
+      }
+      ctx.invalidateQueries();
+      return { ok: true, imported, skipped, total: args.movements.length };
+    },
+  }),
+  checkPeriodicAlerts: defineAction({
+    description: "Creates the periodic card alerts that apply today (cut-off in 3 days or less, payment after the cut-off). One per card and event per month; returns how many were created.",
+    request: z.object({ householdId: z.number() }),
+    response: z.object({ created: z.number() }),
+    async handler(ctx, args) {
+      return checkPeriodicAlerts(ctx, args.householdId);
     },
   }),
 } satisfies ActionsModule;
