@@ -33,12 +33,33 @@ const MODULE_GROUPS: {title:string; tabs:Tab[]}[] = [
   {title:"Tandas", tabs:["tandas"]},
   {title:"Configuración y ayuda", tabs:["categorias","perfiles","hogar","guia"]},
 ];
-const MODULE_HINT: Partial<Record<Tab,string>> = {
-  aportaciones:"Desde Movimientos",
-  fondos:"Apartados en Cuentas",
-  presupuestos:"Gasto por categoría",
-  personal:"Sueldo y gastos del día",
-  guia:"Instalación, guías y video",
+// Cajón lateral del menú (opción elegida por Heriberto): lista de una columna,
+// sin subtítulos, con icono y nombre corto. Se mantienen todos los módulos.
+const DRAWER_GROUPS: {title:string; tabs:Tab[]}[] = [
+  {title:"Mi dinero", tabs:["inicio","personal","movimientos","cuentas"]},
+  {title:"Mis planes", tabs:["presupuestos","metas","fondos","aportaciones"]},
+  {title:"Tandas", tabs:["tandas"]},
+  {title:"Ajustes", tabs:["patrimonio","acuerdos","categorias","perfiles","hogar","guia"]},
+];
+const tabIcon = (children: ReactNode) => (
+  <svg aria-hidden="true" className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
+);
+const TAB_ICONS: Record<Tab, ReactNode> = {
+  inicio: tabIcon(<><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>),
+  personal: tabIcon(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>),
+  movimientos: tabIcon(<><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></>),
+  cuentas: tabIcon(<><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></>),
+  presupuestos: tabIcon(<><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></>),
+  metas: tabIcon(<><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></>),
+  fondos: tabIcon(<><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></>),
+  aportaciones: tabIcon(<><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></>),
+  tandas: tabIcon(<><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>),
+  patrimonio: tabIcon(<><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></>),
+  acuerdos: tabIcon(<><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></>),
+  categorias: tabIcon(<><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></>),
+  perfiles: tabIcon(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>),
+  hogar: tabIcon(<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>),
+  guia: tabIcon(<><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></>),
 };
 // Guía en PDF de cada segmento: se abre dentro de la aplicación, en la pestaña Guía de uso.
 const GUIDE_PDF_BY_GROUP: Record<string,string> = {
@@ -551,7 +572,7 @@ export function TesterFeedbackForm(){
 
 export function App(){
   const qc=useQueryClient();
-  const [tab,setTab]=useState<Tab>("inicio"); const [menuOpen,setMenuOpen]=useState(false); const [openGroup,setOpenGroup]=useState<string|null>(null); const [guidePdf,setGuidePdf]=useState<{title:string;src:string}|null>(null);
+  const [tab,setTab]=useState<Tab>("inicio"); const [menuOpen,setMenuOpen]=useState(false); const [guidePdf,setGuidePdf]=useState<{title:string;src:string}|null>(null);
   // Menú abierto: se bloquea el desplazamiento de la app de atrás; solo el menú se desplaza.
   useEffect(()=>{
     if(!menuOpen) return;
@@ -1026,7 +1047,6 @@ export function App(){
   // encabezado fijo la tape) para seguir llenando sin tener que buscarla.
   const scrollFormTop=(id:string)=>{ window.setTimeout(()=>{ document.getElementById(id)?.scrollIntoView({behavior:"smooth",block:"start"}); },60); };
   const openNewMovement=(t:"income"|"expense")=>{ setEditingMv(null); setMvType(t); setMvCat(""); setMvSub(""); setMvStep(1); goToForm("movimientos","mv-amount"); };
-  const expandedGroup = openGroup ?? (MODULE_GROUPS.find(g=>g.tabs.includes(effTab))?.title ?? "");
   const fullName=(pr:{name:string;lastName?:string|null})=>`${pr.name} ${pr.lastName||""}`.trim();
   const me = data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null;
   const guideStep1 = hh.mode==="personal" ? data.personal.salary>0 : data.accounts.length>0;
@@ -1050,6 +1070,34 @@ export function App(){
       {menuOpen && (
         <div aria-hidden="true" onClick={()=>setMenuOpen(false)} className="fixed inset-0 z-30 bg-black/60" />
       )}
+      {/* Cajón lateral del menú: panel aparte que entra desde la izquierda, con su propio desplazamiento. */}
+      <div aria-hidden={!menuOpen} inert={!menuOpen} className={`fixed inset-y-0 left-0 z-50 w-[min(82vw,22rem)] bg-[var(--surface)] border-r-2 border-r-[var(--gold)] shadow-2xl flex flex-col transition-transform duration-300 ease-out ${menuOpen?"translate-x-0":"-translate-x-full"}`}>
+        <div className="px-4 pt-safe pb-3 border-b border-[var(--border)]">
+          <div className="flex items-start justify-between gap-2 pt-3">
+            <div className="min-w-0">
+              <p className="font-display font-extrabold leading-tight truncate">{hh.name}</p>
+              <p className="text-[11px] text-[var(--dim)] mt-0.5">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</p>
+            </div>
+            <button type="button" aria-label="Cerrar menú" onClick={()=>setMenuOpen(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+          </div>
+          <p className="text-sm text-[var(--dim)] mt-2">Disponible</p>
+          <p className="font-display text-2xl font-extrabold">{money2(s.availableFree)}</p>
+        </div>
+        <nav id="menu-modulos" aria-label="Módulos" className="flex-1 overflow-y-auto px-3 py-3">
+          {DRAWER_GROUPS.map(g=>(
+            <div key={g.title} className="mt-4 first:mt-0">
+              <p className="px-2 text-[11px] font-bold tracking-widest text-[var(--dim)]">{g.title.toUpperCase()}</p>
+              <ul className="mt-1 space-y-0.5">
+                {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const current=effTab===tid; return (
+                  <li key={tid}>
+                    <button type="button" aria-label={`Ir a ${t.label}`} aria-current={current?"page":undefined} onClick={()=>{goTab(tid);setMenuOpen(false);}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${current?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{TAB_ICONS[tid]}<span className="flex-1">{t.label}</span>{current && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
+                  </li>
+                ); })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+      </div>
       {/* Header */}
       <header className={`sticky top-0 ${menuOpen?"z-40":"z-20"} bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)] pt-safe`}>
         <div className="max-w-5xl mx-auto px-3 pt-3 pb-2">
@@ -1085,32 +1133,12 @@ export function App(){
             <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">MÓDULO ACTUAL</p>
             <p className="font-display font-bold leading-tight truncate">{TABS.find(t=>t.id===effTab)?.label}</p>
           </div>
-          <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{goTab("inicio"); window.scrollTo({top:0,behavior:"smooth"});}} className={`ml-auto shrink-0 h-10 rounded-full px-3.5 flex items-center gap-1.5 text-sm font-bold border ${effTab==="inicio"?"bg-[var(--accent)] text-[var(--accent-text)] border-transparent":"bg-[var(--surface)] border-[var(--border)]"}`}>
+          <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{setMenuOpen(false);goTab("inicio"); window.scrollTo({top:0,behavior:"smooth"});}} className={`ml-auto shrink-0 h-10 rounded-full px-3.5 flex items-center gap-1.5 text-sm font-bold border ${effTab==="inicio"?"bg-[var(--accent)] text-[var(--accent-text)] border-transparent":"bg-[var(--surface)] border-[var(--border)]"}`}>
             <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
             Inicio
           </button>
           <p className="text-xs text-[var(--dim)] hidden sm:block">Toque el menú para ver los módulos</p>
         </div>
-        {menuOpen && (
-          <nav id="menu-modulos" aria-label="Módulos agrupados por función" className="border-t border-[var(--border)] border-b-2 border-b-[var(--gold)] bg-[var(--surface2)] shadow-2xl max-h-[60vh] overflow-y-auto">
-            <div className="max-w-5xl mx-auto px-3 py-2 space-y-2">
-              <p className="text-xs text-[var(--dim)]">Seleccione un segmento.</p>
-              {MODULE_GROUPS.map(g=>{ const isOpen = expandedGroup===g.title; const hasCurrent = g.tabs.includes(effTab); return (
-                <div key={g.title} className="border border-[var(--border)] rounded-2xl overflow-hidden">
-                  <button type="button" aria-label={`${isOpen?"Contraer":"Desplegar"} el segmento ${g.title}`} aria-expanded={isOpen} onClick={()=>setOpenGroup(isOpen?"":g.title)} className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left bg-[var(--surface)]">
-                    <span className="min-w-0"><span className="block text-[13px] font-bold tracking-wide">{g.title.toUpperCase()}</span><span className="block text-[11px] text-[var(--dim)] truncate">{g.tabs.map(tid=>TABS.find(x=>x.id===tid)?.label).join(" · ")}{hasCurrent?` — está usted en ${TABS.find(x=>x.id===effTab)?.label}`:""}</span></span>
-                    <span aria-hidden="true" className={`shrink-0 text-lg leading-none transition-transform ${isOpen?"rotate-180":""}`}>▾</span>
-                  </button>
-                  {isOpen && (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 p-3">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; return <button key={t.id} type="button" aria-label={`Ir a ${t.label}`} aria-current={effTab===t.id?"page":undefined} onClick={()=>{goTab(t.id);setMenuOpen(false);}} className={`rounded-2xl px-3 py-2 text-left text-sm font-bold ${effTab===t.id?"bg-[var(--accent)] text-[var(--accent-text)]":"bg-[var(--surface)] text-[var(--text)]"}`}>{t.label}{effTab===t.id && <span className="block text-[11px] font-semibold opacity-80">Módulo actual</span>}{MODULE_HINT[t.id] && <span className={`block text-[11px] font-normal mt-0.5 ${effTab===t.id?"opacity-80":"text-[var(--dim)]"}`}>{MODULE_HINT[t.id]}</span>}</button>; })}
-                    </div>
-                  )}
-                </div>
-              ); })}
-            </div>
-          </nav>
-        )}
         {demo.error && <p className="max-w-5xl mx-auto px-3 pb-2 text-xs text-[var(--red)]">{String(demo.error)}</p>}
         {demo.isSuccess && <p className="max-w-5xl mx-auto px-3 pb-2 text-xs text-[var(--green)]">Demo cargada: datos con “(demo)”.</p>}
         {notifOpen && (
