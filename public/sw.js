@@ -13,7 +13,7 @@
 // de la aplicación.
 const SW_VERSION = "50ff494";
 const CACHE = `syncfinanzas-${SW_VERSION}`;
-const SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 // La instalación solo guarda la cáscara nueva; no se activa sola, para que
 // la app pueda avisar primero con el botón Actualizar.
