@@ -390,11 +390,45 @@ export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
   householdId: integer("household_id").notNull(),
   userId: uuid("user_id").notNull(),
-  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida"] }).notNull(),
+  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida", "ajuste_gasto", "ajuste_sobrante"] }).notNull(),
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   amount: doublePrecision("amount"),
   target: text("target").notNull().default("inicio"),
   isRead: integer("is_read").notNull().default(0),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+// Ajuste automático de gastos para llegar a la meta: cuando una categoría se
+// pasa de su presupuesto del mes, se propone recortar de otras categorías
+// con margen para que la aportación a la meta casi no cambie; si un mes se
+// gasta menos, el sobrante puede ir al fondo de la meta. La tabla se crea
+// con supabase/spending-adjustments.sql; RLS con denegación total, solo
+// service_role. Nada se aplica solo: la propuesta queda en "propuesto", se
+// avisa con la campanita ANTES de mover nada, y solo se aplica si el
+// usuario la acepta (puede cambiar de dónde se recorta). kind: recorte |
+// sobrante. status: propuesto | aplicado | rechazado. cuts es JSON:
+// en un recorte [{categoryId, name, amount, newBudget}], en un sobrante
+// [{categoryId, name, amount}]. newMonthlyAmount/newMonths: si la
+// aportación cambia, es poco y repartida en los meses que quedan;
+// extendedMonths es el plazo nuevo si hubo que alargar la meta para que
+// todo quede cubierto. coversAll 1 = gastos fijos, presupuestos y la
+// aportación quedan cubiertos; 0 = no alcanza y se propone alargar.
+export const spendingAdjustments = pgTable("spending_adjustments", {
+  id: serial("id").primaryKey(),
+  householdId: integer("household_id").notNull(),
+  goalId: integer("goal_id").notNull(),
+  month: text("month").notNull(),
+  kind: text("kind", { enum: ["recorte", "sobrante"] }).notNull(),
+  status: text("status", { enum: ["propuesto", "aplicado", "rechazado"] }).notNull().default("propuesto"),
+  overCategoryId: integer("over_category_id"),
+  overCategoryName: text("over_category_name").notNull().default(""),
+  overAmount: doublePrecision("over_amount").notNull().default(0),
+  cuts: text("cuts").notNull().default("[]"),
+  newMonthlyAmount: doublePrecision("new_monthly_amount"),
+  newMonths: integer("new_months"),
+  extendedMonths: integer("extended_months").notNull().default(0),
+  coversAll: integer("covers_all").notNull().default(1),
+  note: text("note").notNull().default(""),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
