@@ -720,6 +720,7 @@ export function App(){
   // Detalle de la gráfica de ingresos vs gastos: tipo y mes tocados.
   const [incExpDetail,setIncExpDetail]=useState<{kind:"income"|"expense";month:string;label:string}|null>(null);
   const [catDetail,setCatDetail]=useState<{categoryId:number|null;name:string;total:number;month:string}|null>(null);
+  const [showBalanceBreakdown,setShowBalanceBreakdown]=useState(false);
   const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
   const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:()=>{inv();setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");setSavedNotice("Gasto registrado.");}});
@@ -1153,7 +1154,16 @@ export function App(){
               <p className="text-sm opacity-80">Disponible · {s.currentMonth}</p>
               <p className="font-display text-3xl font-extrabold mt-1">{money2(s.availableFree)}</p>
               <p className="text-sm opacity-80 mt-1">Total {money2(s.totalBalance)} − fondos apartados {money2(s.fundsReserved)}.</p>
-              <p className="text-sm opacity-80 mt-1">Total = saldo inicial {money2(s.openingBalance)} {s.priorMonthsNet<0?"−":"+"} meses anteriores {money2(Math.abs(s.priorMonthsNet))} {s.monthNet<0?"−":"+"} neto del mes {money2(Math.abs(s.monthNet))}{s.fundsFromAccounts>=0?` − salidas a fondos ${money2(s.fundsFromAccounts)}`:` + entradas desde fondos ${money2(-s.fundsFromAccounts)}`}.</p>
+              <button type="button" aria-expanded={showBalanceBreakdown} onClick={()=>setShowBalanceBreakdown(v=>!v)} className="text-sm font-bold underline underline-offset-2 opacity-90 mt-1">Ver cómo se forma {showBalanceBreakdown?"‹":"›"}</button>
+              {showBalanceBreakdown && (
+                <div className="mt-2 text-sm space-y-1">
+                  {s.openingBalance!==0 && <div className="flex justify-between gap-2"><span className="opacity-80">Saldo inicial</span><b>{money(s.openingBalance)}</b></div>}
+                  {s.priorMonthsNet!==0 && <div className="flex justify-between gap-2"><span className="opacity-80">Meses anteriores</span><b>{money(s.priorMonthsNet)}</b></div>}
+                  {s.monthNet!==0 && <div className="flex justify-between gap-2"><span className="opacity-80">Neto del mes</span><b>{money(s.monthNet)}</b></div>}
+                  {s.fundsFromAccounts!==0 && <div className="flex justify-between gap-2"><span className="opacity-80">{s.fundsFromAccounts>0?"Salidas a fondos":"Entradas desde fondos"}</span><b>{s.fundsFromAccounts>0?`−${money(s.fundsFromAccounts)}`:`+${money(-s.fundsFromAccounts)}`}</b></div>}
+                  <div className="flex justify-between gap-2 border-t border-white/25 pt-1"><span className="opacity-80">Total</span><b>{money2(s.totalBalance)}</b></div>
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2 mt-3 text-center">
                 <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Entradas</p><p className="font-display font-bold">{money(s.monthIncome)}</p></div>
                 <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Salidas</p><p className="font-display font-bold">{money(s.monthExpense)}</p></div>
