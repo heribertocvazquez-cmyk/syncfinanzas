@@ -8,7 +8,7 @@ import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
 import { supabase } from "./supabase";
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
 import guiaResumenPdf from "./assets/guia-resumen-registro.pdf";
@@ -96,24 +96,68 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 
 const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
 type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
-// Gráfica de dona de gasto por categoría. Solo la dona: al tocar un
-// segmento (o un rubro de la leyenda) se abre directamente la ventana
-// aparte con los gastos registrados de ese rubro (desplazamiento propio,
-// como el detalle de ingresos vs gastos). El centro muestra siempre el
-// total del mes. Sin lista, sin burbujas y sin tooltip: ningún recuadro
-// debe aparecer al tocar ni al pasar sobre la dona.
+// Símbolo de línea (SVG blanco, sin emojis) dentro de cada segmento de la
+// dona de gasto por categoría, por nombre de categoría. Reutiliza los
+// trazos de línea del proyecto (mismo estilo que los iconos del menú) y
+// agrega los que faltaban en ese mismo estilo. Las categorías creadas por
+// la persona usan el símbolo genérico de etiqueta.
+const CAT_DONUT_ICONS: Record<string, ReactNode> = {
+  "Alimentación": (<><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/></>),
+  "Vivienda": (<><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>),
+  "Transporte": (<><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></>),
+  "Salud": (<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>),
+  "Educación": (<><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></>),
+  "Servicios": (<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>),
+  "Entretenimiento": (<><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></>),
+  "Ropa": (<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>),
+  "Mascotas": (<path d="M17 10c.7-.7 1.69 0 2.5 0a2.5 2.5 0 1 0 0-5 .5.5 0 0 1-.5-.5 2.5 2.5 0 1 0-5 0c0 .81.7 1.8 0 2.5l-7 7c-.7.7-1.69 0-2.5 0a2.5 2.5 0 0 0 0 5c.28 0 .5.22.5.5a2.5 2.5 0 1 0 5 0c0-.81-.7-1.8 0-2.5Z"/>),
+  "Deudas": (<><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></>),
+  "Impuestos": (<><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></>),
+  "Viajes": (<><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></>),
+  "Cuidado personal": (<><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></>),
+  "Otro gasto": (<><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></>),
+};
+const CAT_DONUT_ICON_DEFAULT: ReactNode = (<><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></>);
+// Etiqueta de la dona: dibuja el símbolo blanco del rubro en el centro de
+// su segmento. El tamaño se achica en los rubros pequeños para no invadir
+// a los vecinos.
+function renderDonutIcon(p: any){
+  const datum = (p.payload ?? {}) as Partial<CatSlice>;
+  const name = datum.name ?? p.name ?? "";
+  const pct = typeof datum.pct === "number" ? datum.pct : (typeof p.percent === "number" ? p.percent * 100 : 0);
+  const size = pct >= 10 ? 20 : pct >= 5 ? 16 : 12;
+  const RADIAN = Math.PI / 180;
+  const radius = (Number(p.innerRadius) + Number(p.outerRadius)) / 2;
+  const x = Number(p.cx) + radius * Math.cos(-Number(p.midAngle) * RADIAN);
+  const y = Number(p.cy) + radius * Math.sin(-Number(p.midAngle) * RADIAN);
+  return <g transform={`translate(${x - size / 2}, ${y - size / 2})`} pointerEvents="none">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{filter:"drop-shadow(0 1px 1px rgba(0,0,0,0.35))"}} aria-hidden="true">{CAT_DONUT_ICONS[name] ?? CAT_DONUT_ICON_DEFAULT}</svg>
+  </g>;
+}
+// Gráfica de dona de gasto por categoría. Opción 4 («solo el rubro
+// tocado»): sin leyenda fija, cada segmento lleva dentro el símbolo blanco
+// de su rubro. Al tocar un segmento queda marcado (más brillante, un poco
+// separado, los demás atenuados), aparece debajo una sola línea con ese
+// rubro, su monto y su porcentaje, y se abre directamente la ventana aparte
+// con sus gastos registrados. Al cerrar la ventana, el segmento sigue
+// marcado con su línea hasta que se toque otro. El centro muestra siempre
+// el total del mes. Sin tooltip: ningún recuadro debe aparecer al tocar ni
+// al pasar sobre la dona.
 function CategoryChart({data, onSelect}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void}){
-  // Solo la dona: sin lista, sin burbujas y sin tooltip. Al tocar un
-  // segmento o un rubro de la leyenda se abre directamente la ventana con
-  // sus gastos registrados. El centro muestra siempre el total del mes.
+  const [selName, setSelName] = useState<string|null>(null);
+  // Si cambia el mes y el rubro marcado ya no está en los datos, no se
+  // muestra la línea; si sigue, se muestran sus montos del mes actual.
+  const sel = selName ? (data.find(d=>d.name===selName) ?? null) : null;
+  const activeIdx = sel ? data.indexOf(sel) : -1;
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const total=data.reduce((a,d)=>a+d.total,0);
+  const handleSelect=(d:CatSlice)=>{ setSelName(d.name); onSelect(d); };
   return <div className="mt-2">
     <div className="relative mx-auto w-44 h-44" role="img" aria-label="Gráfica de gasto por categoría.">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" onClick={(d)=>{ const s=d as unknown as CatSlice; onSelect(s); }} style={{cursor:"pointer"}}>
-            {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} />)}
+          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" onClick={(d)=>{ handleSelect(d as unknown as CatSlice); }} style={{cursor:"pointer"}} label={renderDonutIcon} labelLine={false} activeIndex={activeIdx < 0 ? undefined : activeIdx} activeShape={(props: any)=><Sector {...props} outerRadius={Number(props.outerRadius) + 6} />}>
+            {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} fillOpacity={sel && d.name!==sel.name ? 0.4 : 1} />)}
           </Pie>
         </PieChart>
       </ResponsiveContainer>
@@ -122,15 +166,16 @@ function CategoryChart({data, onSelect}:{data:CatSlice[]; onSelect:(d:CatSlice)=
         <b className="font-display text-lg leading-tight">{money2(total)}</b>
       </div>
     </div>
-    <p className="text-xs text-[var(--dim)] mt-2">Toque un segmento de la dona para ver sus gastos.</p>
-    <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1.5">
-      {data.map((d,i)=>(
-        <button key={d.name} type="button" aria-label={`Ver los gastos de ${d.name}: ${money(d.total)}, ${d.pct} por ciento`} className="flex items-center gap-1.5 text-xs" onClick={()=>onSelect(d)}>
-          <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{background:DONUT_COLORS[i%DONUT_COLORS.length]}} aria-hidden="true" />
-          <span>{d.name} · {d.pct}%</span>
-        </button>
-      ))}
-    </div>
+    {sel ? (
+      <div className="mt-2 flex justify-center" aria-live="polite">
+        <span className="inline-flex items-center gap-2 rounded-full bg-[var(--surface2)] border border-[var(--border)] px-3 py-1 text-sm">
+          <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{background:DONUT_COLORS[data.indexOf(sel)%DONUT_COLORS.length]}} aria-hidden="true" />
+          <span>{sel.name} · {money2(sel.total)} · {sel.pct}%</span>
+        </span>
+      </div>
+    ) : (
+      <p className="text-xs text-[var(--dim)] mt-2">Toque un segmento de la dona para ver sus gastos.</p>
+    )}
   </div>;
 }
 function MonthlyChart({series,currentMonth,onSelect}:{series:{month:string;label:string;income:number;expense:number}[];currentMonth:string;onSelect:(kind:"income"|"expense",month:string,label:string)=>void}){
@@ -373,7 +418,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["categor", "subcategor", "tipo de gasto", "una categoria"], q: "¿Cómo agrego una categoría?", a: "En Categorías puede ver, agregar y quitar categorías y subcategorías.", go: "categorias", goLabel: "Ir a Categorías" },
   { keys: ["perfil", "pareja", "familiar", "a mi pareja"], q: "¿Cómo agrego a mi pareja?", a: "En Perfiles puede ver a las personas del hogar y agregar a su pareja o familiares.", go: "perfiles", goLabel: "Ir a Perfiles" },
   { keys: ["saldo", "disponible", "cuanto me queda", "restante", "queda"], q: "¿Cuánto me queda?", a: "Su saldo disponible está en Inicio, en la tarjeta de arriba.", go: "inicio", goLabel: "Ir a Inicio" },
-  { keys: ["grafic", "ingresos vs gastos"], q: "¿Dónde veo las gráficas?", a: "Las gráficas están en Inicio y aparecen cuando hay movimientos.", go: "inicio", goLabel: "Ir a Inicio" },
+  { keys: ["grafic", "ingresos vs gastos"], q: "¿Dónde veo las gráficas?", a: "Las gráficas están en Inicio y aparecen cuando hay movimientos. La dona de gasto por categoría lleva el símbolo de cada rubro dentro de su color: al tocar un segmento queda marcado, aparece su monto y porcentaje debajo, y se abre la ventana con sus gastos registrados.", go: "inicio", goLabel: "Ir a Inicio" },
   { keys: ["modo oscuro", "modo claro", "oscuro", "claro", "noche", "tema oscuro", "tema claro"], q: "¿Cómo cambio a modo oscuro o claro?", a: "Arriba, junto a la campanita, pulse el botón de la luna o del sol para cambiar entre modo oscuro y modo claro. Su elección se guarda para la próxima vez.", go: "inicio", goLabel: "Ir a Inicio" },
   { keys: ["modo", "cambi", "personal"], q: "¿Cómo cambio el modo?", a: "El modo se elige al crear el espacio y se cambia en Hogar.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["contrase", "clave", "correo", "mi cuenta"], q: "¿Cómo es mi cuenta?", a: "Su cuenta se crea con su correo y una contraseña de al menos 12 caracteres." },
