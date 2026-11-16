@@ -560,6 +560,7 @@ export const Actions = {
       tandas: z.array(z.object({ id: z.number(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), verified: z.number(), fineAmount: z.number() })) }) })),
       summary: z.object({
         totalBalance: z.number(), totalInFunds: z.number(), availableFree: z.number(),
+        openingBalance: z.number(), priorMonthsNet: z.number(), fundsFromAccounts: z.number(), fundsReserved: z.number(),
         monthIncome: z.number(), monthExpense: z.number(), monthNet: z.number(),
         sharedExpenseMonth: z.number(), unassignedNet: z.number(), totalAssets: z.number(), totalLiabilities: z.number(), netWorth: z.number(),
         salaryIncome: z.number(), salarySpent: z.number(), salaryRemaining: z.number(), hasSalaryIncome: z.number(),
@@ -581,7 +582,7 @@ export const Actions = {
       if (!hh) {
         return {
           household: null, profiles: [], invitations: [], accounts: [], categories: [], movements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
-          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth: new Date().toISOString().slice(0,7), contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
+          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth: new Date().toISOString().slice(0,7), contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
         };
       }
       const hid = hh.id;
@@ -661,6 +662,19 @@ export const Actions = {
       const monthMovs = activeMovs.filter(m=>m.date.startsWith(currentMonth));
       const monthIncome = monthMovs.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0);
       const monthExpense = monthMovs.filter(m=>m.type==="expense"||m.type==="debt_payment").reduce((s,m)=>s+m.amount,0);
+      // Conciliación Disponible vs Neto del mes. El Total no es solo el mes
+      // en curso: arrastra el saldo inicial de las cuentas y el neto de los
+      // meses anteriores, y ya no trae el dinero que salió de las cuentas
+      // hacia los fondos. Disponible solo descuenta el dinero apartado en
+      // fondos que sigue dentro de las cuentas (aportaciones sin cuenta,
+      // como el saldo inicial de una meta o el sobrante del mes): restar
+      // todos los fondos otra vez contaría dos veces lo que salió de una
+      // cuenta, porque la aportación ya descuenta su saldo.
+      const openingBalance = accountsR.reduce((s,a)=>s+a.initialBalance,0);
+      const priorMonthsNet = activeMovs.filter(m=>!m.date.startsWith(currentMonth)).reduce((s,m)=> s + (m.type==="income"? m.amount : (m.type==="expense"||m.type==="debt_payment")? -m.amount : 0),0);
+      const fundsFromAccounts = fundMovsR.reduce((s,fm)=>{ const accId = (fm as unknown as { accountId?: number | null }).accountId; if (accId==null) return s; return s + (fm.type==="contribution"? fm.amount : -fm.amount); },0);
+      const fundsReserved = totalInFunds - Math.max(0, fundsFromAccounts);
+      const availableFree = totalBalance - fundsReserved;
       const sharedExpenseMonth = monthMovs.filter(m=>(m.type==="expense"||m.type==="debt_payment") && m.visibility==="shared").reduce((s,m)=>s+m.amount,0);
       // also include shared budgets if no movements? Use max(sharedExpense, ? ) - keep sharedExpense as base, but if budgets shared total >0 and expense 0, note
       const sharedBudgetsTotal = budgetsR.filter(b=>b.month===currentMonth && b.visibility==="shared").reduce((s,b)=>s+b.amount,0);
@@ -872,7 +886,7 @@ export const Actions = {
         patrimony: patrR.map(p=>({ id:p.id, name:p.name, kind:p.kind, category:p.category, value:p.value, owner:p.owner??null })),
         activity: activityR.map(a=>({ id: a.id, action: a.action, detail: a.detail, createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : new Date(Number(a.createdAt)).toISOString() })),
         summary: {
-          totalBalance: Math.round(totalBalance*100)/100, totalInFunds: Math.round(totalInFunds*100)/100, availableFree: Math.round((totalBalance-totalInFunds)*100)/100,
+          totalBalance: Math.round(totalBalance*100)/100, totalInFunds: Math.round(totalInFunds*100)/100, availableFree: Math.round(availableFree*100)/100, openingBalance: Math.round(openingBalance*100)/100, priorMonthsNet: Math.round(priorMonthsNet*100)/100, fundsFromAccounts: Math.round(fundsFromAccounts*100)/100, fundsReserved: Math.round(fundsReserved*100)/100,
           monthIncome: Math.round(monthIncome*100)/100, monthExpense: Math.round(monthExpense*100)/100, monthNet: Math.round((monthIncome-monthExpense)*100)/100,
           sharedExpenseMonth: Math.round(baseForContributions*100)/100, unassignedNet, totalAssets, totalLiabilities, netWorth: totalAssets-totalLiabilities, currentMonth,
           salaryIncome: salaryInfo.salaryIncome, salarySpent: salaryInfo.salarySpent, salaryRemaining: salaryInfo.salaryRemaining, hasSalaryIncome: salaryInfo.hasSalaryIncome,

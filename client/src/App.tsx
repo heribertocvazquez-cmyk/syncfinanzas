@@ -1162,7 +1162,8 @@ export function App(){
             <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3.5">
               <p className="text-sm opacity-80">Disponible · {s.currentMonth}</p>
               <p className="font-display text-3xl font-extrabold mt-1">{money2(s.availableFree)}</p>
-              <p className="text-sm opacity-80 mt-1">Total {money2(s.totalBalance)} − fondos {money2(s.totalInFunds)}.</p>
+              <p className="text-sm opacity-80 mt-1">Total {money2(s.totalBalance)} − fondos apartados {money2(s.fundsReserved)}.</p>
+              <p className="text-sm opacity-80 mt-1">Total = saldo inicial {money2(s.openingBalance)} {s.priorMonthsNet<0?"−":"+"} meses anteriores {money2(Math.abs(s.priorMonthsNet))} {s.monthNet<0?"−":"+"} neto del mes {money2(Math.abs(s.monthNet))}{s.fundsFromAccounts>=0?` − salidas a fondos ${money2(s.fundsFromAccounts)}`:` + entradas desde fondos ${money2(-s.fundsFromAccounts)}`}.</p>
               <div className="grid grid-cols-3 gap-2 mt-3 text-center">
                 <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Entradas</p><p className="font-display font-bold">{money(s.monthIncome)}</p></div>
                 <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Salidas</p><p className="font-display font-bold">{money(s.monthExpense)}</p></div>
