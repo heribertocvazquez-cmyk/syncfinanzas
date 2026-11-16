@@ -99,16 +99,17 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 
 const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
 type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
-// Gráfica de dona de gasto por categoría. Al tocar una rebanada o un rubro
-// de la leyenda se abre la vista rápida con los gastos de ese rubro.
-function CategoryChart({data,onSelect}:{data:CatSlice[];onSelect:(c:CatSlice)=>void}){
+// Gráfica de dona de gasto por categoría. Solo muestra el gasto del mes;
+// al tocarla no se abre ningún detalle.
+function CategoryChart({data}:{data:CatSlice[]}){
+
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const total=data.reduce((a,d)=>a+d.total,0);
   return <div className="mt-2">
-    <div className="relative mx-auto w-44 h-44" role="img" aria-label="Gráfica de gasto por categoría. Toque una rebanada para ver sus gastos.">
+    <div className="relative mx-auto w-44 h-44" role="img" aria-label="Gráfica de gasto por categoría.">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" style={{cursor:"pointer"}} onClick={(_d,i)=>{ const c=data[i]; if(c) onSelect(c); }}>
+          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none">
             {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} />)}
           </Pie>
           <Tooltip formatter={(v)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,"Gastado"]} />
@@ -121,28 +122,29 @@ function CategoryChart({data,onSelect}:{data:CatSlice[];onSelect:(c:CatSlice)=>v
     </div>
     <div className="mt-2 space-y-2">
       {data.map((d,i)=>(
-        <button key={d.name} type="button" aria-label={`Ver los gastos de ${d.name}`} className="w-full text-left" onClick={()=>onSelect(d)}>
+        <div key={d.name} className="w-full text-left">
           <div className="flex justify-between gap-2 text-sm"><span className="inline-flex items-center gap-2 min-w-0" style={{color:DONUT_COLORS[i%DONUT_COLORS.length]}}><CatIcon name={d.name} size="sm" className="text-inherit" /><span className="text-[var(--text)] truncate">{d.name}</span></span><b className="shrink-0">{money(d.total)} · {d.pct}%</b></div>
           <div className="h-1.5 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className="h-full rounded-full" style={{width:`${Math.min(100,Math.max(0,d.pct))}%`, background:DONUT_COLORS[i%DONUT_COLORS.length]}} /></div>
-        </button>
+        </div>
       ))}
     </div>
   </div>;
 }
-function MonthlyChart({series}:{series:{label:string;income:number;expense:number}[]}){
-  const data=series.map(x=>({label:x.label, Ingresos:x.income, Gastos:x.expense}));
+function MonthlyChart({series,currentMonth,onSelect}:{series:{month:string;label:string;income:number;expense:number}[];currentMonth:string;onSelect:(kind:"income"|"expense",month:string,label:string)=>void}){
+  const data=series.map(x=>({label:x.label, month:x.month, Ingresos:x.income, Gastos:x.expense}));
+  const curMonth=data.find(d=>d.month===currentMonth) ?? data[data.length-1];
   const allZero=data.every(d=>d.Ingresos===0&&d.Gastos===0);
   if(allZero) return <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>;
-  return <div className="mt-2" role="img" aria-label="Gráfica de ingresos contra gastos por mes">
+  return <div className="mt-2" role="img" aria-label="Gráfica de ingresos contra gastos por mes. Toque una barra de Ingresos o de Gastos para ver el detalle por cuenta.">
     <ResponsiveContainer width="100%" height={170}>
       <BarChart data={data} margin={{left:0,right:8,top:10,bottom:4}} barCategoryGap="30%" barGap={6}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
         <XAxis dataKey="label" tick={{fontSize:12, fill:"var(--text)"}} axisLine={{stroke:"var(--border)"}} tickLine={false} />
         <YAxis tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize:11, fill:"var(--dim)"}} width={56} axisLine={false} tickLine={false} />
         <Tooltip cursor={{fill:"rgba(255,255,255,0.04)"}} formatter={(v,name)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,name]} />
-        <Legend content={()=>(<div className="flex justify-center gap-4 text-xs mt-1"><span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1B7A4D]" />Ingresos</span><span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#B42318]" />Gastos</span></div>)} />
-        <Bar dataKey="Ingresos" fill="#1B7A4D" radius={[6,6,0,0]} maxBarSize={26} />
-        <Bar dataKey="Gastos" fill="#B42318" radius={[6,6,0,0]} maxBarSize={26} />
+        <Legend content={()=>(<div className="flex justify-center gap-4 text-xs mt-1"><button type="button" aria-label={`Ver de dónde vienen los ingresos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("income",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1B7A4D]" />Ingresos</button><button type="button" aria-label={`Ver de dónde salieron los gastos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("expense",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#B42318]" />Gastos</button></div>)} />
+        <Bar dataKey="Ingresos" fill="#1B7A4D" radius={[6,6,0,0]} maxBarSize={26} style={{cursor:"pointer"}} onClick={(d:any)=>{ const p=d?.payload ?? d; if(p?.month) onSelect("income",p.month,p.label); }} />
+        <Bar dataKey="Gastos" fill="#B42318" radius={[6,6,0,0]} maxBarSize={26} style={{cursor:"pointer"}} onClick={(d:any)=>{ const p=d?.payload ?? d; if(p?.month) onSelect("expense",p.month,p.label); }} />
       </BarChart>
     </ResponsiveContainer>
   </div>;
@@ -709,8 +711,8 @@ export function App(){
 
   // goal
   const [goalName,setGoalName]=useState(""); const [goalTarget,setGoalTarget]=useState(""); const [goalDate,setGoalDate]=useState(""); const [goalSaved,setGoalSaved]=useState("0"); const [goalAdd,setGoalAdd]=useState<Record<number,string>>({}); const [quickBud,setQuickBud]=useState<number|null>(null); const [quickBudAmt,setQuickBudAmt]=useState(""); const [quickBudAcc,setQuickBudAcc]=useState(""); const [quickGoal,setQuickGoal]=useState<number|null>(null); const [quickGoalAmt,setQuickGoalAmt]=useState(""); const [quickGoalAcc,setQuickGoalAcc]=useState(""); const [quickPat,setQuickPat]=useState<number|null>(null); const [quickPatVal,setQuickPatVal]=useState("");
-  // Rubro seleccionado en la gráfica de dona, para su vista rápida.
-  const [catDetail,setCatDetail]=useState<CatSlice|null>(null);
+  // Detalle de la gráfica de ingresos vs gastos: tipo y mes tocados.
+  const [incExpDetail,setIncExpDetail]=useState<{kind:"income"|"expense";month:string;label:string}|null>(null);
   const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
   const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:()=>{inv();setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");setSavedNotice("Gasto registrado.");}});
@@ -1015,12 +1017,13 @@ export function App(){
   const guideStep3 = chartsSeen;
   const isAdmin = !me || me.role==="admin";
   const visibleMovs = data.movements.filter(m=> m.visibility==="shared" || (me ? (m.profileId===me.id || (m.profileId===null && me.role==="admin")) : true));
-  // Gastos del rubro seleccionado en la vista rápida: misma regla con la que
-  // el servidor arma el total de la rebanada (mes en curso, gasto o pago de
-  // deuda, sin reversados ni reversiones), para que la suma coincida.
-  const catDetailMovs = catDetail ? data.movements.filter(m=> m.date.startsWith(s.currentMonth) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && !m.reversalOfId && (m.categoryId??null)===(catDetail.categoryId??null)).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
+  // Movimientos del detalle de ingresos vs gastos: misma regla con la que el
+  // servidor arma las barras (mes tocado, ingreso o gasto/pago de deuda, sin
+  // reversados ni reversiones), para que la suma coincida con la barra.
+  const incExpMovs = incExpDetail ? data.movements.filter(m=> m.date.startsWith(incExpDetail.month) && !m.isReversed && !m.reversalOfId && (incExpDetail.kind==="income" ? m.type==="income" : (m.type==="expense"||m.type==="debt_payment"))).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
   const getCatName=(id:number|null)=>data.categories.find(c=>c.id===id)?.name||"—";
   const getAccName=(id:number|null)=>data.accounts.find(a=>a.id===id)?.name||"Efectivo";
+  const incExpByAcc: {key:string;name:string;total:number;movs:typeof incExpMovs}[] = (()=>{ const groups=new Map<string,{name:string;total:number;movs:typeof incExpMovs}>(); for(const m of incExpMovs){ const key=m.accountId==null?"efectivo":`cta-${m.accountId}`; const g=groups.get(key) ?? {name:getAccName(m.accountId),total:0,movs:[]}; g.total+=m.amount; g.movs.push(m); groups.set(key,g); } return [...groups.entries()].map(([key,g])=>({key,...g})).sort((a,b)=>b.total-a.total); })();
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
@@ -1153,13 +1156,12 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
-                <p className="text-xs text-[var(--dim)]">Toque un rubro para ver sus gastos.</p>
-                <CategoryChart data={data.personal.byCategory} onSelect={setCatDetail} />
+                                <CategoryChart data={data.personal.byCategory} />
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Ingresos vs gastos</h2>
-                <MonthlyChart series={s.monthlySeries} />
-                <p className="text-xs text-[var(--dim)]">Últimos 6 meses.</p>
+                <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
+                <p className="text-xs text-[var(--dim)]">Últimos 6 meses. Toque una barra de Ingresos o de Gastos para ver el detalle por cuenta.</p>
                 <button type="button" aria-label="Ver los movimientos completos desde Inicio" className={btnPrimary+" mt-3"} onClick={()=>goTab("movimientos")}>Ver movimientos completos</button>
               </div>
             </div>
@@ -1690,14 +1692,13 @@ export function App(){
               <div className="space-y-3">
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gasto por categoría</h2>
-                  <p className="text-xs text-[var(--dim)]">Toque un rubro para ver sus gastos.</p>
-                  <CategoryChart data={data.personal.byCategory} onSelect={setCatDetail} />
+                                    <CategoryChart data={data.personal.byCategory} />
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante: <b>{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Ingresos vs gastos</h2>
-                  <MonthlyChart series={s.monthlySeries} />
-                  <p className="text-xs text-[var(--dim)]">Últimos 6 meses.</p>
+                  <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
+                  <p className="text-xs text-[var(--dim)]">Últimos 6 meses. Toque una barra de Ingresos o de Gastos para ver el detalle por cuenta.</p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Mis tandas</h2>
@@ -2153,24 +2154,27 @@ export function App(){
           <p className="px-3 py-2.5 border-t border-[var(--border)] text-xs text-[var(--dim)]">Cierre con la ×.</p>
         </div>
       </div>}
-      {catDetail && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Gastos de ${catDetail.name} en ${s.currentMonth}`} onClick={()=>setCatDetail(null)}>
+      {incExpDetail && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`${incExpDetail.kind==="income"?"Ingresos":"Gastos"} de ${incExpDetail.label}`} onClick={()=>setIncExpDetail(null)}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4" onClick={e=>e.stopPropagation()}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">GASTOS DEL RUBRO · {s.currentMonth}</p>
-              <p className="font-display font-bold text-lg leading-tight flex items-center gap-2"><CatIcon name={catDetail.name} />{catDetail.name}</p>
-              <p className="text-sm text-[var(--dim)] mt-1">{catDetailMovs.length} gasto(s) · {catDetail.pct}% del gasto del mes</p>
+              <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">{incExpDetail.kind==="income"?"INGRESOS":"GASTOS"} · {incExpDetail.label.toUpperCase()}</p>
+              <p className="font-display font-bold text-lg leading-tight">{incExpDetail.kind==="income"?"¿De dónde vienen los ingresos?":"¿De dónde salieron los gastos?"}</p>
+              <p className="text-sm text-[var(--dim)] mt-1">{incExpMovs.length} movimiento(s) · {incExpByAcc.length} cuenta(s)</p>
             </div>
-            <button type="button" aria-label="Cerrar la vista rápida del rubro" onClick={()=>setCatDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+            <button type="button" aria-label="Cerrar el detalle de ingresos y gastos" onClick={()=>setIncExpDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
           </div>
-          <p className="font-display text-2xl font-extrabold mt-2">{money2(catDetail.total)}</p>
+          <p className="font-display text-2xl font-extrabold mt-2">{incExpDetail.kind==="income"?"+":"−"}{money2(incExpMovs.reduce((a,m)=>a+m.amount,0))}</p>
           <div className="mt-2">
-            {catDetailMovs.length===0 && <p className="text-sm text-[var(--dim)]">Sin gastos registrados en este rubro este mes.</p>}
-            {catDetailMovs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0">−{money(m.amount)}</b></div>)}
+            {incExpMovs.length===0 && <p className="text-sm text-[var(--dim)]">{incExpDetail.kind==="income"?"Sin ingresos registrados este mes.":"Sin gastos registrados este mes."}</p>}
+            {incExpByAcc.map(g=><div key={g.key} className="mt-3">
+              <div className="flex justify-between gap-2 text-sm"><span className="font-bold">{g.name}</span><b>{money2(g.total)}</b></div>
+              {g.movs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0">{incExpDetail.kind==="income"?"+":"−"}{money(m.amount)}</b></div>)}
+            </div>)}
           </div>
           <div className="flex gap-2 mt-4">
-            <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setCatDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
-            <button type="button" className={btnGhost} onClick={()=>setCatDetail(null)}>Cerrar</button>
+            <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setIncExpDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
+            <button type="button" className={btnGhost} onClick={()=>setIncExpDetail(null)}>Cerrar</button>
           </div>
         </div>
       </div>}
