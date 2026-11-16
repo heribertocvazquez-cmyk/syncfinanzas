@@ -1298,12 +1298,23 @@ export function App(){
   const guideStep2 = data.movements.length>0;
   const guideStep3 = chartsSeen;
   const isAdmin = !me || me.role==="admin";
-  const visibleMovs = data.movements.filter(m=> m.visibility==="shared" || (me ? (m.profileId===me.id || (m.profileId===null && me.role==="admin")) : true));
+  // Visibilidad de movimientos: en modo Familiar un integrante ve los
+  // movimientos compartidos, los suyos y (si es administrador) los sin
+  // perfil; los privados de otros integrantes no se listan. Es la misma
+  // regla de la lista de Movimientos. Los totales de las gráficas sí
+  // incluyen todo el hogar; las ventanas de detalle solo listan lo visible
+  // y avisan cuántos movimientos privados quedan fuera.
+  const canSeeMov = (m:{visibility:string;profileId:number|null})=> m.visibility==="shared" || (me ? (m.profileId===me.id || (m.profileId===null && me.role==="admin")) : true);
+  const visibleMovs = data.movements.filter(canSeeMov);
   // Movimientos del detalle de ingresos vs gastos: misma regla con la que el
   // servidor arma las barras (mes tocado, ingreso o gasto/pago de deuda, sin
   // reversados ni reversiones), para que la suma coincida con la barra.
-  const incExpMovs = incExpDetail ? data.movements.filter(m=> m.date.startsWith(incExpDetail.month) && !m.isReversed && !m.reversalOfId && (incExpDetail.kind==="income" ? m.type==="income" : (m.type==="expense"||m.type==="debt_payment"))).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
-  const catDetailMovs = catDetail ? data.movements.filter(m=> (m.categoryId??null)===catDetail.categoryId && m.date.startsWith(catDetail.month) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && m.reversalOfId==null).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
+  const incExpBase = incExpDetail ? data.movements.filter(m=> m.date.startsWith(incExpDetail.month) && !m.isReversed && !m.reversalOfId && (incExpDetail.kind==="income" ? m.type==="income" : (m.type==="expense"||m.type==="debt_payment"))).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
+  const incExpMovs = incExpBase.filter(canSeeMov);
+  const incExpHiddenCount = incExpBase.length - incExpMovs.length;
+  const catDetailBase = catDetail ? data.movements.filter(m=> (m.categoryId??null)===catDetail.categoryId && m.date.startsWith(catDetail.month) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && m.reversalOfId==null).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
+  const catDetailMovs = catDetailBase.filter(canSeeMov);
+  const catDetailHiddenCount = catDetailBase.length - catDetailMovs.length;
   // Texto de la banda movible del resumen: la banda lo repite dos veces para un ciclo continuo sin cortes.
   const bannerText = `Disponible ${money(s.availableFree)} · Entradas ${money(s.monthIncome)} · Salidas ${money(s.monthExpense)} · Neto ${money(s.monthNet)} · `;
   const getCatName=(id:number|null)=>data.categories.find(c=>c.id===id)?.name||"—";
@@ -2540,13 +2551,14 @@ export function App(){
             <div className="min-w-0">
               <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">{incExpDetail.kind==="income"?"INGRESOS":"GASTOS"} · {incExpDetail.label.toUpperCase()}</p>
               <p className="font-display font-bold text-lg leading-tight">{incExpDetail.kind==="income"?"¿De dónde vienen los ingresos?":"¿De dónde salieron los gastos?"}</p>
-              <p className="text-sm text-[var(--dim)] mt-1">{incExpMovs.length} movimiento(s) · {incExpByAcc.length} cuenta(s)</p>
+              <p className="text-sm text-[var(--dim)] mt-1">{incExpBase.length} movimiento(s) · {incExpByAcc.length} cuenta(s)</p>
             </div>
             <button type="button" aria-label="Cerrar el detalle de ingresos y gastos" onClick={()=>setIncExpDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
           </div>
-          <p className="font-display text-2xl font-extrabold mt-2">{incExpDetail.kind==="income"?"+":"−"}{money2(incExpMovs.reduce((a,m)=>a+m.amount,0))}</p>
+          <p className="font-display text-2xl font-extrabold mt-2">{incExpDetail.kind==="income"?"+":"−"}{money2(incExpBase.reduce((a,m)=>a+m.amount,0))}</p>
+          {incExpHiddenCount>0 && <p className="text-xs text-[var(--dim)] mt-1">No se muestran {incExpHiddenCount} movimiento(s) privado(s) de otros integrantes del hogar.</p>}
           <div className="mt-2">
-            {incExpMovs.length===0 && <p className="text-sm text-[var(--dim)]">{incExpDetail.kind==="income"?"Sin ingresos registrados este mes.":"Sin gastos registrados este mes."}</p>}
+            {incExpBase.length===0 && <p className="text-sm text-[var(--dim)]">{incExpDetail.kind==="income"?"Sin ingresos registrados este mes.":"Sin gastos registrados este mes."}</p>}
             {incExpByAcc.map(g=><div key={g.key} className="mt-3">
               <div className="flex justify-between gap-2 text-sm"><span className="font-bold">{g.name}</span><b>{money2(g.total)}</b></div>
               {g.movs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0">{incExpDetail.kind==="income"?"+":"−"}{money(m.amount)}</b></div>)}
@@ -2564,13 +2576,14 @@ export function App(){
             <div className="min-w-0">
               <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">GASTOS · {fmtMonth(catDetail.month).toUpperCase()}</p>
               <p className="font-display font-bold text-lg leading-tight">Gastos de {catDetail.name}</p>
-              <p className="text-sm text-[var(--dim)] mt-1">{catDetailMovs.length} gasto(s)</p>
+              <p className="text-sm text-[var(--dim)] mt-1">{catDetailBase.length} gasto(s)</p>
             </div>
             <button type="button" aria-label="Cerrar los gastos del rubro" onClick={()=>setCatDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
           </div>
           <p className="font-display text-2xl font-extrabold mt-2">−{money2(catDetail.total)}</p>
+          {catDetailHiddenCount>0 && <p className="text-xs text-[var(--dim)] mt-1">No se muestran {catDetailHiddenCount} gasto(s) privado(s) de otros integrantes del hogar.</p>}
           <div className="mt-2">
-            {catDetailMovs.length===0 && <p className="text-sm text-[var(--dim)]">Sin gastos registrados en este rubro.</p>}
+            {catDetailBase.length===0 && <p className="text-sm text-[var(--dim)]">Sin gastos registrados en este rubro.</p>}
             {catDetailMovs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0">−{money(m.amount)}</b></div>)}
           </div>
           <div className="flex gap-2 mt-4">
