@@ -8,7 +8,7 @@ import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
 import { supabase } from "./supabase";
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
 import guiaResumenPdf from "./assets/guia-resumen-registro.pdf";
@@ -119,13 +119,14 @@ const CAT_DONUT_ICONS: Record<string, ReactNode> = {
 };
 const CAT_DONUT_ICON_DEFAULT: ReactNode = (<><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></>);
 // Etiqueta de la dona: dibuja el símbolo blanco del rubro en el centro de
-// su segmento. El tamaño se achica en los rubros pequeños para no invadir
-// a los vecinos.
+// su segmento. Los símbolos son discretos (cerca de la mitad del grosor del
+// anillo) y se achican más en los rubros pequeños para no invadir a los
+// vecinos.
 function renderDonutIcon(p: any){
   const datum = (p.payload ?? {}) as Partial<CatSlice>;
   const name = datum.name ?? p.name ?? "";
   const pct = typeof datum.pct === "number" ? datum.pct : (typeof p.percent === "number" ? p.percent * 100 : 0);
-  const size = pct >= 10 ? 20 : pct >= 5 ? 16 : 12;
+  const size = pct >= 10 ? 10 : pct >= 5 ? 8 : 6;
   const RADIAN = Math.PI / 180;
   const radius = (Number(p.innerRadius) + Number(p.outerRadius)) / 2;
   const x = Number(p.cx) + radius * Math.cos(-Number(p.midAngle) * RADIAN);
@@ -139,19 +140,26 @@ function renderDonutIcon(p: any){
 // de su rubro. Al tocar un segmento queda marcado (más brillante, un poco
 // separado, los demás atenuados), aparece debajo una sola línea con ese
 // rubro, su monto y su porcentaje, y se abre directamente la ventana aparte
-// con sus gastos registrados. Al cerrar la ventana, el segmento sigue
-// marcado con su línea hasta que se toque otro. El centro muestra siempre
+// con sus gastos registrados. Al cerrar la ventana, la selección se limpia:
+// la dona vuelve completa y la línea desaparece. Tocar el segmento ya
+// marcado lo desmarca sin abrir la ventana. El centro muestra siempre
 // el total del mes. Sin tooltip: ningún recuadro debe aparecer al tocar ni
 // al pasar sobre la dona.
-function CategoryChart({data, onSelect}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void}){
+function CategoryChart({data, onSelect, detailOpen}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void; detailOpen:boolean}){
   const [selName, setSelName] = useState<string|null>(null);
+  // Al cerrar la ventana de detalle, la dona vuelve completa.
+  useEffect(()=>{ if(!detailOpen) setSelName(null); },[detailOpen]);
   // Si cambia el mes y el rubro marcado ya no está en los datos, no se
   // muestra la línea; si sigue, se muestran sus montos del mes actual.
   const sel = selName ? (data.find(d=>d.name===selName) ?? null) : null;
   const activeIdx = sel ? data.indexOf(sel) : -1;
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const total=data.reduce((a,d)=>a+d.total,0);
-  const handleSelect=(d:CatSlice)=>{ setSelName(d.name); onSelect(d); };
+  const handleSelect=(d:CatSlice)=>{
+    // Tocar el segmento ya marcado lo desmarca, sin abrir la ventana.
+    if(selName===d.name){ setSelName(null); return; }
+    setSelName(d.name); onSelect(d);
+  };
   return <div className="mt-2">
     <div className="relative mx-auto w-44 h-44" role="img" aria-label="Gráfica de gasto por categoría.">
       <ResponsiveContainer width="100%" height="100%">
@@ -189,7 +197,6 @@ function MonthlyChart({series,currentMonth,onSelect}:{series:{month:string;label
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
         <XAxis dataKey="label" tick={{fontSize:12, fill:"var(--text)"}} axisLine={{stroke:"var(--border)"}} tickLine={false} />
         <YAxis tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize:11, fill:"var(--dim)"}} width={56} axisLine={false} tickLine={false} />
-        <Tooltip cursor={{fill:"rgba(255,255,255,0.04)"}} formatter={(v,name)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,name]} />
         <Legend content={()=>(<div className="flex justify-center gap-4 text-xs mt-1"><button type="button" aria-label={`Ver de dónde vienen los ingresos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("income",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1B7A4D]" />Ingresos</button><button type="button" aria-label={`Ver de dónde salieron los gastos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("expense",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#B42318]" />Gastos</button></div>)} />
         <Bar dataKey="Ingresos" fill="#1B7A4D" radius={[6,6,0,0]} maxBarSize={26} style={{cursor:"pointer"}} onClick={(d:any)=>{ const p=d?.payload ?? d; if(p?.month) onSelect("income",p.month,p.label); }} />
         <Bar dataKey="Gastos" fill="#B42318" radius={[6,6,0,0]} maxBarSize={26} style={{cursor:"pointer"}} onClick={(d:any)=>{ const p=d?.payload ?? d; if(p?.month) onSelect("expense",p.month,p.label); }} />
@@ -1450,7 +1457,7 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
-                                <CategoryChart data={data.personal.byCategory} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
+                                <CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Ingresos vs gastos</h2>
@@ -2050,7 +2057,7 @@ export function App(){
               <div className="space-y-3">
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gasto por categoría</h2>
-                                    <CategoryChart data={data.personal.byCategory} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
+                                    <CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante: <b>{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
