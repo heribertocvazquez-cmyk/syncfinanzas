@@ -16,6 +16,7 @@ import guiaTandasPdf from "./assets/guia-tandas.pdf";
 import guiaConfiguracionPdf from "./assets/guia-configuracion-ayuda.pdf";
 import { APP_VERSION } from "./version";
 import { APP_UPDATE_EVENT, applyAppUpdate, checkForAppUpdate } from "./serviceWorkerUpdate";
+import { clearDeferredInstallPrompt, consumeDeferredInstallPrompt } from "./installPrompt";
 import appIcon512 from "./assets/app-icon-512.png";
 
 type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"guia";
@@ -293,6 +294,10 @@ function TandaMonthCalendar({td}:{td:TandaCal}){
 // metaetiquetas de index.html declaran la aplicación como instalable: icono propio, pantalla
 // completa y sin barra del navegador.
 // En Android/Chrome el navegador ofrece el evento beforeinstallprompt y el botón lo dispara;
+// el evento se captura temprano en installPrompt.ts (main.tsx lo registra antes de que
+// React monte), porque Chrome lo dispara una sola vez por carga y puede llegar antes que
+// el oyente de App; si el navegador no lo ofrece (por ejemplo, porque el aviso se
+// descartó antes), el botón muestra los pasos manuales exactos.
 // en iPhone la instalación se realiza desde el menú Compartir de Safari (Apple no ofrece
 // instalación con un solo toque), por lo que se muestran los pasos exactos.
 type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
@@ -311,8 +316,8 @@ function detectStandalone(): boolean {
 }
 const INSTALL_STEPS: Record<InstallPlatform, string[]> = {
   android: [
-    "Abra el menú ⋮ de Chrome.",
-    "Seleccione «Instalar aplicación».",
+    "Abra el menú ⋮ de Chrome (arriba a la derecha).",
+    "Seleccione «Instalar y crear acceso directo».",
     "Confirme con «Instalar».",
   ],
   ios: [
@@ -353,9 +358,11 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
           <h2 className="font-display font-bold text-base">{title}</h2>
           <button type="button" aria-label="Cerrar las instrucciones de instalación" onClick={onClose} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
         </div>
+        <p className="text-sm text-[var(--dim)] mt-2">El navegador no ofrece la instalación directa en este momento (por ejemplo, si el aviso se descartó antes). Siga estos pasos:</p>
         <ol className="list-decimal ml-5 text-sm space-y-1.5 mt-3">
           {INSTALL_STEPS[platform].map((s, i) => <li key={i}>{s}</li>)}
         </ol>
+        {platform === "android" && <p className="text-xs text-[var(--dim)] mt-3">Si no aparece «Instalar y crear acceso directo», es posible que la aplicación ya esté instalada.</p>}
         <button type="button" className={btnPrimary + " mt-3 w-full"} onClick={onClose}>Entendido</button>
       </div>
     </div>
@@ -380,7 +387,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["tanda"], q: "¿Cómo creo una tanda?", a: "En Tandas, escriba el nombre, el monto y el número de participantes, elija la regla si alguien no paga, el tesorero y el día de reunión, y pulse Crear tanda. Después invite por correo a los participantes. En cada ronda verá la ficha, el pase de lista y los saldos separados.", go: "tandas", goLabel: "Ir a Tandas" },
   { keys: ["invit", "persona", "unir", "alguien", "invito a mi pareja"], q: "¿Cómo invito a alguien?", a: "En Perfiles, escriba el correo de la persona y pulse Invitar. Recibirá un enlace directo para entrar a su hogar.", go: "perfiles", goLabel: "Ir a Perfiles" },
   { keys: ["espacio", "hogar", "inici", "empez"], q: "¿Cómo creo mi espacio?", a: "Para crear su espacio, elija Personal o Familiar, escriba el nombre de su hogar y sus datos, y pulse Crear hogar.", go: "hogar", goLabel: "Ir a Hogar" },
-  { keys: ["instal", "celular", "pantalla", "descarg"], q: "¿Cómo instalo la app en mi celular?", a: "En iPhone, abra la app en Safari, toque Compartir y seleccione Agregar a pantalla de inicio. En Android, mantenga presionado el icono y toque Instalar app.", go: "guia", goLabel: "Ir a Guía de uso" },
+  { keys: ["instal", "celular", "pantalla", "descarg"], q: "¿Cómo instalo la app en mi celular?", a: "En iPhone, abra la app en Safari, toque Compartir y seleccione Agregar a pantalla de inicio. En Android, abra el menú ⋮ de Chrome, seleccione «Instalar y crear acceso directo» y confirme con «Instalar».", go: "guia", goLabel: "Ir a Guía de uso" },
   { keys: ["actualiz", "nueva versión", "versión"], q: "¿Cómo actualizo la app?", a: "Si hay una versión nueva, aparece un aviso con el botón Actualizar. También puede revisar en Hogar → Buscar actualizaciones. Su cuenta y sus datos no cambian.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["reinici", "reset", "borrar mis datos", "borrar todo", "borrar los datos", "borrar la cuenta", "borrar mi cuenta", "eliminar mis datos", "eliminar todo", "eliminar la cuenta", "empezar de nuevo"], q: "¿Cómo reinicio todo?", a: "En Hogar, al final, pulse el texto discreto Reiniciar la aplicación y responda las 3 preguntas de control una por una (la segunda muestra el número real de tandas y personas). Después escriba REINICIAR. Se borra todo (movimientos, cuentas, presupuestos, tandas y el hogar) y la app vuelve al inicio para elegir de nuevo Personal o Familiar.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["sueldo", "salario", "mi sueldo", "mi salario"], q: "¿Cómo registro mi sueldo?", a: "En Personal, escriba su sueldo mensual y pulse Guardar sueldo.", go: "personal", goLabel: "Ir a Personal" },
@@ -587,13 +594,17 @@ export function App(){
   const [installStepsOpen,setInstallStepsOpen]=useState(false);
   const [chartsSeen,setChartsSeen]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-guide-charts-seen")==="1"; }catch{ return false; } });
   useEffect(()=>{
+    // El evento puede haber llegado antes de montar (se capturó temprano en
+    // installPrompt.ts); se toma al montar para no perderlo.
+    const early = consumeDeferredInstallPrompt();
+    if (early) setInstallPrompt(early);
     const onPrompt=(e:Event)=>{ e.preventDefault(); setInstallPrompt(e as BeforeInstallPromptEvent); };
     const onInstalled=()=>{ setAppInstalled(true); setInstallPrompt(null); };
     window.addEventListener("beforeinstallprompt",onPrompt);
     window.addEventListener("appinstalled",onInstalled);
     return ()=>{ window.removeEventListener("beforeinstallprompt",onPrompt); window.removeEventListener("appinstalled",onInstalled); };
   },[]);
-  const doInstall=async()=>{ if(!installPrompt) return; try{ await installPrompt.prompt(); const choice=await installPrompt.userChoice; if(choice.outcome==="accepted") setAppInstalled(true); }catch{ /* el navegador no ofreció la instalación; quedan los pasos manuales */ } setInstallPrompt(null); };
+  const doInstall=async()=>{ if(!installPrompt) return; try{ await installPrompt.prompt(); const choice=await installPrompt.userChoice; if(choice.outcome==="accepted") setAppInstalled(true); else setInstallStepsOpen(true); }catch{ /* el navegador no ofreció la instalación; quedan los pasos manuales */ setInstallStepsOpen(true); } clearDeferredInstallPrompt(); setInstallPrompt(null); };
   const handleInstallClick=()=>{ if(installPrompt){ void doInstall(); } else { setInstallStepsOpen(true); } };
   const dismissInstall=()=>{ setInstallDismissed(true); try{ localStorage.setItem("sf-install-dismissed","1"); }catch{} };
   // Aviso de actualización: cuando el service worker nuevo queda en espera,
@@ -1103,23 +1114,23 @@ export function App(){
         <div className="max-w-5xl mx-auto px-3 pt-3 pb-2">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-2"><span className="truncate">{hh.name}</span><span className="shrink-0 text-[11px] bg-[var(--gold)] text-white rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
+              <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-x-2 gap-y-1 text-[17px] sm:text-xl"><span className="min-w-0">{hh.name}</span><span className="shrink-0 text-[11px] bg-[var(--gold)] text-white rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
               <p className="text-[11px] text-[var(--dim)] mt-1.5">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}{me?` · ${fullName(me)} · ${me.role==="admin"?"Administrador":"Integrante"}`:""}</p>
             </div>
             <div className="flex gap-2 shrink-0 pt-0.5">
-              <button type="button" className="relative shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={darkMode?"Cambiar a modo claro":"Cambiar a modo oscuro"} title={darkMode?"Modo claro":"Modo oscuro"} onClick={toggleTheme}>
+              <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={darkMode?"Cambiar a modo claro":"Cambiar a modo oscuro"} title={darkMode?"Modo claro":"Modo oscuro"} onClick={toggleTheme}>
                 {darkMode ? (
                   <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
                 ) : (
                   <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
                 )}
               </button>
-              <button type="button" className="relative shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={unreadCount>0?`Notificaciones: ${unreadCount} sin leer`:"Notificaciones"} onClick={()=>setNotifOpen(o=>!o)}>
+              <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={unreadCount>0?`Notificaciones: ${unreadCount} sin leer`:"Notificaciones"} onClick={()=>setNotifOpen(o=>!o)}>
                 <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
                 {unreadCount>0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-[var(--red)] text-white text-[11px] font-bold flex items-center justify-center">{unreadCount>99?"99+":unreadCount}</span>}
               </button>
-              {!appInstalled && <button type="button" className={btnGhost} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
-              <button className={btnGhost} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>Demo</button>
+              {!appInstalled && <button type="button" className={btnGhost + " max-sm:px-2.5 max-sm:text-xs"} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
+              <button className={btnGhost + " max-sm:px-2.5 max-sm:text-xs"} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>Demo</button>
             </div>
           </div>
         </div>

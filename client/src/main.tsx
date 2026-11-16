@@ -6,6 +6,12 @@ import { AuthGate } from "./components/AuthGate";
 import "./theme.css";
 import appIcon192 from "./assets/app-icon-192.png";
 import { registerAppServiceWorker } from "./serviceWorkerUpdate";
+import { captureInstallPromptEarly } from "./installPrompt";
+
+// Instalación (PWA): se captura el evento beforeinstallprompt en cuanto
+// carga el módulo, antes de que React monte, porque Chrome lo dispara una
+// sola vez por carga y puede llegar antes que el oyente de App.
+captureInstallPromptEarly();
 import appIcon512 from "./assets/app-icon-512.png";
 
 // Instalación en el celular (aplicación instalable, pensada primero para el
