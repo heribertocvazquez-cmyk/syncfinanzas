@@ -8,6 +8,7 @@
 // el restablecimiento de contraseña (enlace por correo) y el cierre de sesión.
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { supabase } from "../supabase";
+import { fetchSession } from "../api";
 
 export function passwordChecks(password: string): { ok: boolean; message: string } {
   if (password.length < 12) return { ok: false, message: "Mínimo 12 caracteres." };
@@ -66,10 +67,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
 
+  // La sesión vive en la cookie segura del servidor (punto 10): se
+  // consulta a GET /api/session. El cliente ya no guarda el token en
+  // localStorage ni escucha cambios de sesión de Supabase.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(!!data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => setSession(!!s));
-    return () => listener.subscription.unsubscribe();
+    let alive = true;
+    void fetchSession().then((u) => {
+      if (alive) setSession(!!u);
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // Enlace de invitación: si la persona llegó con ?token=..., se muestra
@@ -116,8 +124,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         error?: string;
         message?: string;
         needsConfirmation?: boolean;
-        access_token?: string;
-        refresh_token?: string;
+        user?: { id?: string; email?: string };
       } | null;
       if (!res.ok) throw new Error(json?.error ?? "No se pudo completar la operación.");
       if (mode === "forgot") {
@@ -128,12 +135,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
         setInfo("Revise su correo: debe confirmar su cuenta antes de entrar.");
         return;
       }
-      if (json?.access_token && json?.refresh_token) {
-        const { error: err } = await supabase.auth.setSession({
-          access_token: json.access_token,
-          refresh_token: json.refresh_token,
-        });
-        if (err) throw new Error("No se pudo iniciar la sesión. Inténtelo de nuevo.");
+      if (json?.user) {
+        // El servidor ya emitió la cookie de sesión en la respuesta: se
+        // confirma con /api/session y se muestra la aplicación.
+        const u = await fetchSession();
+        if (!u) throw new Error("No se pudo iniciar la sesión. Inténtelo de nuevo.");
+        setSession(true);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ocurrió un error. Inténtelo de nuevo.");

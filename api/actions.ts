@@ -21,7 +21,7 @@ import { Actions } from "../server/src/actions.js";
 import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { buildCtx } from "../server/src/space-shim.js";
-import { getUserFromToken } from "../server/src/supabase.js";
+import { getUserFromToken, resolveSessionUser } from "../server/src/supabase.js";
 
 type Role = "admin" | "member";
 
@@ -118,9 +118,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "GET") return res.status(200).json({ ok: true, service: "syncfinanzas" });
   if (req.method !== "POST") return res.status(405).json({ error: "Método no permitido." });
   try {
+    // Sesión por cookie segura (punto 10): el token viaja en la cookie
+    // httpOnly + Secure + SameSite=Lax que emite el servidor al entrar, y
+    // se renueva sola. El encabezado Bearer se sigue aceptando SOLO como
+    // puente para las PWA instaladas en la versión anterior, que aún
+    // guardan el token en localStorage: cuando actualicen, esa vía deja de
+    // usarse y se puede retirar.
     const auth = req.headers.authorization ?? "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-    const user = await getUserFromToken(token);
+    const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+    const user = (await resolveSessionUser(req, res)) ?? (await getUserFromToken(bearer));
     if (!user) return res.status(401).json({ error: "Sesión no válida. Inicie sesión de nuevo." });
 
     const body = (req.body ?? {}) as { action?: string; args?: Record<string, unknown> };

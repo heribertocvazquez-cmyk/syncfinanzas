@@ -16,7 +16,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { rateLimitDb } from "../server/src/space-shim.js";
-import { supabaseAnon } from "../server/src/supabase.js";
+import { clearSessionCookies, revokeSession, setSessionCookies, supabaseAnon } from "../server/src/supabase.js";
 import { eq } from "drizzle-orm";
 
 const MAX_ATTEMPTS = 5;
@@ -36,6 +36,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const body = (req.body ?? {}) as { mode?: string; email?: string; password?: string };
     const mode = body.mode ?? "";
+    // Cierre de sesión: no exige correo ni contraseña; revoca la sesión en
+    // Supabase (si se puede) y borra las cookies. Va antes de la validación
+    // de correo, que no aplica aquí.
+    if (mode === "logout") {
+      await revokeSession(req);
+      clearSessionCookies(res);
+      return res.status(200).json({ ok: true });
+    }
     const email = (body.email ?? "").trim().toLowerCase();
     const password = body.password ?? "";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -91,10 +99,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ ok: true, needsConfirmation: true });
       }
       await clearFailures();
+      // Sesión por cookie segura (punto 10): el token ya NO se devuelve en
+      // el cuerpo ni se guarda en localStorage; el servidor emite las
+      // cookies httpOnly + Secure + SameSite=Lax.
+      setSessionCookies(res, data.session.access_token, data.session.refresh_token);
       return res.status(200).json({
         ok: true,
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
         user: { id: data.user?.id, email: data.user?.email },
       });
     }
@@ -111,10 +121,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(401).json({ error: "Correo o contraseña incorrectos." });
       }
       await clearFailures();
+      // Sesión por cookie segura (punto 10): ver el comentario de arriba.
+      setSessionCookies(res, data.session.access_token, data.session.refresh_token);
       return res.status(200).json({
         ok: true,
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
         user: { id: data.user?.id, email: data.user?.email },
       });
     }

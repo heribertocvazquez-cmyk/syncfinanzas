@@ -7,9 +7,8 @@ import { matchRule, normText, parseReceiptText, parseVoiceText, suggestCategoryI
 import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { supabase } from "./supabase";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
-import { api } from "./api";
+import { api, fetchSession, signOut } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
 import guiaResumenPdf from "./assets/guia-resumen-registro.pdf";
 import guiaPlanificacionPdf from "./assets/guia-planificacion.pdf";
@@ -654,7 +653,7 @@ export function App(){
   // registro de usuarios de la app y el módulo Desarrollador; el servidor
   // vuelve a verificarlo en cada consulta.
   const [myEmail,setMyEmail]=useState("");
-  useEffect(()=>{ let alive=true; supabase.auth.getUser().then(({data:u})=>{ if(alive) setMyEmail((u.user?.email||"").trim().toLowerCase()); }).catch(()=>{}); return ()=>{ alive=false; }; },[]);
+  useEffect(()=>{ let alive=true; void fetchSession().then((u)=>{ if(alive) setMyEmail((u?.email||"").trim().toLowerCase()); }).catch(()=>{}); return ()=>{ alive=false; }; },[]);
   const isAppOwner = myEmail === "heribertocvazquez@gmail.com";
   // Secciones plegables de Hogar y del módulo Desarrollador: nacen plegadas
   // para que Hogar no ocupe toda la pantalla al entrar.
@@ -2470,7 +2469,7 @@ export function App(){
                 <li>Sin claves en el código.</li>
                 <li>Bloqueo con PIN en este dispositivo (opcional).</li>
                 <li>Cierre de sesión en este dispositivo.</li>
-                <li><button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-3 py-2 text-sm font-bold" onClick={()=>{ void supabase.auth.signOut(); }}>Cerrar sesión en este dispositivo</button></li>
+                <li><button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-3 py-2 text-sm font-bold" onClick={()=>{ void signOut().then(()=>window.location.reload()); }}>Cerrar sesión en este dispositivo</button></li>
               </ul>
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
@@ -2742,7 +2741,7 @@ export function App(){
             {pinError && <p className="text-sm text-[var(--red)] text-center">{pinError}</p>}
             <button className={btnPrimary+" w-full"} disabled={pinBusy || pinInput.length!==4}>{pinBusy?"Comprobando…":"Desbloquear"}</button>
           </form>
-          <button type="button" className="text-xs underline mt-4" onClick={async()=>{ pinRemove(); setPinSetState(false); setPinLocked(false); try{ await supabase.auth.signOut(); }catch{} }}>Olvidé mi PIN · Cerrar sesión y quitar el PIN</button>
+          <button type="button" className="text-xs underline mt-4" onClick={async()=>{ pinRemove(); setPinSetState(false); setPinLocked(false); await signOut(); window.location.reload(); }}>Olvidé mi PIN · Cerrar sesión y quitar el PIN</button>
           <p className="text-[11px] text-[var(--dim)] mt-4 text-center max-w-xs">Bloqueo local en este dispositivo: no cifra sus datos.</p>
         </div>
       )}
