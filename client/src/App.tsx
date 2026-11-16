@@ -539,7 +539,7 @@ export function TesterFeedbackForm(){
 
 export function App(){
   const qc=useQueryClient();
-  const [tab,setTab]=useState<Tab>("inicio"); const [tabChosen,setTabChosen]=useState(false); const [menuOpen,setMenuOpen]=useState(false); const [openGroup,setOpenGroup]=useState<string|null>(null); const [guidePdf,setGuidePdf]=useState<{title:string;src:string}|null>(null);
+  const [tab,setTab]=useState<Tab>("inicio"); const [menuOpen,setMenuOpen]=useState(false); const [openGroup,setOpenGroup]=useState<string|null>(null); const [guidePdf,setGuidePdf]=useState<{title:string;src:string}|null>(null);
   // Instalación en el celular: se captura el evento del navegador y se detecta si ya está instalada.
   const [installPrompt,setInstallPrompt]=useState<BeforeInstallPromptEvent|null>(null); const [appInstalled,setAppInstalled]=useState<boolean>(()=>detectStandalone()); const [installDismissed,setInstallDismissed]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-install-dismissed")==="1"; }catch{ return false; } });
   const [installStepsOpen,setInstallStepsOpen]=useState(false);
@@ -752,7 +752,7 @@ export function App(){
   const demo=useMutation({mutationFn:async()=>await api.loadDemo({householdId:data!.household!.id}),onSuccess:inv});
   // Reinicio completo de la aplicación (botón dentro del menú desplegable de módulos)
   const [resetStep,setResetStep]=useState(0); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false); const [savedNotice,setSavedNotice]=useState<string|null>(null);
-  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTabChosen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
+  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
@@ -767,7 +767,7 @@ export function App(){
     setQuickExpense(false);
     try{ const u=new URL(window.location.href); u.searchParams.delete("accion"); window.history.replaceState(null,"",u.pathname+u.search+u.hash); }catch{}
     const personal=data.household.mode==="personal";
-    setTabChosen(true); setTab(personal?"personal":"movimientos"); setMvType("expense"); setMvStep(1); setPersStep(1); setMenuOpen(false);
+    setTab(personal?"personal":"movimientos"); setMvType("expense"); setMvStep(1); setPersStep(1); setMenuOpen(false);
     window.setTimeout(()=>{ const el=document.getElementById(personal?"pers-amt":"mv-amount"); el?.scrollIntoView({block:"center",behavior:"smooth"}); (el as HTMLInputElement|null)?.focus({preventScroll:true}); },250);
   },[quickExpense,data?.household]);
   // tandas
@@ -983,7 +983,10 @@ export function App(){
     );
   }
 
-  const s=data.summary; const hh=data.household; const effTab:Tab = (!tabChosen && hh.mode==="personal" && tab==="inicio") ? "personal" : tab; const goTab=(x:Tab)=>{setTabChosen(true);setTab(x); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
+  // La primera pantalla es siempre Inicio: al abrir la app, al entrar después
+  // de iniciar sesión y al reabrirla, se ven saldo, gráficas, movimientos y las
+  // tarjetas principales, sin abrir el menú ni ir a otra pestaña.
+  const s=data.summary; const hh=data.household; const effTab:Tab = tab; const goTab=(x:Tab)=>{setTab(x); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
   // Ir a un módulo y dejar el campo del importe a la vista con el cursor listo:
   // cambia de pestaña y, cuando el formulario ya se pintó, lo desplaza al centro
   // (así el encabezado fijo no lo tapa) y le da el foco para escribir.
