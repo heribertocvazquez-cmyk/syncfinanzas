@@ -99,10 +99,12 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 
 const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
 type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
-// Gráfica de dona de gasto por categoría. Solo muestra el gasto del mes;
-// al tocarla no se abre ningún detalle.
-function CategoryChart({data}:{data:CatSlice[]}){
-
+// Gráfica de dona de gasto por categoría. La dona solo muestra el gasto del
+// mes y al tocarla no se abre ningún detalle; los movimientos de cada rubro
+// se ven al tocar su renglón en la lista de abajo, que se despliega ahí mismo.
+type ChartMovement = {id:number;concept:string;amount:number;categoryId:number|null;date:string;type:string;isReversed:boolean;reversalOfId:number|null};
+function CategoryChart({data, movements, month}:{data:CatSlice[]; movements:ChartMovement[]; month:string}){
+  const [openCat,setOpenCat]=useState<string|null>(null);
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const total=data.reduce((a,d)=>a+d.total,0);
   return <div className="mt-2">
@@ -120,13 +122,29 @@ function CategoryChart({data}:{data:CatSlice[]}){
         <b className="font-display text-lg leading-tight">{money2(total)}</b>
       </div>
     </div>
+    <p className="text-xs text-[var(--dim)] mt-2">Toque un rubro para ver sus gastos.</p>
     <div className="mt-2 space-y-2">
-      {data.map((d,i)=>(
+      {data.map((d,i)=>{
+        const key = String(d.categoryId ?? "none");
+        const items = movements.filter(m=>(m.categoryId??null)===d.categoryId && m.date.startsWith(month) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && m.reversalOfId==null).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id);
+        const isOpen = openCat===key;
+        return (
         <div key={d.name} className="w-full text-left">
-          <div className="flex justify-between gap-2 text-sm"><span className="inline-flex items-center gap-2 min-w-0" style={{color:DONUT_COLORS[i%DONUT_COLORS.length]}}><CatIcon name={d.name} size="sm" className="text-inherit" /><span className="text-[var(--text)] truncate">{d.name}</span></span><b className="shrink-0">{money(d.total)} · {d.pct}%</b></div>
-          <div className="h-1.5 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className="h-full rounded-full" style={{width:`${Math.min(100,Math.max(0,d.pct))}%`, background:DONUT_COLORS[i%DONUT_COLORS.length]}} /></div>
+          <button type="button" aria-expanded={isOpen} aria-label={`${isOpen?"Ocultar":"Ver"} los gastos de ${d.name}`} className="w-full text-left" onClick={()=>setOpenCat(isOpen?null:key)}>
+            <div className="flex justify-between gap-2 text-sm"><span className="inline-flex items-center gap-2 min-w-0" style={{color:DONUT_COLORS[i%DONUT_COLORS.length]}}><CatIcon name={d.name} size="sm" className="text-inherit" /><span className="text-[var(--text)] truncate">{d.name}</span></span><b className="shrink-0">{money(d.total)} · {d.pct}% {isOpen?"▾":"▸"}</b></div>
+            <div className="h-1.5 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className="h-full rounded-full" style={{width:`${Math.min(100,Math.max(0,d.pct))}%`, background:DONUT_COLORS[i%DONUT_COLORS.length]}} /></div>
+          </button>
+          {isOpen && (
+            <div className="mt-2 ml-1 border-l-2 pl-3 space-y-1" style={{borderColor:DONUT_COLORS[i%DONUT_COLORS.length]}}>
+              {items.length===0 ? <p className="text-sm text-[var(--dim)]">Sin gastos registrados en este rubro.</p> : items.map(m=>(
+                <div key={m.id} className="flex justify-between gap-2 py-1 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}</span></span><b className="shrink-0">−{money(m.amount)}</b></div>
+              ))}
+              <p className="text-sm pt-1">Total del rubro: <b>{money2(d.total)}</b> · {items.length} gasto(s)</p>
+            </div>
+          )}
         </div>
-      ))}
+        );
+      })}
     </div>
   </div>;
 }
@@ -1156,7 +1174,7 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
-                                <CategoryChart data={data.personal.byCategory} />
+                                <CategoryChart data={data.personal.byCategory} movements={data.movements} month={s.currentMonth} />
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Ingresos vs gastos</h2>
@@ -1692,7 +1710,7 @@ export function App(){
               <div className="space-y-3">
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gasto por categoría</h2>
-                                    <CategoryChart data={data.personal.byCategory} />
+                                    <CategoryChart data={data.personal.byCategory} movements={data.movements} month={s.currentMonth} />
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante: <b>{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
