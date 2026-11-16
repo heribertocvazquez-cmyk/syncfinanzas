@@ -552,6 +552,15 @@ export function TesterFeedbackForm(){
 export function App(){
   const qc=useQueryClient();
   const [tab,setTab]=useState<Tab>("inicio"); const [menuOpen,setMenuOpen]=useState(false); const [openGroup,setOpenGroup]=useState<string|null>(null); const [guidePdf,setGuidePdf]=useState<{title:string;src:string}|null>(null);
+  // Menú abierto: se bloquea el desplazamiento de la app de atrás; solo el menú se desplaza.
+  useEffect(()=>{
+    if(!menuOpen) return;
+    const prevBody=document.body.style.overflow;
+    const prevHtml=document.documentElement.style.overflow;
+    document.body.style.overflow="hidden";
+    document.documentElement.style.overflow="hidden";
+    return ()=>{ document.body.style.overflow=prevBody; document.documentElement.style.overflow=prevHtml; };
+  },[menuOpen]);
   // Instalación en el celular: se captura el evento del navegador y se detecta si ya está instalada.
   const [installPrompt,setInstallPrompt]=useState<BeforeInstallPromptEvent|null>(null); const [appInstalled,setAppInstalled]=useState<boolean>(()=>detectStandalone()); const [installDismissed,setInstallDismissed]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-install-dismissed")==="1"; }catch{ return false; } });
   const [installStepsOpen,setInstallStepsOpen]=useState(false);
@@ -1037,8 +1046,12 @@ export function App(){
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
       <SafeAreaTopScrim backgroundColor="var(--bg)" />
+      {/* Velo oscuro detrás del menú: tapa la app de atrás para que el menú se vea como una capa aparte. */}
+      {menuOpen && (
+        <div aria-hidden="true" onClick={()=>setMenuOpen(false)} className="fixed inset-0 z-30 bg-black/60" />
+      )}
       {/* Header */}
-      <header className="sticky top-0 z-20 bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)] pt-safe">
+      <header className={`sticky top-0 ${menuOpen?"z-40":"z-20"} bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)] pt-safe`}>
         <div className="max-w-5xl mx-auto px-3 pt-3 pb-2">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -1079,18 +1092,18 @@ export function App(){
           <p className="text-xs text-[var(--dim)] hidden sm:block">Toque el menú para ver los módulos</p>
         </div>
         {menuOpen && (
-          <nav id="menu-modulos" aria-label="Módulos agrupados por función" className="border-t border-[var(--border)] bg-[var(--surface)] max-h-[60vh] overflow-y-auto">
+          <nav id="menu-modulos" aria-label="Módulos agrupados por función" className="border-t border-[var(--border)] border-b-2 border-b-[var(--gold)] bg-[var(--surface2)] shadow-2xl max-h-[60vh] overflow-y-auto">
             <div className="max-w-5xl mx-auto px-3 py-2 space-y-2">
               <p className="text-xs text-[var(--dim)]">Seleccione un segmento.</p>
               {MODULE_GROUPS.map(g=>{ const isOpen = expandedGroup===g.title; const hasCurrent = g.tabs.includes(effTab); return (
                 <div key={g.title} className="border border-[var(--border)] rounded-2xl overflow-hidden">
-                  <button type="button" aria-label={`${isOpen?"Contraer":"Desplegar"} el segmento ${g.title}`} aria-expanded={isOpen} onClick={()=>setOpenGroup(isOpen?"":g.title)} className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left ${hasCurrent?"bg-[var(--surface2)]":"bg-[var(--surface)]"}`}>
+                  <button type="button" aria-label={`${isOpen?"Contraer":"Desplegar"} el segmento ${g.title}`} aria-expanded={isOpen} onClick={()=>setOpenGroup(isOpen?"":g.title)} className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left bg-[var(--surface)]">
                     <span className="min-w-0"><span className="block text-[13px] font-bold tracking-wide">{g.title.toUpperCase()}</span><span className="block text-[11px] text-[var(--dim)] truncate">{g.tabs.map(tid=>TABS.find(x=>x.id===tid)?.label).join(" · ")}{hasCurrent?` — está usted en ${TABS.find(x=>x.id===effTab)?.label}`:""}</span></span>
                     <span aria-hidden="true" className={`shrink-0 text-lg leading-none transition-transform ${isOpen?"rotate-180":""}`}>▾</span>
                   </button>
                   {isOpen && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 p-3">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; return <button key={t.id} type="button" aria-label={`Ir a ${t.label}`} aria-current={effTab===t.id?"page":undefined} onClick={()=>{goTab(t.id);setMenuOpen(false);}} className={`rounded-2xl px-3 py-2 text-left text-sm font-bold ${effTab===t.id?"bg-[var(--accent)] text-[var(--accent-text)]":"bg-[var(--surface2)] text-[var(--text)]"}`}>{t.label}{effTab===t.id && <span className="block text-[11px] font-semibold opacity-80">Módulo actual</span>}{MODULE_HINT[t.id] && <span className={`block text-[11px] font-normal mt-0.5 ${effTab===t.id?"opacity-80":"text-[var(--dim)]"}`}>{MODULE_HINT[t.id]}</span>}</button>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; return <button key={t.id} type="button" aria-label={`Ir a ${t.label}`} aria-current={effTab===t.id?"page":undefined} onClick={()=>{goTab(t.id);setMenuOpen(false);}} className={`rounded-2xl px-3 py-2 text-left text-sm font-bold ${effTab===t.id?"bg-[var(--accent)] text-[var(--accent-text)]":"bg-[var(--surface)] text-[var(--text)]"}`}>{t.label}{effTab===t.id && <span className="block text-[11px] font-semibold opacity-80">Módulo actual</span>}{MODULE_HINT[t.id] && <span className={`block text-[11px] font-normal mt-0.5 ${effTab===t.id?"opacity-80":"text-[var(--dim)]"}`}>{MODULE_HINT[t.id]}</span>}</button>; })}
                     </div>
                   )}
                 </div>
