@@ -46,4 +46,4 @@ CREATE POLICY feedback_insert_public ON public.tester_feedback
 
 DROP POLICY IF EXISTS feedback_select_denied ON public.tester_feedback;
 CREATE POLICY feedback_select_denied ON public.tester_feedback
-  FOR SELECT AS RESTRICTIVE USING (false);
+  AS RESTRICTIVE FOR SELECT USING (false);
