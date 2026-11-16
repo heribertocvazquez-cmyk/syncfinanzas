@@ -17,6 +17,7 @@ import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { rateLimitDb } from "../server/src/space-shim.js";
 import { clearSessionCookies, revokeSession, setSessionCookies, supabaseAnon } from "../server/src/supabase.js";
+import { errorResponse } from "../server/src/error-response.js";
 import { eq } from "drizzle-orm";
 
 const MAX_ATTEMPTS = 5;
@@ -131,10 +132,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(400).json({ error: "Modo no válido." });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Error desconocido.";
-    const cause = err instanceof Error ? (err as unknown as { cause?: { message?: string; code?: string } }).cause : undefined;
-    console.error("API error:", message, cause);
-    return res.status(400).json({ error: message, cause: cause?.message ?? null, code: cause?.code ?? null });
+    // Punto 11: al cliente solo un mensaje formal y un identificador de
+    // error; el mensaje y el código internos quedan en el registro.
+    errorResponse(res, 400, err, "API error:");
   } finally {
     await closeDb();
   }

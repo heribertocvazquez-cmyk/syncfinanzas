@@ -8,6 +8,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { z } from "zod";
 import { rateLimitDb } from "../server/src/space-shim.js";
+import { errorResponse } from "../server/src/error-response.js";
 import { supabaseAdmin } from "../server/src/supabase.js";
 import { closeDb } from "../server/src/db.js";
 
@@ -62,9 +63,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     return res.status(200).json({ ok: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "No se pudo guardar su opinión. Inténtelo de nuevo.";
-    console.error("API feedback error:", message);
-    return res.status(400).json({ error: message });
+    // Punto 11: al cliente solo un mensaje formal y un identificador de
+    // error; el mensaje y el código internos quedan en el registro.
+    errorResponse(res, 400, err, "API feedback error:");
   } finally {
     await closeDb();
   }

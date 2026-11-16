@@ -109,11 +109,19 @@ export const blobs = {
       contentType: opts.contentType,
       upsert: false,
     });
-    if (error) throw new Error(`No se pudo guardar el archivo: ${error.message}`);
+    // Punto 11: el detalle interno queda solo en el registro; al cliente
+    // solo un mensaje formal.
+    if (error) {
+      console.error("Storage put error:", error.message);
+      throw new Error("No se pudo guardar el archivo. Inténtelo de nuevo.");
+    }
   },
   async getUrl(key: string): Promise<string> {
     const { data, error } = await supabaseAdmin().storage.from(BUCKET).createSignedUrl(key, 3600);
-    if (error || !data) throw new Error(`No se pudo generar la URL del archivo: ${error?.message ?? "desconocido"}`);
+    if (error || !data) {
+      console.error("Storage getUrl error:", error?.message ?? "desconocido");
+      throw new Error("No se pudo generar la URL del archivo. Inténtelo de nuevo.");
+    }
     return data.signedUrl;
   },
   async list(prefix: string): Promise<{ key: string }[]> {
