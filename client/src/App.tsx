@@ -340,6 +340,8 @@ type HelpMsg = { from: "user" | "bot"; text: string; go?: Tab; goLabel?: string 
 type HelpFaq = { keys: string[]; q: string; a: string; go?: Tab; goLabel?: string };
 const HELP_FAQS: HelpFaq[] = [
   { keys: ["gast", "registr"], q: "¿Cómo registro un gasto?", a: "En Movimientos, escriba el importe, elija el tipo de gasto y pulse Registrar. En modo Personal también puede usar Gasto del día en Personal. Elija de dónde se descuenta: Efectivo o una de sus cuentas.", go: "movimientos", goLabel: "Ir a Movimientos" },
+  { keys: ["gasto del dia", "gast"], q: "¿Cómo registro el gasto del día?", a: "En Personal, en Gasto del día, escriba el importe, elija el tipo de gasto y de dónde se descuenta, y pulse Registrar.", go: "personal", goLabel: "Ir a Personal" },
+  { keys: ["gasto", "limite", "umbral", "supera", "excede"], q: "¿Qué pasa si un gasto supera el límite?", a: "Si un gasto supera el límite permitido del hogar, aparece un aviso en la campanita. Revise el límite en Hogar y el presupuesto de la categoría en Presupuestos.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["ingres", "registr"], q: "¿Cómo registro un ingreso?", a: "En Movimientos, elija Ingreso, escriba el importe y pulse Registrar.", go: "movimientos", goLabel: "Ir a Movimientos" },
   { keys: ["cuenta", "agreg", "banc", "efectivo"], q: "¿Cómo agrego una cuenta?", a: "En Cuentas, pulse Nueva cuenta, escriba el nombre, el tipo y el saldo inicial.", go: "cuentas", goLabel: "Ir a Cuentas" },
   { keys: ["arqueo", "auditor", "conteo", "recuento", "cierre de caja"], q: "¿Cómo hago un arqueo de cuentas?", a: "En Cuentas, pulse Arqueo de cuentas y anote lo que contó en físico por cada cuenta y en efectivo. La app muestra al lado lo que dice la app y la diferencia: en rojo si falta dinero, en verde si sobra, y Sin diferencia cuando coincide. El arqueo no cambia los saldos, solo guarda el recuento para revisarlo después.", go: "cuentas", goLabel: "Ir a Cuentas" },
@@ -352,7 +354,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["sueldo", "salario", "mi sueldo", "mi salario"], q: "¿Cómo registro mi sueldo?", a: "En Personal, escriba su sueldo mensual y pulse Guardar sueldo.", go: "personal", goLabel: "Ir a Personal" },
   { keys: ["presupuest", "limite"], q: "¿Cómo creo un presupuesto?", a: "En Presupuestos, elija la categoría, escriba el límite del mes y pulse Guardar.", go: "presupuestos", goLabel: "Ir a Presupuestos" },
   { keys: ["comprobante", "foto", "ticket", "escanear", "leer el comprobante"], q: "¿Cómo leo un comprobante?", a: "En Movimientos, en Más opciones, suba la foto del comprobante. Si la lectura automática está configurada, los gastos se crean solos; si no, registre el gasto manualmente.", go: "movimientos", goLabel: "Ir a Movimientos" },
-  { keys: ["revers", "revier", "revierto", "revertir", "deshacer", "corregir", "eliminar", "borrar un"], q: "¿Cómo reverso un movimiento?", a: "En Movimientos, pulse Reversar junto al movimiento. El registro queda, pero ya no cuenta en los totales.", go: "movimientos", goLabel: "Ir a Movimientos" },
+  { keys: ["revers", "revier", "revierto", "revertir", "deshacer", "corregir", "eliminar", "borrar un", "gast"], q: "¿Cómo reverso un movimiento?", a: "En Movimientos, pulse Reversar junto al movimiento. El registro queda, pero ya no cuenta en los totales.", go: "movimientos", goLabel: "Ir a Movimientos" },
   { keys: ["categor", "subcategor", "tipo de gasto", "una categoria"], q: "¿Cómo agrego una categoría?", a: "En Categorías puede ver, agregar y quitar categorías y subcategorías.", go: "categorias", goLabel: "Ir a Categorías" },
   { keys: ["perfil", "pareja", "familiar", "a mi pareja"], q: "¿Cómo agrego a mi pareja?", a: "En Perfiles puede ver a las personas del hogar y agregar a su pareja o familiares.", go: "perfiles", goLabel: "Ir a Perfiles" },
   { keys: ["saldo", "disponible", "cuanto me queda", "restante", "queda"], q: "¿Cuánto me queda?", a: "Su saldo disponible está en Inicio, en la tarjeta de arriba.", go: "inicio", goLabel: "Ir a Inicio" },
@@ -363,12 +365,11 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["fondo", "apart"], q: "¿Cómo creo un fondo?", a: "En Fondos, cree un apartado con su meta y agregue dinero desde sus cuentas.", go: "fondos", goLabel: "Ir a Fondos" },
   { keys: ["meta", "ahorr"], q: "¿Cómo creo una meta?", a: "En Metas, escriba su meta, el monto y la fecha, y registre su ahorro.", go: "metas", goLabel: "Ir a Metas" },
   { keys: ["plan de ahorro", "plan", "coche"], q: "¿Cómo armo un plan de ahorro para una meta?", a: "En Metas, pulse Armar plan de ahorro en su meta. La app calcula cuánto debe aportar al mes según su sueldo, sus compromisos y su gasto, y le dice si le alcanza. Si no le alcanza, le muestra de qué categoría puede recortar o alargar el plazo. Al aceptar, el dinero se aparta en un fondo de la meta y recibe avisos de cada aportación.", go: "metas", goLabel: "Ir a Metas" },
-  { keys: ["acuerdo", "vot", "aprobaci", "aprueb", "gasto mayor"], q: "¿Cómo se aprueba un gasto mayor?", a: "En Acuerdos se votan los gastos mayores al umbral de su hogar.", go: "acuerdos", goLabel: "Ir a Acuerdos" },
+  { keys: ["acuerdo", "vot", "aprobaci", "aprueb", "gasto mayor", "gast"], q: "¿Cómo se aprueba un gasto mayor?", a: "En Acuerdos se votan los gastos mayores al umbral de su hogar.", go: "acuerdos", goLabel: "Ir a Acuerdos" },
   { keys: ["patrimonio", "activo", "pasivo", "neto", "mi patrimonio"], q: "¿Cómo registro mi patrimonio?", a: "En Patrimonio registre sus activos y pasivos para ver su patrimonio neto.", go: "patrimonio", goLabel: "Ir a Patrimonio" },
   { keys: ["demo", "demostraci", "ejemplo", "probar"], q: "¿Cómo pruebo con datos de ejemplo?", a: "Pulse Demo, arriba a la derecha, para cargar datos de ejemplo. Solo funciona sin movimientos." },
   { keys: ["aportaci", "reparto", "compartido"], q: "¿Dónde veo las aportaciones?", a: "Las aportaciones se calculan solas desde Movimientos y se ven en Aportaciones.", go: "aportaciones", goLabel: "Ir a Aportaciones" },
 ];
-const HELP_SUGGESTED = ["¿Cómo registro un gasto?", "¿Cómo agrego una cuenta?", "¿Cómo creo una tanda?", "¿Cómo invito a alguien?"];
 function normHelp(s: string){ return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
 // Busca por palabras clave, no por la frase exacta: la pregunta se normaliza
 // (minúsculas, sin acentos) y se divide en palabras. Una clave de una sola
@@ -393,16 +394,40 @@ function findHelpAnswer(input: string): HelpFaq | null {
   }
   return bestScore > 0 ? best : null;
 }
+// Preguntas predictivas: mientras el usuario escribe, muestra las preguntas
+// preparadas que coinciden con lo que lleva escrito (por claves y por las
+// palabras de la propia pregunta), ordenadas por coincidencia. Así, al escribir
+// "gastos" salen todas las preguntas de gastos: registrar un gasto, gasto del
+// día, reversar un gasto, gasto que supera el límite y aprobar un gasto mayor.
+// Tocar una pregunta muestra su respuesta, igual que al enviarla escrita.
+function predictHelp(input: string, max = 5): HelpFaq[] {
+  const n = normHelp(input);
+  if (n.length < 2) return [];
+  const words = n.split(" ");
+  const scored = HELP_FAQS.map(f => {
+    let score = 0;
+    for (const k of f.keys) {
+      const nk = normHelp(k);
+      if (nk.includes(" ")) { if (n.includes(nk)) score += 2; }
+      else if (words.some(w => w.startsWith(nk) || nk.startsWith(w))) score += 1;
+    }
+    const qn = normHelp(f.q);
+    for (const w of words) if (w.length >= 3 && qn.split(" ").some(qw => qw.startsWith(w))) score += 1;
+    return { f, score };
+  }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
+  return scored.slice(0, max).map(s => s.f);
+}
 function HelpAssistant({ onGo }: { onGo?: (tab: Tab) => void }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "¿En qué puedo ayudarle? Pregunte cómo registrar, agregar o iniciar algo en SyncFinanzas." }]);
+  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Bienvenido al Ayudante de uso. Escriba cualquier duda sobre la app y le ayudaré." }]);
+  const suggestions = useMemo(()=>predictHelp(input), [input]);
   const ask = (text: string) => {
     const q = text.trim(); if (!q) return;
     const found = findHelpAnswer(q);
     const reply: HelpMsg = found
       ? { from: "bot", text: found.a, go: found.go, goLabel: found.goLabel }
-      : { from: "bot", text: "No encontré la respuesta a eso. Pruebe con una de las preguntas sugeridas o revise la Guía de uso.", go: onGo ? "guia" : undefined, goLabel: "Ir a Guía de uso" };
+      : { from: "bot", text: "No encontré la respuesta a eso. Pruebe con otras palabras o revise la Guía de uso.", go: onGo ? "guia" : undefined, goLabel: "Ir a Guía de uso" };
     setMsgs(m => [...m, { from: "user", text: q }, reply]);
     setInput("");
   };
@@ -426,9 +451,11 @@ function HelpAssistant({ onGo }: { onGo?: (tab: Tab) => void }) {
                 </div>
               ))}
             </div>
-            <div className="px-3 pb-2 flex flex-wrap gap-1.5">
-              {HELP_SUGGESTED.map(s=><button key={s} type="button" className="rounded-full border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-semibold" onClick={()=>ask(s)}>{s}</button>)}
-            </div>
+            {suggestions.length > 0 && (
+              <div className="px-3 pb-2 flex flex-col gap-1.5">
+                {suggestions.map(s=><button key={s.q} type="button" className="text-left rounded-xl border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-semibold" onClick={()=>ask(s.q)}>{s.q}</button>)}
+              </div>
+            )}
             <form className="flex gap-2 p-3 border-t border-[var(--border)]" onSubmit={(e:FormEvent)=>{ e.preventDefault(); ask(input); }}>
               <input aria-label="Escriba su duda sobre el uso de la aplicación" className={inputCls+" flex-1 min-w-0"} placeholder="Escriba su duda…" value={input} onChange={e=>setInput(e.target.value)} />
               <button type="submit" className={btnPrimary} disabled={!input.trim()}>Enviar</button>
