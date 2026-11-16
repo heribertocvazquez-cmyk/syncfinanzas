@@ -97,45 +97,35 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
 type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
 // Gráfica de dona de gasto por categoría. Solo la dona: al tocar un
-// segmento, el centro muestra ese rubro con su monto y porcentaje; al tocar
-// el centro se abre la ventana aparte con sus gastos (desplazamiento
-// propio, como el detalle de ingresos vs gastos). Debajo, una leyenda de
-// puntos de color que también selecciona el rubro. Sin lista y sin burbujas.
+// segmento (o un rubro de la leyenda) se abre directamente la ventana
+// aparte con los gastos registrados de ese rubro (desplazamiento propio,
+// como el detalle de ingresos vs gastos). El centro muestra siempre el
+// total del mes. Sin lista, sin burbujas y sin tooltip: ningún recuadro
+// debe aparecer al tocar ni al pasar sobre la dona.
 function CategoryChart({data, onSelect}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void}){
-  // Solo la dona: sin lista y sin burbujas. Al tocar un segmento, el centro
-  // muestra ese rubro con su monto y porcentaje; al tocar el centro se abre
-  // la ventana con sus gastos registrados. La leyenda de puntos de color
-  // también selecciona el rubro.
-  const [selected,setSelected]=useState<CatSlice|null>(null);
+  // Solo la dona: sin lista, sin burbujas y sin tooltip. Al tocar un
+  // segmento o un rubro de la leyenda se abre directamente la ventana con
+  // sus gastos registrados. El centro muestra siempre el total del mes.
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const total=data.reduce((a,d)=>a+d.total,0);
   return <div className="mt-2">
     <div className="relative mx-auto w-44 h-44" role="img" aria-label="Gráfica de gasto por categoría.">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" onClick={(d)=>{ const s=d as unknown as CatSlice; setSelected(prev=>prev && prev.name===s.name?null:s); }} style={{cursor:"pointer"}}>
-            {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} opacity={selected?(d.name===selected.name?1:0.45):1} />)}
+          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" onClick={(d)=>{ const s=d as unknown as CatSlice; onSelect(s); }} style={{cursor:"pointer"}}>
+            {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} />)}
           </Pie>
-          <Tooltip formatter={(v)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,"Gastado"]} />
         </PieChart>
       </ResponsiveContainer>
-      {selected ? (
-        <button type="button" aria-label={`Ver los gastos de ${selected.name}: ${money(selected.total)}, ${selected.pct} por ciento`} className="absolute inset-0 flex flex-col items-center justify-center" onClick={()=>onSelect(selected)}>
-          <span className="text-xs text-[var(--dim)] max-w-[110px] truncate px-1">{selected.name}</span>
-          <b className="font-display text-lg leading-tight">{money2(selected.total)}</b>
-          <span className="text-xs text-[var(--dim)]">{selected.pct}% · Toque para ver sus gastos</span>
-        </button>
-      ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-xs text-[var(--dim)]">Total</span>
-          <b className="font-display text-lg leading-tight">{money2(total)}</b>
-        </div>
-      )}
+      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+        <span className="text-xs text-[var(--dim)]">Total</span>
+        <b className="font-display text-lg leading-tight">{money2(total)}</b>
+      </div>
     </div>
-    <p className="text-xs text-[var(--dim)] mt-2">Toque un segmento de la dona para ver el rubro.</p>
+    <p className="text-xs text-[var(--dim)] mt-2">Toque un segmento de la dona para ver sus gastos.</p>
     <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1.5">
       {data.map((d,i)=>(
-        <button key={d.name} type="button" aria-label={`Ver el rubro ${d.name}: ${money(d.total)}, ${d.pct} por ciento`} aria-pressed={selected?.name===d.name} className={`flex items-center gap-1.5 text-xs ${selected?.name===d.name?"font-bold":""}`} onClick={()=>setSelected(prev=>prev && prev.name===d.name?null:d)}>
+        <button key={d.name} type="button" aria-label={`Ver los gastos de ${d.name}: ${money(d.total)}, ${d.pct} por ciento`} className="flex items-center gap-1.5 text-xs" onClick={()=>onSelect(d)}>
           <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{background:DONUT_COLORS[i%DONUT_COLORS.length]}} aria-hidden="true" />
           <span>{d.name} · {d.pct}%</span>
         </button>
