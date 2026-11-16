@@ -777,6 +777,17 @@ export const Actions = {
       const reversedIds = new Set(movsR.filter(m=>m.reversalOfId!=null).map(m=>m.reversalOfId as number));
       const activeMovs = movsR.filter(m=>m.reversalOfId==null && !reversedIds.has(m.id));
 
+      // Privacidad a nivel de servidor (punto 5 de la auditoría): un
+      // integrante ve solo los movimientos Compartidos y los suyos propios;
+      // el admin del hogar ve todos. Los totales y agregados del hogar
+      // (saldos, Disponible, dona por categoría, serie mensual, presupuestos)
+      // se calculan con TODOS los movimientos, porque no revelan conceptos;
+      // lo que se filtra son las filas que viajan al navegador (lista de
+      // movimientos y movimientos del día), incluidos sus comprobantes.
+      const myProfileIds = new Set(profilesR.filter(p=>p.userId===ctx.user.id).map(p=>p.id));
+      const canSeeMovement = (m: { visibility: string; profileId: number | null }): boolean =>
+        ctx.userRole === "admin" || m.visibility === "shared" || (m.profileId != null && myProfileIds.has(m.profileId));
+
       // account balances
       const accounts = accountsR.map(a => {
         let bal = a.initialBalance;
@@ -866,7 +877,9 @@ export const Actions = {
       const monthlySeries: {month:string;label:string;income:number;expense:number}[] = [];
       for (let k=5;k>=0;k--){ const d=new Date(now.getFullYear(), now.getMonth()-k, 1); const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; const ms=activeMovs.filter(m=>m.date.startsWith(ym)); monthlySeries.push({ month: ym, label: monthLabel(ym), income: Math.round(ms.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0)*100)/100, expense: Math.round(ms.filter(m=>m.type==="expense"||m.type==="debt_payment").reduce((s,m)=>s+m.amount,0)*100)/100 }); }
       const movementsOut: {id:number;type:string;amount:number;concept:string;accountId:number|null;toAccountId:number|null;categoryId:number|null;subcategory:string|null;date:string;visibility:string;profileId:number|null;receiptUrl:string|null;reversalOfId:number|null;isReversed:boolean}[] = [];
-      for (const m of movsR) { let url: string|null = null; if (m.receiptBlobKey) { try { url = await ctx.blobs.getUrl(m.receiptBlobKey); } catch { url = null; } } movementsOut.push({ id:m.id, type:m.type, amount:m.amount, concept:m.concept, accountId:m.accountId??null, toAccountId:m.toAccountId??null, categoryId:m.categoryId??null, subcategory:m.subcategory??null, date:m.date, visibility:m.visibility, profileId:m.profileId??null, receiptUrl: url, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id) }); }
+      // Solo viajan las filas que el usuario puede ver (ver canSeeMovement):
+      // los movimientos privados de otros integrantes no salen del servidor.
+      for (const m of movsR.filter(canSeeMovement)) { let url: string|null = null; if (m.receiptBlobKey) { try { url = await ctx.blobs.getUrl(m.receiptBlobKey); } catch { url = null; } } movementsOut.push({ id:m.id, type:m.type, amount:m.amount, concept:m.concept, accountId:m.accountId??null, toAccountId:m.toAccountId??null, categoryId:m.categoryId??null, subcategory:m.subcategory??null, date:m.date, visibility:m.visibility, profileId:m.profileId??null, receiptUrl: url, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id) }); }
 
       // ---- Personal mode ----
       const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
@@ -884,7 +897,7 @@ export const Actions = {
       }
       const byCategory = Array.from(catTotals.values()).sort((a,b)=>b.total-a.total).map(c=>({ categoryId: c.categoryId, name: c.name, total: Math.round(c.total*100)/100, pct: monthSpentP>0? Math.round(c.total/monthSpentP*100):0 }));
       const todayMovs = activeMovs.filter(m=>m.date===todayStr && (m.type==="expense"||m.type==="debt_payment"));
-      const personal = { salary: Math.round(salary*100)/100, monthSpent: Math.round(monthSpentP*100)/100, remaining: Math.round((salary-monthSpentP)*100)/100, todaySpent: Math.round(todayMovs.reduce((s,m)=>s+m.amount,0)*100)/100, todayCount: todayMovs.length, byCategory, todayMovements: todayMovs.map(m=>({ id:m.id, concept:m.concept, amount:m.amount, categoryId:m.categoryId??null, date:m.date })) };
+      const personal = { salary: Math.round(salary*100)/100, monthSpent: Math.round(monthSpentP*100)/100, remaining: Math.round((salary-monthSpentP)*100)/100, todaySpent: Math.round(todayMovs.reduce((s,m)=>s+m.amount,0)*100)/100, todayCount: todayMovs.length, byCategory, todayMovements: todayMovs.filter(canSeeMovement).map(m=>({ id:m.id, concept:m.concept, amount:m.amount, categoryId:m.categoryId??null, date:m.date })) };
 
       // ---- Tandas v2: organizador con estrellas, invitados, comprobantes y cumplimiento ----
       const addDays = (iso:string, days:number) => { const [y=2026,mo=1,d=1]=iso.split("-").map(Number); const dt=new Date(y,(mo||1)-1,(d||1)+days); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`; };
