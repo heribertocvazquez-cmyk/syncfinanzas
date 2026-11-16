@@ -1051,7 +1051,11 @@ export function App(){
             <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">MÓDULO ACTUAL</p>
             <p className="font-display font-bold leading-tight truncate">{TABS.find(t=>t.id===effTab)?.label}</p>
           </div>
-          <p className="ml-auto text-xs text-[var(--dim)] hidden sm:block">Toque el menú para ver los módulos</p>
+          <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{goTab("inicio"); window.scrollTo({top:0,behavior:"smooth"});}} className={`ml-auto shrink-0 h-10 rounded-full px-3.5 flex items-center gap-1.5 text-sm font-bold border ${effTab==="inicio"?"bg-[var(--accent)] text-[var(--accent-text)] border-transparent":"bg-[var(--surface)] border-[var(--border)]"}`}>
+            <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            Inicio
+          </button>
+          <p className="text-xs text-[var(--dim)] hidden sm:block">Toque el menú para ver los módulos</p>
         </div>
         {menuOpen && (
           <nav id="menu-modulos" aria-label="Módulos agrupados por función" className="border-t border-[var(--border)] bg-[var(--surface)] max-h-[60vh] overflow-y-auto">
