@@ -28,7 +28,7 @@ try {
     scope: base,
     display: "standalone",
     orientation: "portrait",
-    background_color: "#F4F6F5",
+    background_color: "#F5F1E8",
     theme_color: "#0E2F3D",
     icons: [
       { src: new URL(appIcon192, base).href, sizes: "192x192", type: "image/png", purpose: "any" },

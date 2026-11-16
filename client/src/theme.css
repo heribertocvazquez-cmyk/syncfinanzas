@@ -18,10 +18,12 @@
   --text-4xl: 36px; --text-4xl--line-height: 40px;
   --font-display: "Manrope", system-ui, sans-serif;
 }
+/* Modo claro: tono perla/hueso cálido, no blanco puro, para que no
+   lastime la vista. El modo oscuro queda como estaba. */
 :root {
   color-scheme: light;
-  --bg: #F4F6F5; --surface: #FFFFFF; --surface2: #EAF0EE;
-  --text: #13262E; --dim: #5B6E73; --border: #DCE6E3;
+  --bg: #F5F1E8; --surface: #FDFBF5; --surface2: #EDE6D3;
+  --text: #13262E; --dim: #5B6E73; --border: #DCD2BC;
   --accent: #0E2F3D; --accent-text: #FFFFFF; --gold: #C5962C; --green: #1B7A4D; --red: #B42318;
   --radius: 16px;
   --space-surface: var(--surface); --space-surface-alt: var(--surface2); --space-muted: var(--dim); --space-border: var(--border); --space-accent: var(--accent);

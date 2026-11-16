@@ -59,7 +59,11 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
         const movs = await db.select().from(schema.movements).where(eq(schema.movements.householdId, args.householdId));
         const reversedIds = new Set(movs.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
         for (const b of mine) {
-          const spent = (excludeId: number | null) => movs.filter(m => m.reversalOfId == null && !reversedIds.has(m.id) && m.id !== excludeId && m.categoryId === b.categoryId && m.date.startsWith(b.month) && (m.type === "expense" || m.type === "debt_payment") && (b.visibility === "shared" ? m.visibility === "shared" : m.visibility === "private")).reduce((s, m) => s + m.amount, 0);
+          // Un presupuesto es el límite de su categoría en el mes: cuentan
+          // todos los gastos de esa categoría (compartidos y privados),
+          // porque el gasto del día y otros gastos privados también se
+          // descuentan del presupuesto.
+          const spent = (excludeId: number | null) => movs.filter(m => m.reversalOfId == null && !reversedIds.has(m.id) && m.id !== excludeId && m.categoryId === b.categoryId && m.date.startsWith(b.month) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0);
           const after = spent(null);
           const before = spent(args.movementId);
           if (before <= b.amount && after > b.amount) {
@@ -307,7 +311,7 @@ async function loadAdjustmentBase(ctx: Ctx, householdId: number, goalId: number)
   const cats = await db.select().from(schema.categories).where(eq(schema.categories.householdId, householdId));
   const catName = (id: number) => cats.find(c => c.id === id)?.name ?? "Sin categoría";
   const monthBudgets = budgets.filter(b => b.month === curYm);
-  const spentFor = (b: { categoryId: number; visibility: string }) => round2(active.filter(m => m.categoryId === b.categoryId && m.date.startsWith(curYm) && isExpense(m) && (b.visibility === "shared" ? m.visibility === "shared" : m.visibility === "private")).reduce((s, m) => s + m.amount, 0));
+  const spentFor = (b: { categoryId: number; visibility: string }) => round2(active.filter(m => m.categoryId === b.categoryId && m.date.startsWith(curYm) && isExpense(m)).reduce((s, m) => s + m.amount, 0));
   const overruns = monthBudgets.map(b => { const spent = spentFor(b); return { budgetId: b.id, categoryId: b.categoryId, name: catName(b.categoryId), budget: b.amount, spent, over: round2(spent - b.amount) }; }).filter(r => r.over > 0).sort((a, b) => b.over - a.over);
   const totalOver = round2(overruns.reduce((s, r) => s + r.over, 0));
   const slacks = monthBudgets.map(b => { const spent = spentFor(b); return { budgetId: b.id, categoryId: b.categoryId, name: catName(b.categoryId), budget: b.amount, spent, slack: round2(b.amount - spent) }; }).filter(s => s.slack > 0).sort((a, b) => b.slack - a.slack);
@@ -662,13 +666,13 @@ export const Actions = {
       const sharedBudgetsTotal = budgetsR.filter(b=>b.month===currentMonth && b.visibility==="shared").reduce((s,b)=>s+b.amount,0);
       const baseForContributions = sharedExpenseMonth > 0 ? sharedExpenseMonth : sharedBudgetsTotal;
 
+      // Un presupuesto es el límite de su categoría en el mes: cuentan todos
+      // los gastos de esa categoría (compartidos y privados), porque el gasto
+      // del día y otros gastos privados también se descuentan del presupuesto.
       const budgets = budgetsR.map(b=>{
-        const spent = activeMovs.filter(m=>m.categoryId===b.categoryId && m.date.startsWith(b.month) && (m.type==="expense"||m.type==="debt_payment") && (b.visibility==="shared" ? m.visibility==="shared" || true : true)).reduce((s,m)=>s+m.amount,0);
-        // Correct rule: shared budget counts shared movements; private counts all for that cat (simplified: count all matching cat/month, visibility filter: if budget shared only shared movs)
-        const spentCorrect = activeMovs.filter(m=> m.categoryId===b.categoryId && m.date.startsWith(b.month) && (m.type==="expense"||m.type==="debt_payment") && (b.visibility==="shared" ? m.visibility==="shared" : m.visibility==="private")).reduce((s,m)=>s+m.amount,0);
-        const useSpent = spentCorrect;
-        void spent;
-        return { id: b.id, categoryId: b.categoryId, month: b.month, amount: b.amount, visibility: b.visibility, spent: Math.round(useSpent*100)/100, remaining: Math.round((b.amount-useSpent)*100)/100, pct: b.amount>0? Math.min(100, Math.round(useSpent/b.amount*100)) : 0 };
+        const spent = activeMovs.filter(m=>m.categoryId===b.categoryId && m.date.startsWith(b.month) && (m.type==="expense"||m.type==="debt_payment")).reduce((s,m)=>s+m.amount,0);
+        const useSpent = Math.round(spent*100)/100;
+        return { id: b.id, categoryId: b.categoryId, month: b.month, amount: b.amount, visibility: b.visibility, spent: useSpent, remaining: Math.round((b.amount-useSpent)*100)/100, pct: b.amount>0? Math.round(useSpent/b.amount*100) : 0 };
       });
 
       const adults = profilesR.filter(p=>p.kind==="adult");
@@ -1066,7 +1070,9 @@ export const Actions = {
     description: "Creates or updates a monthly budget.",
     request: z.object({ id: z.number().optional(), householdId: z.number(), categoryId: z.number(), month: z.string().regex(/^\d{4}-\d{2}$/), amount: z.number().min(0), visibility: vis }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; if(args.id){ await db.update(schema.budgets).set({categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).returning({id:schema.budgets.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; if(args.id){ await db.update(schema.budgets).set({categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } // Un solo presupuesto por categoría y mes: si ya existe, se actualiza
+    // su monto en lugar de crear una segunda tarjeta con el mismo gasto.
+    const existing = await db.select().from(schema.budgets).where(and(eq(schema.budgets.householdId,args.householdId),eq(schema.budgets.categoryId,args.categoryId),eq(schema.budgets.month,args.month))).limit(1); if(existing[0]){ await db.update(schema.budgets).set({amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,existing[0].id)); ctx.invalidateQueries(); return {ok:true,id:existing[0].id}; } const [r]=await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).returning({id:schema.budgets.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
   deleteBudget: defineAction({ description: "Deletes a budget.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.budgets).where(eq(schema.budgets.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
