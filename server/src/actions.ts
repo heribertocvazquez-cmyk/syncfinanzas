@@ -2279,7 +2279,7 @@ export const Actions = {
   }),
 
   resetAllData: defineAction({
-    description: "Deletes the household completely and returns the user to the very beginning: permanently deletes every record of the household (movements and their reversals, accounts, budgets, funds and their movements, goals, agreements and their votes, patrimony, tandas with their participants, payments, invitations and organizer ratings, household invitations, all profiles, all categories and the activity log), the stored receipt and tanda-proof photo files, the household memberships and the household itself. The user keeps only their login session and lands again on the onboarding screen to choose Personal or Familiar mode. Irreversible.",
+    description: "Deletes the household completely and returns the user to the very beginning: permanently deletes every record of the household (movements and their reversals, accounts, budgets, funds and their movements, goals, agreements and their votes, patrimony, tandas with their participants, payments, invitations and organizer ratings, household invitations, all profiles, all categories, the activity log and the in-app notifications), the stored receipt and tanda-proof photo files, the household memberships and the household itself. The user keeps only their login session and lands again on the onboarding screen to choose Personal or Familiar mode. Irreversible.",
     request: z.object({ householdId: z.number() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
@@ -2314,6 +2314,11 @@ export const Actions = {
       await db.delete(schema.invitationTokens).where(eq(schema.invitationTokens.householdId, hid));
       await db.delete(schema.categories).where(eq(schema.categories.householdId, hid));
       await db.delete(schema.activityLog).where(eq(schema.activityLog.householdId, hid));
+      // Los avisos del hogar (tabla notifications, FK a households): se
+      // borran antes del hogar, o el borrado del hogar falla con 23503.
+      // Si la tabla aún no existe (falta correr notifications.sql), el
+      // reinicio sigue igual que antes: sin avisos que borrar.
+      try { await db.delete(schema.notifications).where(eq(schema.notifications.householdId, hid)); } catch { /* tabla aún no creada */ }
 
       // Las fotografías guardadas (comprobantes de movimientos y comprobantes de pago de tandas)
       // también se eliminan: el reinicio es completo, sin archivos huérfanos.
