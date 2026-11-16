@@ -1298,6 +1298,35 @@ export function App(){
   const guideStep2 = data.movements.length>0;
   const guideStep3 = chartsSeen;
   const isAdmin = !me || me.role==="admin";
+  // Permisos de tanda del perfil actual (me): la interfaz solo muestra los
+  // botones que corresponden a su rol; el servidor es la autoridad y rechaza
+  // lo no permitido. El rol sale de la fila de participante (por correo o
+  // por nombre) o de los campos organizador/tesorero/suplente de la tanda.
+  const tandaPerms = (td: (typeof data.tandas)[number]) => {
+    const meName = me ? fullName(me).trim().toLowerCase() : "";
+    const meEmail = (me?.email || "").trim().toLowerCase();
+    const myPart = td.participants.find(p => (p.email && meEmail !== "" && p.email.trim().toLowerCase() === meEmail) || (meName !== "" && p.name.trim().toLowerCase() === meName)) ?? null;
+    const excluded = myPart?.excluded === 1;
+    const rankOf = (r: string | null | undefined) => r === "organizador" ? 3 : (r === "tesorero" || r === "suplente") ? 2 : r === "participante" ? 1 : 0;
+    let rank = 0;
+    if (!excluded) {
+      if (myPart) rank = Math.max(rank, rankOf(myPart.role));
+      if (me) {
+        if (td.organizerProfileId === me.id) rank = Math.max(rank, 3);
+        else if (td.treasurerProfileId === me.id) rank = Math.max(rank, 2);
+        else if (td.substituteProfileId === me.id) rank = Math.max(rank, 2);
+      }
+    }
+    const myParticipantId = !excluded && myPart ? myPart.id : null;
+    return {
+      isAdmin,
+      myParticipantId,
+      isParticipant: myParticipantId != null,
+      canManage: isAdmin || rank >= 3,
+      canTreasury: isAdmin || rank >= 2,
+      isOwn: (participantId: number) => myParticipantId === participantId,
+    };
+  };
   // Visibilidad de movimientos: en modo Familiar un integrante ve los
   // movimientos compartidos, los suyos y (si es administrador) los sin
   // perfil; los privados de otros integrantes no se listan. Es la misma
@@ -2123,7 +2152,7 @@ export function App(){
               <p className="text-xs text-[var(--dim)] md:col-span-2">Organizador: <b>{me?fullName(me):"usted"}</b>. Sin intereses: la tanda es ahorro entre conocidos.</p>
               <button className={btnPrimary} disabled={saveTanda.isPending}>Crear tanda</button>
             </form>
-            {data.tandas.map(td=>(
+            {data.tandas.map(td=>{ const p = tandaPerms(td); return (
               <div key={td.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-3">
                 <div className="flex justify-between flex-wrap gap-2">
                   <div>
@@ -2133,16 +2162,17 @@ export function App(){
                     <p className="text-xs text-[var(--dim)] mt-1">Si alguien no paga: <b>{td.coverageRule==="fondo"?"Fondo solidario":td.coverageRule==="prorroga"?"Prórroga":"Reparto entre los demás"}</b>{td.fineAmount>0?<> · Multa {money(td.fineAmount)} por retardo o falta</>:" · Sin multa"}{td.meetingDay?<> · Reunión los <b>{td.meetingDay}</b></>:""}{td.turnsLocked===1?<> · <b>Turnos fijados</b></>:""}</p>
                   </div>
                   <div className="flex gap-2 items-start">
-                    <button aria-label={`Eliminar tanda ${td.name}`} className={btnGhost} onClick={()=>delTanda.mutate(td.id)}>Eliminar</button>
+                    {p.canManage && <button aria-label={`Eliminar tanda ${td.name}`} className={btnGhost} onClick={()=>delTanda.mutate(td.id)}>Eliminar</button>}
+                    {delTanda.error && <p className="text-sm text-[var(--red)]">{String(delTanda.error)}</p>}
                   </div>
                 </div>
                 <div className="bg-[var(--surface2)] rounded-2xl p-3">
                   <h4 className="font-display font-bold text-sm">Sorteo</h4>
-                  <div className="flex flex-wrap gap-2 items-center mt-2">
+                  {p.canManage && <div className="flex flex-wrap gap-2 items-center mt-2">
                     <select aria-label={`Modo de sorteo de ${td.name}`} className={inputCls+" w-auto"} value={drawSel[td.id]||td.drawMode} onChange={e=>setDrawSel({...drawSel,[td.id]:e.target.value as "random"|"weighted"})}><option value="random">Al azar</option><option value="weighted">Por cumplimiento</option></select>
                     <button aria-label={`Hacer sorteo de ${td.name}`} className={btnPrimary} onClick={()=>drawTanda.mutate({id:td.id,mode:(drawSel[td.id]||td.drawMode) as "random"|"weighted"})} disabled={td.participants.length<2 || drawTanda.isPending || td.turnsLocked===1}>Hacer sorteo</button>
-                    <span className="text-xs text-[var(--dim)]">Modo guardado: <b>{td.drawMode==="weighted"?"Por cumplimiento":"Al azar"}</b>{td.turnsLocked===1 && <> · <b>Turnos fijados, no se puede repetir el sorteo</b></>}</span>
-                  </div>
+                  </div>}
+                  <span className="text-xs text-[var(--dim)]">Modo guardado: <b>{td.drawMode==="weighted"?"Por cumplimiento":"Al azar"}</b>{td.turnsLocked===1 && <> · <b>Turnos fijados, no se puede repetir el sorteo</b></>}</span>
                   <p className="text-xs text-[var(--dim)] mt-2"><b>Al azar:</b> igual para todos. <b>Por cumplimiento:</b> premia la puntualidad.</p>
                   {drawTanda.error && <p className="text-sm text-[var(--red)] mt-1">{String(drawTanda.error)}</p>}
                 </div>
@@ -2156,10 +2186,10 @@ export function App(){
                         <div key={it.participantId} className="flex flex-wrap items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-2xl px-3 py-2">
                           <span className="text-sm flex-1 min-w-[120px]"><b>{it.name}</b> <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${it.status==="paid"?"bg-green-100 text-green-900":it.status==="late"?"bg-red-100 text-red-900":"bg-amber-100 text-amber-900"}`}>{it.status==="paid"?"Pagado":it.status==="late"?"Atrasado":"Pendiente"}</span>{it.paidDate && <span className="text-xs text-[var(--dim)]"> · pagó el {fmtDate(it.paidDate)}</span>}{it.verified===1 && <span className="text-xs text-[var(--green)]"> · Verificado</span>}{it.fineAmount>0 && <span className="text-xs text-[var(--red)]"> · Multa {money(it.fineAmount)}</span>}</span>
                           <span className="flex flex-wrap gap-1">
-                            {it.status!=="paid" && <button aria-label={`Marcar pagado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"paid"})}>Marcar pagado</button>}
-                            {it.status==="pending" && <button aria-label={`Marcar atrasado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"late"})}>Marcar atrasado</button>}
-                            {it.status==="late" && td.fineAmount>0 && <button aria-label={`Aplicar multa a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>addFine.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,reason:"retardo"})}>Aplicar multa {money(td.fineAmount)}</button>}
-                            {it.status==="paid" && it.verified!==1 && <button aria-label={`Verificar pago de ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--green)] text-white rounded-full px-2 py-1 text-xs font-bold" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,verified:true})}>Verificar pago</button>}
+                            {it.status!=="paid" && (p.canTreasury || p.isOwn(it.participantId)) && <button aria-label={`Marcar pagado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"paid"})}>Marcar pagado</button>}
+                            {it.status==="pending" && p.canTreasury && <button aria-label={`Marcar atrasado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"late"})}>Marcar atrasado</button>}
+                            {it.status==="late" && td.fineAmount>0 && p.canTreasury && <button aria-label={`Aplicar multa a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>addFine.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,reason:"retardo"})}>Aplicar multa {money(td.fineAmount)}</button>}
+                            {it.status==="paid" && it.verified!==1 && p.canTreasury && <button aria-label={`Verificar pago de ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--green)] text-white rounded-full px-2 py-1 text-xs font-bold" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,verified:true})}>Verificar pago</button>}
                             {it.proofUrl && <button aria-label={`Ver comprobante de ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setReceiptView(it.proofUrl)}>Ver comprobante</button>}
                           </span>
                         </div>
@@ -2175,12 +2205,12 @@ export function App(){
                       <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-[11px] text-[var(--dim)]">Fondo solidario</p><p className="font-display font-bold text-sm">{money(td.balances.fondo)}</p></div>
                       <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-[11px] text-[var(--dim)]">Multas pendientes</p><p className="font-display font-bold text-sm">{money(td.balances.multasPendientes)}</p>{td.balances.multasCobradas>0 && <p className="text-[11px] text-[var(--dim)]">Cobradas {money(td.balances.multasCobradas)}</p>}</div>
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-2 items-end">
+                    {p.canTreasury && <div className="flex flex-wrap gap-2 mt-2 items-end">
                       <div><Label htmlFor={`fund-kind-${td.id}`}>Tipo</Label><select id={`fund-kind-${td.id}`} aria-label={`Tipo de movimiento de fondos de ${td.name}`} className={inputCls+" w-auto"} value={fundKind[td.id]||"fondo"} onChange={e=>setFundKind({...fundKind,[td.id]:e.target.value})}><option value="fondo">Fondo solidario</option><option value="aportacion">Aportación</option><option value="multa">Pago de multa</option></select></div>
                       <div><Label htmlFor={`fund-amount-${td.id}`}>Monto ($)</Label><input id={`fund-amount-${td.id}`} aria-label={`Monto del movimiento de fondos de ${td.name}`} type="number" min="1" className={inputCls+" w-32"} value={fundAmount[td.id]||""} onChange={e=>setFundAmount({...fundAmount,[td.id]:e.target.value})} /></div>
                       <div className="flex-1 min-w-[140px]"><Label htmlFor={`fund-note-${td.id}`}>Nota (opcional)</Label><input id={`fund-note-${td.id}`} aria-label={`Nota del movimiento de fondos de ${td.name}`} className={inputCls} value={fundNote[td.id]||""} onChange={e=>setFundNote({...fundNote,[td.id]:e.target.value})} placeholder="Ej. Aporte al fondo" /></div>
                       <button aria-label={`Registrar movimiento de fondos de ${td.name}`} className={btnGhost} onClick={()=>addFundEntry.mutate({tandaId:td.id})} disabled={!fundAmount[td.id] || addFundEntry.isPending}>Registrar</button>
-                    </div>
+                    </div>}
                     {addFundEntry.error && <p className="text-sm text-[var(--red)] mt-1">{String(addFundEntry.error)}</p>}
                   </div>
                   {td.fines.length>0 && <div>
@@ -2189,7 +2219,7 @@ export function App(){
                       {td.fines.map(f=>{ const pn = td.participants.find(p=>p.id===f.participantId)?.name || "Participante"; return (
                         <div key={f.id} className="flex flex-wrap items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-2xl px-3 py-2">
                           <span className="text-sm flex-1 min-w-[120px]"><b>{pn}</b> · {money(f.amount)} · {f.reason==="falta"?"Falta":"Retardo"} · periodo {f.quincenaIndex+1} · <b>{f.status==="pagada"?"Pagada":"Pendiente"}</b></span>
-                          {f.status==="pendiente" && <button aria-label={`Marcar pagada la multa de ${pn}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>payFine.mutate({tandaId:td.id,fineId:f.id})}>Marcar pagada</button>}
+                          {f.status==="pendiente" && (p.canTreasury || p.isOwn(f.participantId)) && <button aria-label={`Marcar pagada la multa de ${pn}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>payFine.mutate({tandaId:td.id,fineId:f.id})}>Marcar pagada</button>}
                         </div>
                       ); })}
                     </div>
@@ -2204,15 +2234,16 @@ export function App(){
                         <b>{pt.drawOrder?`#${pt.drawOrder} · `:""}{pt.name}</b>
                         <span className="block text-xs">{pt.cardLast4?`•••• ${pt.cardLast4} registrada`:"Sin tarjeta registrada"}</span>
                         <span className="block text-xs mt-0.5">Puntaje: <b>{pt.stats.score}/100</b> · {pt.stats.paidCount}/{pt.stats.dueCount} pagos · {pt.stats.onTimePct}% puntuales · Racha: <b>{pt.stats.streak}</b>{pt.excluded===1 && <> · <b className="text-[var(--red)]">Excluido por votación</b></>}</span>
-                        <span className="flex gap-1 mt-1 items-center"><select aria-label={`Rol de ${pt.name} en ${td.name}`} className={inputCls+" w-auto !py-1 !px-2 text-xs"} value={pt.role} onChange={e=>setRole.mutate({tandaId:td.id,participantId:pt.id,role:e.target.value as "organizador"|"tesorero"|"suplente"|"participante"})}><option value="participante">Participante</option><option value="organizador">Organizador</option><option value="tesorero">Tesorero</option><option value="suplente">Suplente</option></select>{pt.excluded!==1 && <button aria-label={`Proponer exclusión de ${pt.name} de ${td.name}`} className="text-xs underline font-bold" onClick={()=>voteExclude.mutate({tandaId:td.id,targetParticipantId:pt.id})}>Proponer exclusión</button>}</span>
+                        <span className="flex gap-1 mt-1 items-center">{p.canManage ? <select aria-label={`Rol de ${pt.name} en ${td.name}`} className={inputCls+" w-auto !py-1 !px-2 text-xs"} value={pt.role} onChange={e=>setRole.mutate({tandaId:td.id,participantId:pt.id,role:e.target.value as "organizador"|"tesorero"|"suplente"|"participante"})}><option value="participante">Participante</option><option value="organizador">Organizador</option><option value="tesorero">Tesorero</option><option value="suplente">Suplente</option></select> : <span className="text-xs font-bold">{pt.role==="organizador"?"Organizador":pt.role==="tesorero"?"Tesorero":pt.role==="suplente"?"Suplente":"Participante"}</span>}{pt.excluded!==1 && (p.isParticipant || p.isAdmin) && <button aria-label={`Proponer exclusión de ${pt.name} de ${td.name}`} className="text-xs underline font-bold" onClick={()=>voteExclude.mutate({tandaId:td.id,targetParticipantId:pt.id})}>Proponer exclusión</button>}</span>
                         {td.votes.filter(v=>v.targetParticipantId===pt.id && v.vote==="excluir").length>0 && <span className="block text-xs mt-0.5">Votos para excluir: <b>{td.votes.filter(v=>v.targetParticipantId===pt.id && v.vote==="excluir").length}</b> de {td.participants.filter(p=>p.excluded!==1).length} activos (se excluye con más de la mitad).</span>}
-                        {!pt.cardLast4 && <span className="flex gap-1 mt-1"><input aria-label={`Últimos 4 dígitos de la tarjeta de ${pt.name}`} maxLength={4} inputMode="numeric" placeholder="Últ. 4 dígitos" className={inputCls+" w-28"} value={cardInput[pt.id]||""} onChange={e=>setCardInput({...cardInput,[pt.id]:e.target.value.replace(/[^0-9]/g,"")})} /><button aria-label={`Registrar tarjeta simulada de ${pt.name}`} className="text-xs underline font-bold" onClick={()=>setCard.mutate({id:pt.id,cardLast4:cardInput[pt.id]||""})}>Registrar</button></span>}
-                        <button aria-label={`Quitar a ${pt.name} de ${td.name}`} className="text-xs underline text-[var(--red)] block mt-0.5" onClick={()=>removePart.mutate(pt.id)}>Quitar</button>
+                        {!pt.cardLast4 && (p.canManage || p.isOwn(pt.id)) && <span className="flex gap-1 mt-1"><input aria-label={`Últimos 4 dígitos de la tarjeta de ${pt.name}`} maxLength={4} inputMode="numeric" placeholder="Últ. 4 dígitos" className={inputCls+" w-28"} value={cardInput[pt.id]||""} onChange={e=>setCardInput({...cardInput,[pt.id]:e.target.value.replace(/[^0-9]/g,"")})} /><button aria-label={`Registrar tarjeta simulada de ${pt.name}`} className="text-xs underline font-bold" onClick={()=>setCard.mutate({id:pt.id,cardLast4:cardInput[pt.id]||""})}>Registrar</button></span>}
+                        {p.canManage && <button aria-label={`Quitar a ${pt.name} de ${td.name}`} className="text-xs underline text-[var(--red)] block mt-0.5" onClick={()=>removePart.mutate(pt.id)}>Quitar</button>}
                       </span>
                     ))}
                   </div>
-                  {setCard.error && <p className="text-sm text-[var(--red)] mt-1">Solo los últimos 4 dígitos.</p>}
-                  {td.participants.length<td.participantCount && <div className="flex flex-wrap gap-2 mt-3">
+                  {(setRole.error || voteExclude.error || removePart.error) && <p className="text-sm text-[var(--red)] mt-1">{String(setRole.error || voteExclude.error || removePart.error)}</p>}
+                  {setCard.error && <p className="text-sm text-[var(--red)] mt-1">{String(setCard.error)}</p>}
+                  {td.participants.length<td.participantCount && p.canManage && <div className="flex flex-wrap gap-2 mt-3">
                     <input aria-label={`Nombre del nuevo participante en ${td.name}`} placeholder="Nombre del participante" className={inputCls+" flex-1 min-w-[160px]"} value={partName[td.id]||""} onChange={e=>setPartName({...partName,[td.id]:e.target.value})} />
                     <input aria-label={`Tarjeta simulada últimos 4 dígitos en ${td.name}`} placeholder="Últ. 4 díg. (opcional)" maxLength={4} inputMode="numeric" className={inputCls+" w-44"} value={partCard[td.id]||""} onChange={e=>setPartCard({...partCard,[td.id]:e.target.value.replace(/[^0-9]/g,"")})} />
                     <button aria-label={`Agregar participante a ${td.name}`} className={btnGhost} onClick={()=>addPart.mutate({tandaId:td.id,name:partName[td.id]||"",cardLast4:partCard[td.id]||undefined})} disabled={!partName[td.id]}>Agregar participante</button>
@@ -2221,11 +2252,11 @@ export function App(){
                   <div className="border border-dashed border-[var(--gold)] rounded-2xl p-3 mt-3">
                     <p className="text-sm font-bold">Invitar por correo</p>
                     <p className="text-xs text-[var(--dim)] mt-0.5">Enlace directo, un solo uso, 7 días.</p>
-                    <div className="flex flex-wrap gap-2 mt-2">
+                    {p.canManage && <div className="flex flex-wrap gap-2 mt-2">
                       <input aria-label={`Correo para invitar a ${td.name}`} type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={tInvEmail[td.id]||""} onChange={e=>setTInvEmail({...tInvEmail,[td.id]:e.target.value})} />
                       <input aria-label={`Nombre de la persona invitada a ${td.name}`} placeholder="Nombre (opcional)" className={inputCls+" w-44"} value={tInvName[td.id]||""} onChange={e=>setTInvName({...tInvName,[td.id]:e.target.value})} />
                       <button aria-label={`Enviar invitación a la tanda ${td.name}`} className={btnGhost} onClick={()=>createTandaInv.mutate({tandaId:td.id})} disabled={!tInvEmail[td.id] || createTandaInv.isPending}>Invitar a la tanda</button>
-                    </div>
+                    </div>}
                     {createTandaInv.error && <p className="text-sm text-[var(--red)] mt-1">{String(createTandaInv.error)}</p>}
                     {(() => { const tRes = tInvResult[td.id]; if (!tRes) return null; return (
                       <div className="text-sm space-y-2 mt-2">
@@ -2241,7 +2272,7 @@ export function App(){
                         <div className="flex gap-2 flex-wrap">
                           <button aria-label={`Aceptar invitación de ${iv.email} a ${td.name}`} className={btnPrimary} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:true})} disabled={respondTandaInv.isPending}>Aceptar y participar</button>
                           <button aria-label={`Rechazar invitación de ${iv.email} a ${td.name}`} className={btnGhost} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:false})} disabled={respondTandaInv.isPending}>Rechazar</button>
-                          <button aria-label={`Reenviar invitación de ${iv.email} a ${td.name}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"tanda",invitationId:iv.id,tandaId:td.id})}>Reenviar correo</button>
+                          {p.canManage && <button aria-label={`Reenviar invitación de ${iv.email} a ${td.name}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"tanda",invitationId:iv.id,tandaId:td.id})}>Reenviar correo</button>}
                         </div>
                       </div>
                     ))}
@@ -2262,14 +2293,15 @@ export function App(){
                           <span className="block mt-1.5 space-y-1">
                             <span className="block text-xs">Entrega: {dv?.organizerConfirmed===1 ? <b className="text-[var(--green)]">Confirmada por el organizador</b> : "Sin confirmar por el organizador"} · Recepción: {dv?.receiverConfirmed===1 ? <b className="text-[var(--green)]">Confirmada por quien recibe</b> : "Sin confirmar por quien recibe"}</span>
                             <span className="flex flex-wrap gap-1">
-                              {dv?.organizerConfirmed!==1 && <button aria-label={`Confirmar entrega del periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>confirmDelivery.mutate({tandaId:td.id,quincenaIndex:c.index,receiverId:c.receiverId,by:"organizador"})}>Confirmo entrega</button>}
-                              {dv?.receiverConfirmed!==1 && <button aria-label={`Confirmar recepción del periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>confirmDelivery.mutate({tandaId:td.id,quincenaIndex:c.index,receiverId:c.receiverId,by:"receptor"})}>Confirmo recepción</button>}
+                              {dv?.organizerConfirmed!==1 && p.canTreasury && <button aria-label={`Confirmar entrega del periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>confirmDelivery.mutate({tandaId:td.id,quincenaIndex:c.index,receiverId:c.receiverId,by:"organizador"})}>Confirmo entrega</button>}
+                              {dv?.receiverConfirmed!==1 && (p.isAdmin || p.isOwn(c.receiverId ?? -1)) && <button aria-label={`Confirmar recepción del periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>confirmDelivery.mutate({tandaId:td.id,quincenaIndex:c.index,receiverId:c.receiverId,by:"receptor"})}>Confirmo recepción</button>}
                             </span>
                           </span>
                         ); })()}
                       </div>
                     ))}
                   </div>
+                  {confirmDelivery.error && <p className="text-sm text-[var(--red)] mt-1">{String(confirmDelivery.error)}</p>}
                 </div>
                 <div>
                   <h4 className="font-display font-bold text-sm">Pagos por participante</h4>
@@ -2291,11 +2323,11 @@ export function App(){
                                 <span className="block">{pt.name}: {verified?`Pago verificado${pay?.paidDate?` · pagó el ${fmtDate(pay.paidDate)}`:""}`:paid?`Pagado, en revisión${pay?.proofUrl?" (con comprobante)":" (sin comprobante)"}${pay?.paidDate?` · ${fmtDate(pay.paidDate)}`:""}`:"Pendiente"}</span>
                                 <span className="flex flex-wrap gap-1 mt-1.5">
                                   {pay?.proofUrl && <span className="flex items-center gap-1"><img src={pay.proofUrl} alt={`Comprobante de pago de ${pt.name} periodo ${c.index+1}`} className="w-8 h-8 object-cover rounded-md border border-[var(--border)]" /><button aria-label={`Ver comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setReceiptView(pay.proofUrl)}>Ver comprobante</button></span>}
-                                  <label className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)] cursor-pointer" aria-label={`Subir comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`}>{pay?.proofUrl?"Cambiar comprobante":"Subir comprobante"}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de ${pt.name} periodo ${c.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProof.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,file:f}); e.target.value=""; }} /></label>
-                                  {!verified && <button aria-label={`Verificar y confirmar el pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--green)] text-white rounded-full px-2 py-1 font-bold" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:true})}>Verificar pago</button>}
-                                  {verified && <button aria-label={`Retirar la verificación del pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:false})}>Retirar verificación</button>}
-                                  <button aria-label={`${paid?"Marcar pendiente":"Marcar pagado sin comprobante"} a ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,status:paid?"pending":"paid"})}>{paid?"Marcar pendiente":"Marcar pagado"}</button>
-                                  {!paid && <button aria-label={`Enviar recordatorio a ${pt.name} periodo ${c.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>remindPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index})}>{pay?.reminderSent?"Recordatorio enviado":"Enviar recordatorio"}</button>}
+                                  {(p.canTreasury || p.isOwn(pt.id)) && <label className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)] cursor-pointer" aria-label={`Subir comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`}>{pay?.proofUrl?"Cambiar comprobante":"Subir comprobante"}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de ${pt.name} periodo ${c.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProof.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,file:f}); e.target.value=""; }} /></label>}
+                                  {!verified && p.canTreasury && <button aria-label={`Verificar y confirmar el pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--green)] text-white rounded-full px-2 py-1 font-bold" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:true})}>Verificar pago</button>}
+                                  {verified && p.canTreasury && <button aria-label={`Retirar la verificación del pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:false})}>Retirar verificación</button>}
+                                  {(p.canTreasury || p.isOwn(pt.id)) && <button aria-label={`${paid?"Marcar pendiente":"Marcar pagado sin comprobante"} a ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,status:paid?"pending":"paid"})}>{paid?"Marcar pendiente":"Marcar pagado"}</button>}
+                                  {!paid && p.canTreasury && <button aria-label={`Enviar recordatorio a ${pt.name} periodo ${c.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>remindPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index})}>{pay?.reminderSent?"Recordatorio enviado":"Enviar recordatorio"}</button>}
                                 </span>
                               </span>
                             );
@@ -2305,22 +2337,22 @@ export function App(){
                       </div>
                     );})}
                   </div>
-                  {(uploadProof.error || verifyPay.error) && <p className="text-sm text-[var(--red)] mt-1">{String(uploadProof.error || verifyPay.error)}</p>}
+                  {(uploadProof.error || verifyPay.error || remindPay.error) && <p className="text-sm text-[var(--red)] mt-1">{String(uploadProof.error || verifyPay.error || remindPay.error)}</p>}
                 </div>
                 <div className="border-t border-[var(--border)] pt-3">
                   <h4 className="font-display font-bold text-sm">Calificación del organizador</h4>
                   <p className="text-xs text-[var(--dim)]">Califique al organizador de 1 a 5.</p>
-                  <div className="flex flex-wrap gap-2 mt-2 items-end">
+                  {(p.isParticipant || p.isAdmin) && <div className="flex flex-wrap gap-2 mt-2 items-end">
                     <div><Label htmlFor={`rate-name-${td.id}`}>Tu nombre</Label><input id={`rate-name-${td.id}`} aria-label={`Tu nombre para calificar al organizador de ${td.name}`} placeholder="Ej. Participante" className={inputCls+" w-44"} value={rateName[td.id]||""} onChange={e=>setRateName({...rateName,[td.id]:e.target.value})} /></div>
                     <div><Label htmlFor={`rate-stars-${td.id}`}>Calificación de confiabilidad</Label><select id={`rate-stars-${td.id}`} aria-label={`Estrellas para el organizador de ${td.name}`} className={inputCls+" w-auto"} value={rateStars[td.id]||"5"} onChange={e=>setRateStars({...rateStars,[td.id]:e.target.value})}><option value="5">★★★★★ 5 · Muy confiable</option><option value="4">★★★★ 4 · Confiable</option><option value="3">★★★ 3 · Regular</option><option value="2">★★ 2 · Con incidencias</option><option value="1">★ 1 · No cumplió con lo acordado</option></select></div>
                     <div className="flex-1 min-w-[160px]"><Label htmlFor={`rate-comment-${td.id}`}>Comentario (opcional)</Label><input id={`rate-comment-${td.id}`} aria-label={`Comentario sobre el organizador de ${td.name}`} placeholder="Ej. Entregó cada monto en la fecha acordada" className={inputCls} value={rateComment[td.id]||""} onChange={e=>setRateComment({...rateComment,[td.id]:e.target.value})} /></div>
                     <button aria-label={`Enviar calificación al organizador de ${td.name}`} className={btnPrimary} onClick={()=>rateOrg.mutate({tandaId:td.id})} disabled={!rateName[td.id] || rateOrg.isPending}>Calificar</button>
-                  </div>
+                  </div>}
                   {rateOrg.error && <p className="text-sm text-[var(--red)] mt-1">{String(rateOrg.error)}</p>}
                   {td.ratings.length>0 && <div className="mt-2 space-y-1">{td.ratings.map(r=><p key={r.id} className="text-sm"><Stars value={r.stars} size="text-sm" /> <b>{r.raterName}</b>{r.comment?` — “${r.comment}”`:""}</p>)}</div>}
                 </div>
               </div>
-            ))}
+            ); })}
             {data.tandas.length===0 && <Empty title="Sin tandas" body="Cree la primera." />}
           </section>
         )}

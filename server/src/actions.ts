@@ -569,6 +569,59 @@ async function inviterDisplayName(ctx: Ctx, householdId: number | null): Promise
   return ctx.user.email.split("@")[0] || "SyncFinanzas";
 }
 
+// ---- Permisos de tanda (Tandas v3): los roles se cumplen en el servidor.
+// El cliente oculta los botones que no corresponden al rol, pero la
+// autoridad es el servidor: cada acción de tanda verifica el rol de quien
+// la llama antes de tocar nada.
+// Mapeo usuario → participante: el perfil del hogar (profiles.userId =
+// ctx.user.id) y la fila de participante por correo (tandaParticipants.email
+// = ctx.user.email); también cuentan los campos organizerProfileId /
+// treasurerProfileId / substituteProfileId de la tanda. Un participante
+// excluido por votación ya no puede actuar (salvo el administrador del
+// hogar). En modo Personal el único usuario es administrador, así que nada
+// cambia para él.
+type TandaRole = "organizador" | "tesorero" | "suplente" | "participante";
+const TANDA_ROLE_RANK: Record<TandaRole, number> = { organizador: 3, tesorero: 2, suplente: 2, participante: 1 };
+type TandaAccess = { tanda: typeof schema.tandas.$inferSelect; isAdmin: boolean; rank: number; participantId: number | null; profileId: number | null; isParticipant: boolean };
+async function tandaAccess(ctx: Ctx, tandaId: number): Promise<TandaAccess> {
+  const db = ctx.db;
+  const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, tandaId)).limit(1);
+  const td = tdRows[0];
+  if (!td) throw new Error("Tanda no encontrada");
+  if (ctx.householdId != null && ctx.householdId !== td.householdId) throw new Error("No pertenece a este hogar.");
+  const isAdmin = ctx.userRole === "admin";
+  const profs = await db.select().from(schema.profiles).where(and(eq(schema.profiles.householdId, td.householdId), eq(schema.profiles.userId, ctx.user.id)));
+  const profileId = profs[0]?.id ?? null;
+  const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, tandaId));
+  const email = ctx.user.email.trim().toLowerCase();
+  const mine = email.length > 0 ? parts.find(p => (p.email || "").trim().toLowerCase() === email) ?? null : null;
+  const excluded = !!mine && mine.excluded === 1;
+  let rank = 0;
+  let participantId: number | null = null;
+  if (!excluded) {
+    if (mine) { rank = TANDA_ROLE_RANK[(mine.role as TandaRole) || "participante"]; participantId = mine.id; }
+    if (profileId != null) {
+      // El organizador, tesorero o suplente designados al crear la tanda
+      // conservan su rol aunque su fila de participante diga otra cosa.
+      if (td.organizerProfileId === profileId) rank = Math.max(rank, 3);
+      else if (td.treasurerProfileId === profileId) rank = Math.max(rank, 2);
+      else if (td.substituteProfileId === profileId) rank = Math.max(rank, 2);
+    }
+  }
+  return { tanda: td, isAdmin, rank, participantId, profileId, isParticipant: participantId != null };
+}
+// Exige un nivel mínimo de rol en la tanda (3 organizador, 2 tesorero o
+// suplente, 1 participante). El administrador del hogar siempre puede.
+function requireTandaRank(acc: TandaAccess, minRank: number) {
+  if (!acc.isAdmin && acc.rank < minRank) throw new Error("No tiene permiso para esta acción.");
+}
+function requireTandaParticipant(acc: TandaAccess) {
+  if (!acc.isAdmin && !acc.isParticipant) throw new Error("No tiene permiso para esta acción.");
+}
+function requireTandaHousehold(acc: TandaAccess, householdId: number) {
+  if (acc.tanda.householdId !== householdId) throw new Error("La tanda no pertenece a este hogar.");
+}
+
 type InviteSendResult = { emailSent: boolean; emailConfigured: boolean; inviteUrl: string; tokenId: number };
 
 async function sendInviteForToken(
@@ -1758,6 +1811,7 @@ export const Actions = {
         const rows = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.id, args.invitationId));
         const inv = rows[0]; if (!inv) throw new Error("Invitación de tanda no encontrada.");
         if (inv.status !== "pending") throw new Error("Esta invitación ya fue respondida.");
+        const acc = await tandaAccess(ctx, inv.tandaId); requireTandaRank(acc, 3);
         const td = await db.select().from(schema.tandas).where(eq(schema.tandas.id, inv.tandaId)).limit(1);
         const sent = await sendInviteForToken(ctx, "tanda", { email: inv.email, householdId: inv.householdId, tandaId: inv.tandaId, tandaInvitationId: inv.id, invitedName: inv.invitedName }, {
           subject: `Invitación para participar en la tanda ${td[0]?.name || ""} en SyncFinanzas`,
@@ -1844,7 +1898,7 @@ export const Actions = {
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
     },
   }),
-  deleteTanda: defineAction({ description: "Deletes a tanda and its participants and payments.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const tinvs=await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.tandaId,args.id)); for (const iv of tinvs) await markTokensForInvitation(db, null, iv.id, "revoked"); await db.delete(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId,args.id)); await db.delete(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId,args.id)); await db.delete(schema.tandaInvitations).where(eq(schema.tandaInvitations.tandaId,args.id)); await db.delete(schema.organizerRatings).where(eq(schema.organizerRatings.tandaId,args.id)); try { await db.delete(schema.tandaFines).where(eq(schema.tandaFines.tandaId,args.id)); await db.delete(schema.tandaVotes).where(eq(schema.tandaVotes.tandaId,args.id)); await db.delete(schema.tandaDeliveries).where(eq(schema.tandaDeliveries.tandaId,args.id)); await db.delete(schema.tandaFundEntries).where(eq(schema.tandaFundEntries.tandaId,args.id)); } catch { /* tablas v3 aún no creadas */ } await db.delete(schema.tandas).where(eq(schema.tandas.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
+  deleteTanda: defineAction({ description: "Deletes a tanda and its participants and payments.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const acc = await tandaAccess(ctx, args.id); requireTandaRank(acc, 3); const tinvs=await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.tandaId,args.id)); for (const iv of tinvs) await markTokensForInvitation(db, null, iv.id, "revoked"); await db.delete(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId,args.id)); await db.delete(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId,args.id)); await db.delete(schema.tandaInvitations).where(eq(schema.tandaInvitations.tandaId,args.id)); await db.delete(schema.organizerRatings).where(eq(schema.organizerRatings.tandaId,args.id)); try { await db.delete(schema.tandaFines).where(eq(schema.tandaFines.tandaId,args.id)); await db.delete(schema.tandaVotes).where(eq(schema.tandaVotes.tandaId,args.id)); await db.delete(schema.tandaDeliveries).where(eq(schema.tandaDeliveries.tandaId,args.id)); await db.delete(schema.tandaFundEntries).where(eq(schema.tandaFundEntries.tandaId,args.id)); } catch { /* tablas v3 aún no creadas */ } await db.delete(schema.tandas).where(eq(schema.tandas.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
   addTandaParticipant: defineAction({
     description: "Adds a participant to a tanda, optionally registering a SIMULATED card requirement as last-4-digits only. No real card data is accepted or stored.",
@@ -1852,6 +1906,7 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaRank(acc, 3); requireTandaHousehold(acc, args.householdId);
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, args.tandaId)); const td = tdRows[0]; if (!td) throw new Error("Tanda no encontrada");
       const existing = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
       if (existing.length >= td.participantCount) throw new Error(`La tanda ya tiene sus ${td.participantCount} participantes.`);
@@ -1860,12 +1915,12 @@ export const Actions = {
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
     },
   }),
-  removeTandaParticipant: defineAction({ description: "Removes a participant from a tanda.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.tandaPayments).where(eq(schema.tandaPayments.participantId,args.id)); await db.delete(schema.tandaParticipants).where(eq(schema.tandaParticipants.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
+  removeTandaParticipant: defineAction({ description: "Removes a participant from a tanda.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const prows = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.id,args.id)); const pr = prows[0]; if (!pr) throw new Error("Participante no encontrado"); const acc = await tandaAccess(ctx, pr.tandaId); requireTandaRank(acc, 3); await db.delete(schema.tandaPayments).where(eq(schema.tandaPayments.participantId,args.id)); await db.delete(schema.tandaParticipants).where(eq(schema.tandaParticipants.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
   setParticipantCard: defineAction({
     description: "Registers or updates a participant's SIMULATED card last-4-digits only.",
     request: z.object({ id: z.number(), cardLast4: z.string().regex(/^\d{4}$/, "Deben ser exactamente los últimos 4 dígitos") }),
     response: okRes,
-    async handler(ctx, args): Promise<Ok> { const db = ctx.db; await db.update(schema.tandaParticipants).set({ cardLast4: args.cardLast4 }).where(eq(schema.tandaParticipants.id, args.id)); ctx.invalidateQueries(); return { ok: true, id: args.id }; },
+    async handler(ctx, args): Promise<Ok> { const db = ctx.db; const prows = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.id, args.id)); const pr = prows[0]; if (!pr) throw new Error("Participante no encontrado"); const acc = await tandaAccess(ctx, pr.tandaId); if (!acc.isAdmin && acc.rank < 3 && acc.participantId !== args.id) throw new Error("No tiene permiso para esta acción."); await db.update(schema.tandaParticipants).set({ cardLast4: args.cardLast4 }).where(eq(schema.tandaParticipants.id, args.id)); ctx.invalidateQueries(); return { ok: true, id: args.id }; },
   }),
 
   drawTanda: defineAction({
@@ -1874,6 +1929,7 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaRank(acc, 3);
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, args.tandaId)); const td = tdRows[0]; if (!td) throw new Error("Tanda no encontrada");
       const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
       if (parts.length < 2) throw new Error("Se necesitan al menos 2 participantes para el sorteo.");
@@ -1920,6 +1976,10 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId);
+      // Su propio pago lo marca el participante; el pago de otro solo lo
+      // registra el tesorero, el suplente, el organizador o el administrador.
+      if (!acc.isAdmin && acc.rank < 2 && acc.participantId !== args.participantId) throw new Error("No tiene permiso para esta acción.");
       let proofBlobKey: string | undefined = undefined;
       if (args.proof) { if (args.proof.dataBase64.length > 16_000_000) throw new Error("El comprobante es demasiado grande (máximo aproximado de 12 MB)."); const okTypes=["image/jpeg","image/png","image/webp"]; if (!okTypes.includes(args.proof.mimeType)) throw new Error("El comprobante debe ser JPG, PNG o WebP."); const key=`tanda-proofs/${args.householdId}/${Date.now()}-${Math.floor(Math.random()*1e9)}`; const bytes=Buffer.from(args.proof.dataBase64,"base64"); await ctx.blobs.put(key, bytes, { contentType: args.proof.mimeType }); proofBlobKey=key; }
       const rows = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId, args.tandaId));
@@ -1937,6 +1997,7 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaRank(acc, 2);
       const rows = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId, args.tandaId));
       const mine = rows.find(r=>r.participantId===args.participantId && r.quincenaIndex===args.quincenaIndex);
       const today = new Date(); const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
@@ -1954,6 +2015,7 @@ export const Actions = {
       await rateLimit("createTandaInvitation", 30, 60_000);
       const db = ctx.db;
       const email = args.email.trim().toLowerCase();
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaRank(acc, 3);
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, args.tandaId)); if (!tdRows[0]) throw new Error("Tanda no encontrada");
       const tandaName = tdRows[0].name;
       const mail = {
@@ -2008,7 +2070,14 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
-      const [r] = await db.insert(schema.organizerRatings).values({ householdId: args.householdId, tandaId: args.tandaId, raterName: args.raterName.trim(), stars: args.stars, comment: args.comment?.trim() || null }).returning({ id: schema.organizerRatings.id });
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaParticipant(acc);
+      // La calificación queda a nombre del participante que califica.
+      let raterName = args.raterName.trim();
+      const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
+      const myPart = acc.participantId != null ? parts.find(p=>p.id===acc.participantId) : null;
+      if (myPart) raterName = myPart.name;
+      else if (acc.profileId != null) { const pr = await db.select().from(schema.profiles).where(eq(schema.profiles.id, acc.profileId)); if (pr[0]) raterName = `${pr[0].name} ${pr[0].lastName || ""}`.trim(); }
+      const [r] = await db.insert(schema.organizerRatings).values({ householdId: args.householdId, tandaId: args.tandaId, raterName, stars: args.stars, comment: args.comment?.trim() || null }).returning({ id: schema.organizerRatings.id });
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
     },
   }),
@@ -2018,6 +2087,7 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaRank(acc, 2);
       const rows = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId, args.tandaId));
       const mine = rows.find(r=>r.participantId===args.participantId && r.quincenaIndex===args.quincenaIndex);
       if (mine) { await db.update(schema.tandaPayments).set({ reminderSent: 1 }).where(eq(schema.tandaPayments.id, mine.id)); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
@@ -2034,11 +2104,36 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaRank(acc, 3);
+      // Sincroniza los campos organizador/tesorero/suplente de la tanda con
+      // los roles de las filas de participante, para que las dos fuentes no
+      // se contradigan al resolver el rol de alguien.
+      const profileIdFor = async (participantId: number): Promise<number | null> => {
+        const prs = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.id, participantId));
+        const email = (prs[0]?.email || "").trim().toLowerCase();
+        if (!email) return null;
+        const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, acc.tanda.householdId));
+        return profs.find(p => (p.email || "").trim().toLowerCase() === email)?.id ?? null;
+      };
+      const syncRoleField = async (participantId: number, role: TandaRole) => {
+        const pid = await profileIdFor(participantId);
+        if (pid == null) return;
+        const td = acc.tanda;
+        if (role === "organizador" && td.organizerProfileId !== pid) await db.update(schema.tandas).set({ organizerProfileId: pid }).where(eq(schema.tandas.id, args.tandaId));
+        if (role === "tesorero" && td.treasurerProfileId !== pid) await db.update(schema.tandas).set({ treasurerProfileId: pid }).where(eq(schema.tandas.id, args.tandaId));
+        if (role === "suplente" && td.substituteProfileId !== pid) await db.update(schema.tandas).set({ substituteProfileId: pid }).where(eq(schema.tandas.id, args.tandaId));
+        if (role === "participante") {
+          if (td.organizerProfileId === pid) await db.update(schema.tandas).set({ organizerProfileId: null }).where(eq(schema.tandas.id, args.tandaId));
+          if (td.treasurerProfileId === pid) await db.update(schema.tandas).set({ treasurerProfileId: null }).where(eq(schema.tandas.id, args.tandaId));
+          if (td.substituteProfileId === pid) await db.update(schema.tandas).set({ substituteProfileId: null }).where(eq(schema.tandas.id, args.tandaId));
+        }
+      };
       if (args.role === "tesorero" || args.role === "suplente") {
         const others = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
-        for (const o of others) { if (o.id !== args.participantId && o.role === args.role) await db.update(schema.tandaParticipants).set({ role: "participante" }).where(eq(schema.tandaParticipants.id, o.id)); }
+        for (const o of others) { if (o.id !== args.participantId && o.role === args.role) { await db.update(schema.tandaParticipants).set({ role: "participante" }).where(eq(schema.tandaParticipants.id, o.id)); await syncRoleField(o.id, "participante"); } }
       }
       await db.update(schema.tandaParticipants).set({ role: args.role }).where(eq(schema.tandaParticipants.id, args.participantId));
+      await syncRoleField(args.participantId, args.role);
       ctx.invalidateQueries(); return { ok: true, id: args.participantId };
     },
   }),
@@ -2048,6 +2143,7 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaRank(acc, 2);
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, args.tandaId)); const td = tdRows[0]; if (!td) throw new Error("Tanda no encontrada");
       const amount = args.amount ?? td.fineAmount ?? 0;
       if (amount <= 0) throw new Error("Esta tanda no tiene multa configurada. Escriba el monto de la multa.");
@@ -2063,6 +2159,10 @@ export const Actions = {
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
       const rows = await db.select().from(schema.tandaFines).where(eq(schema.tandaFines.id, args.fineId)); const f = rows[0]; if (!f) throw new Error("Multa no encontrada");
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId);
+      // La multa la paga el propio multado, o la cobra el tesorero, el
+      // suplente, el organizador o el administrador.
+      if (!acc.isAdmin && acc.rank < 2 && acc.participantId !== f.participantId) throw new Error("No tiene permiso para esta acción.");
       if (f.status === "pagada") return { ok: true, id: f.id };
       await db.update(schema.tandaFines).set({ status: "pagada" }).where(eq(schema.tandaFines.id, args.fineId));
       await db.insert(schema.tandaFundEntries).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: f.participantId, kind: "multa", amount: f.amount, note: `Pago de multa · periodo ${f.quincenaIndex+1}` });
@@ -2075,12 +2175,19 @@ export const Actions = {
     response: z.object({ ok: z.literal(true), excluded: z.boolean(), votesFor: z.number(), votesTotal: z.number() }),
     async handler(ctx, args): Promise<{ ok: true; excluded: boolean; votesFor: number; votesTotal: number }> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaParticipant(acc);
       const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
       const target = parts.find(p=>p.id===args.targetParticipantId); if (!target) throw new Error("Participante no encontrado");
+      // El voto queda a nombre del participante que vota (no del texto libre
+      // del cliente), para que nadie vote haciéndose pasar por otro.
+      let voterName = args.voterName.trim();
+      const myPart = acc.participantId != null ? parts.find(p=>p.id===acc.participantId) : null;
+      if (myPart) voterName = myPart.name;
+      else if (acc.profileId != null) { const pr = await db.select().from(schema.profiles).where(eq(schema.profiles.id, acc.profileId)); if (pr[0]) voterName = `${pr[0].name} ${pr[0].lastName || ""}`.trim(); }
       const existing = await db.select().from(schema.tandaVotes).where(eq(schema.tandaVotes.tandaId, args.tandaId));
-      const mine = existing.find(v=>v.targetParticipantId===args.targetParticipantId && v.voterName.trim().toLowerCase()===args.voterName.trim().toLowerCase());
+      const mine = existing.find(v=>v.targetParticipantId===args.targetParticipantId && v.voterName.trim().toLowerCase()===voterName.toLowerCase());
       if (mine) { await db.update(schema.tandaVotes).set({ vote: args.vote, reason: args.reason?.trim() || null }).where(eq(schema.tandaVotes.id, mine.id)); }
-      else { await db.insert(schema.tandaVotes).values({ householdId: args.householdId, tandaId: args.tandaId, targetParticipantId: args.targetParticipantId, voterName: args.voterName.trim(), vote: args.vote, reason: args.reason?.trim() || null }); }
+      else { await db.insert(schema.tandaVotes).values({ householdId: args.householdId, tandaId: args.tandaId, targetParticipantId: args.targetParticipantId, voterName, vote: args.vote, reason: args.reason?.trim() || null }); }
       const votes = await db.select().from(schema.tandaVotes).where(eq(schema.tandaVotes.tandaId, args.tandaId));
       const forVotes = votes.filter(v=>v.targetParticipantId===args.targetParticipantId && v.vote==="excluir").length;
       const active = parts.filter(p=>!p.excluded).length;
@@ -2095,6 +2202,10 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId);
+      if (args.by === "organizador") requireTandaRank(acc, 2);
+      // Recepción: solo quien recibe ese periodo (o el administrador).
+      else if (!acc.isAdmin && acc.participantId !== args.receiverId) throw new Error("No tiene permiso para esta acción.");
       const now = new Date();
       const rows = await db.select().from(schema.tandaDeliveries).where(eq(schema.tandaDeliveries.tandaId, args.tandaId));
       const mine = rows.find(r=>r.quincenaIndex===args.quincenaIndex);
@@ -2112,6 +2223,7 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaRank(acc, 2);
       const [r] = await db.insert(schema.tandaFundEntries).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: args.participantId ?? null, kind: args.kind, amount: args.amount, note: args.note?.trim() || null }).returning({ id: schema.tandaFundEntries.id });
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
     },
