@@ -648,6 +648,12 @@ export function App(){
     window.addEventListener(APP_UPDATE_EVENT,onUpdate);
     return ()=>window.removeEventListener(APP_UPDATE_EVENT,onUpdate);
   },[]);
+  // Correo de la sesión actual: solo el dueño de la app (Heriberto) ve el
+  // registro de usuarios de la app y el módulo Desarrollador; el servidor
+  // vuelve a verificarlo en cada consulta.
+  const [myEmail,setMyEmail]=useState("");
+  useEffect(()=>{ let alive=true; supabase.auth.getUser().then(({data:u})=>{ if(alive) setMyEmail((u.user?.email||"").trim().toLowerCase()); }).catch(()=>{}); return ()=>{ alive=false; }; },[]);
+  const isAppOwner = myEmail === "heribertocvazquez@gmail.com";
   const checkUpdatesManually=async()=>{
     setUpdateChecking(true); setUpdateCheckMsg(null);
     const r=await checkForAppUpdate();
@@ -666,9 +672,8 @@ export function App(){
   const meEarly = data ? (data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null) : null;
   const fbQuery=useQuery({queryKey:["testerFeedback"],queryFn:()=>api.listTesterFeedback({householdId:data!.household!.id}),enabled:!!data?.household && (!meEarly || meEarly.role==="admin")});
   // Registro de usuarios de la app: total y lista de quienes han entrado.
-  // Solo lo ve el administrador del hogar; el servidor vuelve a verificar
-  // el rol. Sin hogar, el dueño de la cuenta lo consulta sin householdId.
-  const appUsersQuery=useQuery({queryKey:["appUsers"],queryFn:()=>api.listAppUsers({householdId:data!.household!.id}),enabled:!!data?.household && (!meEarly || meEarly.role==="admin")});
+  // Solo lo ve el dueño de la app; el servidor vuelve a verificar el correo.
+  const appUsersQuery=useQuery({queryKey:["appUsers"],queryFn:()=>api.listAppUsers({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
   // Arqueos de efectivo: historial de recuentos guardados. Solo los
   // consulta el administrador del hogar; el servidor vuelve a verificar
   // el rol. Si la tabla aún no existe, la lista sale vacía.
@@ -2510,10 +2515,10 @@ export function App(){
                 </div>}
               </div>
             )}
-            {isAdmin && (
+            {isAppOwner && (
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
                 <h3 className="font-display font-bold">Usuarios de la app</h3>
-                <p className="text-xs text-[var(--dim)] mt-1">Quiénes han entrado a la app. Solo lo ve el administrador.</p>
+                <p className="text-xs text-[var(--dim)] mt-1">Quiénes han entrado a la app. Solo lo ve el dueño de la app.</p>
                 {appUsersQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando usuarios…</p>
                 : appUsersQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar los usuarios.</p>
                 : !appUsersQuery.data || appUsersQuery.data.total===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin usuarios todavía.</p>

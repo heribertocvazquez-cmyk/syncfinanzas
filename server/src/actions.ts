@@ -229,6 +229,14 @@ async function requireCashCountAdmin(ctx: Ctx, householdId: number) {
   if (!hh[0]) throw new Error("No se encontró el hogar indicado.");
   if (hh[0].mode === "familiar" && ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede hacer el arqueo de cuentas.");
 }
+// Dueño de la app: solo su cuenta puede ver la lista global de usuarios de
+// la app y las opiniones de los testers. Se verifica por correo y por id de
+// usuario en el servidor; ser administrador del hogar no basta.
+const APP_OWNER_EMAIL = "heribertocvazquez@gmail.com";
+const APP_OWNER_USER_ID = "88531f08-8ec9-4486-87d1-0f6a5d67b06d";
+function isAppOwner(ctx: Ctx): boolean {
+  return ctx.user.id === APP_OWNER_USER_ID || (ctx.user.email || "").trim().toLowerCase() === APP_OWNER_EMAIL;
+}
 const monthDiff = (fromYm: string, toYm: string) => { const a = ymParts(fromYm); const b = ymParts(toYm); return (b.y - a.y) * 12 + (b.m - a.m); };
 const ymAdd = (ym: string, n: number) => { const { y, m } = ymParts(ym); return ymOf(new Date(y, m - 1 + n, 1)); };
 const monthLabelEs = (ym: string) => { const { y, m } = ymParts(ym); return new Date(y, m - 1, 1).toLocaleDateString("es-MX", { month: "long", year: "numeric" }); };
@@ -2374,7 +2382,7 @@ export const Actions = {
     request: z.object({ householdId: z.number().optional() }),
     response: z.object({ total: z.number(), users: z.array(z.object({ id: z.string(), name: z.string().nullable(), email: z.string().nullable(), createdAt: z.string(), lastSignInAt: z.string().nullable() })) }),
     async handler(ctx) {
-      if (ctx.householdId != null && ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede revisar los usuarios de la app.");
+      if (!isAppOwner(ctx)) throw new Error("Solo el dueño de la app puede revisar los usuarios de la app.");
       const admin = supabaseAdmin();
       const all: { id: string; email?: string | null; created_at: string; last_sign_in_at?: string | null; user_metadata?: Record<string, unknown> }[] = [];
       let page = 1;

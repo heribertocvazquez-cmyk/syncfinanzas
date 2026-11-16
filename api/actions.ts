@@ -196,14 +196,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: "Falta el tipo o el identificador de la invitación." });
       }
     } else if (actionName === "listAppUsers") {
-      // Registro de usuarios de la app: con hogar, exige membresía (el rol
-      // de administrador lo verifica la propia acción); sin hogar, solo
-      // quien no pertenece a ningún hogar (el dueño de su propia cuenta).
+      // Registro de usuarios de la app: con hogar, exige membresía (que sea
+      // el dueño de la app lo verifica la propia acción); sin hogar, solo
+      // quien no pertenece a ningún hogar.
       if (typeof rawArgs.householdId === "number") {
         await requireMember(rawArgs.householdId);
       } else {
         const m = await firstMembership(db, user.id);
-        if (m) return res.status(403).json({ error: "Solo el administrador del hogar puede revisar los usuarios de la app." });
+        if (m) return res.status(403).json({ error: "Solo el dueño de la app puede revisar los usuarios de la app." });
       }
     } else if (typeof rawArgs.householdId === "number") {
       await requireMember(rawArgs.householdId);
