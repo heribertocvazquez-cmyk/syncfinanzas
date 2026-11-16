@@ -88,10 +88,23 @@ const ymParts = (ym: string) => { const [y = 2026, m = 1] = ym.split("-").map(Nu
 // activos (sin reversiones ni reversados), saldo inicial más movimientos por
 // cuenta, y el efectivo como los movimientos sin cuenta (unassignedNet).
 // El servidor calcula estos saldos: el cliente solo anota lo contado.
+// Restante del sueldo para el renglón de efectivo del arqueo: ingreso
+// registrado menos lo gastado en el mes en curso. En Personal es el sueldo
+// del perfil; en Familiar, el ingreso conjunto de los adultos. Si no hay
+// ingreso registrado, no hay restante que comparar y el efectivo se arquea
+// como antes, contra los movimientos sin cuenta.
+function salaryRemainingFor(mode: string, adults: { monthlyIncome: number }[], monthExpense: number) {
+  const income = mode === "personal" ? (adults[0]?.monthlyIncome ?? 0) : adults.reduce((s, p) => s + p.monthlyIncome, 0);
+  const salaryIncome = Math.round(income * 100) / 100;
+  const salarySpent = Math.round(monthExpense * 100) / 100;
+  return { salaryIncome, salarySpent, salaryRemaining: Math.round((salaryIncome - salarySpent) * 100) / 100, hasSalaryIncome: salaryIncome > 0 ? 1 : 0 };
+}
 async function appBalancesForHousehold(db: Ctx["db"], householdId: number) {
   const accountsR = await db.select().from(schema.accounts).where(eq(schema.accounts.householdId, householdId));
   const movsR = await db.select().from(schema.movements).where(eq(schema.movements.householdId, householdId));
   const fundMovsR = await db.select().from(schema.fundMovements).where(eq(schema.fundMovements.householdId, householdId));
+  const hhR = await db.select().from(schema.households).where(eq(schema.households.id, householdId)).limit(1);
+  const profsR = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, householdId));
   const reversedIds = new Set(movsR.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
   const activeMovs = movsR.filter(m => m.reversalOfId == null && !reversedIds.has(m.id));
   const rows = accountsR.map(a => {
@@ -111,7 +124,11 @@ async function appBalancesForHousehold(db: Ctx["db"], householdId: number) {
     return { accountId: a.id, accountName: a.name, appBalance: Math.round(bal * 100) / 100 };
   });
   const cashApp = Math.round(activeMovs.filter(m => m.accountId == null).reduce((s, m) => s + (m.type === "income" ? m.amount : (m.type === "expense" || m.type === "debt_payment") ? -m.amount : 0), 0) * 100) / 100;
-  return { rows, cashApp };
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthExpense = activeMovs.filter(m => m.date.startsWith(currentMonth) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0);
+  const salaryInfo = salaryRemainingFor(hhR[0]?.mode ?? "familiar", profsR.filter(p => p.kind === "adult"), monthExpense);
+  return { rows, cashApp, ...salaryInfo };
 }
 // Solo el administrador hace el arqueo en modo Familiar. En modo Personal
 // el único perfil es el dueño (administrador), así que no se restringe.
@@ -541,6 +558,7 @@ export const Actions = {
         totalBalance: z.number(), totalInFunds: z.number(), availableFree: z.number(),
         monthIncome: z.number(), monthExpense: z.number(), monthNet: z.number(),
         sharedExpenseMonth: z.number(), unassignedNet: z.number(), totalAssets: z.number(), totalLiabilities: z.number(), netWorth: z.number(),
+        salaryIncome: z.number(), salarySpent: z.number(), salaryRemaining: z.number(), hasSalaryIncome: z.number(),
         currentMonth: z.string(),
         contributions: z.array(z.object({ profileId: z.number(), name: z.string(), shouldPay: z.number(), capacity: z.number(), income: z.number(), pctShare: z.number() })),
         contributionsNote: z.string(), monthlySeries: z.array(z.object({ month: z.string(), label: z.string(), income: z.number(), expense: z.number() })),
@@ -559,7 +577,7 @@ export const Actions = {
       if (!hh) {
         return {
           household: null, profiles: [], invitations: [], accounts: [], categories: [], movements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
-          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, currentMonth: new Date().toISOString().slice(0,7), contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
+          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth: new Date().toISOString().slice(0,7), contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
         };
       }
       const hid = hh.id;
@@ -670,6 +688,9 @@ export const Actions = {
         }
         return { profileId: p.id, name: p.name, shouldPay: Math.round(share*100)/100, capacity: Math.round(capacity*100)/100, income: p.monthlyIncome, pctShare: Math.round(pctShare*10)/10 };
       });
+
+      // Restante del sueldo para el renglón de efectivo del arqueo.
+      const salaryInfo = salaryRemainingFor(hh.mode, adults, monthExpense);
 
 
 
@@ -850,6 +871,7 @@ export const Actions = {
           totalBalance: Math.round(totalBalance*100)/100, totalInFunds: Math.round(totalInFunds*100)/100, availableFree: Math.round((totalBalance-totalInFunds)*100)/100,
           monthIncome: Math.round(monthIncome*100)/100, monthExpense: Math.round(monthExpense*100)/100, monthNet: Math.round((monthIncome-monthExpense)*100)/100,
           sharedExpenseMonth: Math.round(baseForContributions*100)/100, unassignedNet, totalAssets, totalLiabilities, netWorth: totalAssets-totalLiabilities, currentMonth,
+          salaryIncome: salaryInfo.salaryIncome, salarySpent: salaryInfo.salarySpent, salaryRemaining: salaryInfo.salaryRemaining, hasSalaryIncome: salaryInfo.hasSalaryIncome,
           contributions, contributionsNote, monthlySeries,
         },
       };
@@ -2140,7 +2162,7 @@ export const Actions = {
   // despachador por membresía). Si falta correr supabase/cash-counts.sql,
   // guardar avisa y la lista sale vacía, sin romper la app.
   saveCashCount: defineAction({
-    description: "Guarda un arqueo de cuentas: compara lo contado en físico con el saldo que dice la app, por cada cuenta y en efectivo, y guarda la diferencia sin cambiar los saldos.",
+    description: "Guarda un arqueo de cuentas: compara lo contado en físico con el saldo que dice la app, por cada cuenta y en efectivo, y guarda la diferencia sin cambiar los saldos. El renglón de efectivo compara el restante del sueldo (ingreso registrado menos lo gastado en el mes) con lo contado en físico; si no hay ingreso registrado, se compara contra el saldo en efectivo según la app.",
     request: z.object({ householdId: z.number(), lines: z.array(z.object({ accountId: z.number().nullable(), counted: z.number().min(0).max(999999999) })).min(1).max(100), note: z.string().max(200).default("") }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
@@ -2154,10 +2176,10 @@ export const Actions = {
         const key = l.accountId == null ? "cash" : `acc-${l.accountId}`;
         if (seen.has(key)) throw new Error("Una cuenta aparece dos veces en el arqueo.");
         seen.add(key);
-        const appBalance = l.accountId == null ? balances.cashApp : byId.get(l.accountId)?.appBalance;
+        const appBalance = l.accountId == null ? (balances.hasSalaryIncome ? balances.salaryRemaining : balances.cashApp) : byId.get(l.accountId)?.appBalance;
         if (appBalance == null) throw new Error("Una de las cuentas no pertenece a este hogar.");
         const counted = Math.round(l.counted * 100) / 100;
-        return { accountId: l.accountId, accountName: l.accountId == null ? "Efectivo" : byId.get(l.accountId)!.accountName, appBalance, countedAmount: counted, difference: Math.round((counted - appBalance) * 100) / 100 };
+        return { accountId: l.accountId, accountName: l.accountId == null ? (balances.hasSalaryIncome ? "Efectivo (restante del sueldo)" : "Efectivo") : byId.get(l.accountId)!.accountName, appBalance, countedAmount: counted, difference: Math.round((counted - appBalance) * 100) / 100 };
       });
       const totalApp = Math.round(lines.reduce((s, l) => s + l.appBalance, 0) * 100) / 100;
       const totalCounted = Math.round(lines.reduce((s, l) => s + l.countedAmount, 0) * 100) / 100;
