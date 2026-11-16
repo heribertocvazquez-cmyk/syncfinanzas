@@ -98,14 +98,17 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 }
 
 const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
-function CategoryChart({data}:{data:{name:string;total:number;pct:number}[]}){
+type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
+// Gráfica de dona de gasto por categoría. Al tocar una rebanada o un rubro
+// de la leyenda se abre la vista rápida con los gastos de ese rubro.
+function CategoryChart({data,onSelect}:{data:CatSlice[];onSelect:(c:CatSlice)=>void}){
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const total=data.reduce((a,d)=>a+d.total,0);
-  return <div className="mt-2" role="img" aria-label="Gráfica de gasto por categoría">
-    <div className="relative mx-auto w-44 h-44">
+  return <div className="mt-2">
+    <div className="relative mx-auto w-44 h-44" role="img" aria-label="Gráfica de gasto por categoría. Toque una rebanada para ver sus gastos.">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none">
+          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" style={{cursor:"pointer"}} onClick={(_d,i)=>{ const c=data[i]; if(c) onSelect(c); }}>
             {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} />)}
           </Pie>
           <Tooltip formatter={(v)=>[`$${Number(v).toLocaleString("es-MX",{minimumFractionDigits:2})}`,"Gastado"]} />
@@ -118,10 +121,10 @@ function CategoryChart({data}:{data:{name:string;total:number;pct:number}[]}){
     </div>
     <div className="mt-2 space-y-2">
       {data.map((d,i)=>(
-        <div key={d.name}>
+        <button key={d.name} type="button" aria-label={`Ver los gastos de ${d.name}`} className="w-full text-left" onClick={()=>onSelect(d)}>
           <div className="flex justify-between gap-2 text-sm"><span className="inline-flex items-center gap-2 min-w-0" style={{color:DONUT_COLORS[i%DONUT_COLORS.length]}}><CatIcon name={d.name} size="sm" className="text-inherit" /><span className="text-[var(--text)] truncate">{d.name}</span></span><b className="shrink-0">{money(d.total)} · {d.pct}%</b></div>
           <div className="h-1.5 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className="h-full rounded-full" style={{width:`${Math.min(100,Math.max(0,d.pct))}%`, background:DONUT_COLORS[i%DONUT_COLORS.length]}} /></div>
-        </div>
+        </button>
       ))}
     </div>
   </div>;
@@ -706,6 +709,8 @@ export function App(){
 
   // goal
   const [goalName,setGoalName]=useState(""); const [goalTarget,setGoalTarget]=useState(""); const [goalDate,setGoalDate]=useState(""); const [goalSaved,setGoalSaved]=useState("0"); const [goalAdd,setGoalAdd]=useState<Record<number,string>>({}); const [quickBud,setQuickBud]=useState<number|null>(null); const [quickBudAmt,setQuickBudAmt]=useState(""); const [quickBudAcc,setQuickBudAcc]=useState(""); const [quickGoal,setQuickGoal]=useState<number|null>(null); const [quickGoalAmt,setQuickGoalAmt]=useState(""); const [quickGoalAcc,setQuickGoalAcc]=useState(""); const [quickPat,setQuickPat]=useState<number|null>(null); const [quickPatVal,setQuickPatVal]=useState("");
+  // Rubro seleccionado en la gráfica de dona, para su vista rápida.
+  const [catDetail,setCatDetail]=useState<CatSlice|null>(null);
   const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
   const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:()=>{inv();setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");setSavedNotice("Gasto registrado.");}});
@@ -1010,6 +1015,10 @@ export function App(){
   const guideStep3 = chartsSeen;
   const isAdmin = !me || me.role==="admin";
   const visibleMovs = data.movements.filter(m=> m.visibility==="shared" || (me ? (m.profileId===me.id || (m.profileId===null && me.role==="admin")) : true));
+  // Gastos del rubro seleccionado en la vista rápida: misma regla con la que
+  // el servidor arma el total de la rebanada (mes en curso, gasto o pago de
+  // deuda, sin reversados ni reversiones), para que la suma coincida.
+  const catDetailMovs = catDetail ? data.movements.filter(m=> m.date.startsWith(s.currentMonth) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && !m.reversalOfId && (m.categoryId??null)===(catDetail.categoryId??null)).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
   const getCatName=(id:number|null)=>data.categories.find(c=>c.id===id)?.name||"—";
   const getAccName=(id:number|null)=>data.accounts.find(a=>a.id===id)?.name||"Efectivo";
 
@@ -1144,7 +1153,8 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
-                <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total,pct:c.pct}))} />
+                <p className="text-xs text-[var(--dim)]">Toque un rubro para ver sus gastos.</p>
+                <CategoryChart data={data.personal.byCategory} onSelect={setCatDetail} />
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Ingresos vs gastos</h2>
@@ -1680,7 +1690,8 @@ export function App(){
               <div className="space-y-3">
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gasto por categoría</h2>
-                  <CategoryChart data={data.personal.byCategory.map(c=>({name:c.name,total:c.total,pct:c.pct}))} />
+                  <p className="text-xs text-[var(--dim)]">Toque un rubro para ver sus gastos.</p>
+                  <CategoryChart data={data.personal.byCategory} onSelect={setCatDetail} />
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante: <b>{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
@@ -2140,6 +2151,27 @@ export function App(){
             <PdfViewer src={guidePdf.src} ariaLabel={`Guía en PDF del segmento ${guidePdf.title}`} labels={{loading:"Cargando la guía…",loadError:"No fue posible cargar la guía. Verifique su conexión e inténtelo de nuevo.",pageError:"No fue posible mostrar esta página de la guía.",previousPage:"Página anterior",nextPage:"Página siguiente",pageIndicator:(p,t)=>`Página ${p} de ${t}`,navigationAriaLabel:"Navegación de páginas de la guía",pageAriaLabel:(p,t)=>`Página ${p} de ${t} de la guía`}} />
           </div>
           <p className="px-3 py-2.5 border-t border-[var(--border)] text-xs text-[var(--dim)]">Cierre con la ×.</p>
+        </div>
+      </div>}
+      {catDetail && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Gastos de ${catDetail.name} en ${s.currentMonth}`} onClick={()=>setCatDetail(null)}>
+        <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4" onClick={e=>e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">GASTOS DEL RUBRO · {s.currentMonth}</p>
+              <p className="font-display font-bold text-lg leading-tight flex items-center gap-2"><CatIcon name={catDetail.name} />{catDetail.name}</p>
+              <p className="text-sm text-[var(--dim)] mt-1">{catDetailMovs.length} gasto(s) · {catDetail.pct}% del gasto del mes</p>
+            </div>
+            <button type="button" aria-label="Cerrar la vista rápida del rubro" onClick={()=>setCatDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+          </div>
+          <p className="font-display text-2xl font-extrabold mt-2">{money2(catDetail.total)}</p>
+          <div className="mt-2">
+            {catDetailMovs.length===0 && <p className="text-sm text-[var(--dim)]">Sin gastos registrados en este rubro este mes.</p>}
+            {catDetailMovs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0">−{money(m.amount)}</b></div>)}
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setCatDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
+            <button type="button" className={btnGhost} onClick={()=>setCatDetail(null)}>Cerrar</button>
+          </div>
         </div>
       </div>}
       {receiptView && <div className="fixed inset-0 z-50 bg-black/85 flex flex-col items-center justify-center p-3" role="dialog" aria-label="Fotografía del comprobante en tamaño completo">
