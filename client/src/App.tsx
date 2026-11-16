@@ -762,6 +762,7 @@ export function App(){
   const [incExpDetail,setIncExpDetail]=useState<{kind:"income"|"expense";month:string;label:string}|null>(null);
   const [catDetail,setCatDetail]=useState<{categoryId:number|null;name:string;total:number;month:string}|null>(null);
   const [showBalanceBreakdown,setShowBalanceBreakdown]=useState(false);
+  const [showHomeMovs,setShowHomeMovs]=useState(false);
   const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
   const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:()=>{inv();setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");setSavedNotice("Gasto registrado.");}});
@@ -1233,20 +1234,22 @@ export function App(){
                 <h2 className="font-display font-bold">Ingresos vs gastos</h2>
                 <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
                 <p className="text-xs text-[var(--dim)]">Últimos 6 meses. Toque una barra de Ingresos o de Gastos para ver el detalle por cuenta.</p>
-                <button type="button" aria-label="Ver los movimientos completos desde Inicio" className={btnPrimary+" mt-3"} onClick={()=>goTab("movimientos")}>Ver movimientos completos</button>
               </div>
             </div>
             )}
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 mt-3">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="font-display font-bold">Movimientos</h2>
-                {data.movements.length>0 && <button type="button" aria-label="Ver todos los movimientos" className="text-sm font-bold underline shrink-0" onClick={()=>goTab("movimientos")}>Ver todos</button>}
+                {data.movements.length>0 && <button type="button" aria-expanded={showHomeMovs} aria-label={showHomeMovs?"Ocultar la lista de movimientos":"Ver la lista de movimientos"} className="text-sm font-bold underline shrink-0" onClick={()=>setShowHomeMovs(v=>!v)}>{showHomeMovs?"Ocultar movimientos":"Ver movimientos"}</button>}
               </div>
               {data.movements.length===0 ? (
-                <><p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p><button type="button" aria-label="Agregar movimiento" className={btnPrimary+" mt-2"} onClick={()=>openNewMovement("expense")}>+ Agregar movimiento</button></>
+                <><p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p><div className="flex gap-2 mt-3">
+                    <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
+                    <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
+                  </div></>
               ) : (
                 <>
-                  {visibleMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
+                  {showHomeMovs && visibleMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
                   <div className="flex gap-2 mt-3">
                     <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
                     <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
@@ -1683,10 +1686,14 @@ export function App(){
                 {isAdmin ? <div className="flex flex-wrap gap-2 mt-3"><input aria-label="Correo del invitado" type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={invEmail2} onChange={e=>setInvEmail2(e.target.value)} /><input aria-label="Nombre del invitado opcional" placeholder="Nombre (opcional, lo confirma él/ella)" className={inputCls+" flex-1 min-w-[160px]"} value={invName2} onChange={e=>setInvName2(e.target.value)} /><button aria-label="Enviar invitación al hogar" className={btnPrimary} onClick={()=>createInv.mutate()} disabled={!invEmail2 || createInv.isPending}>Invitar</button></div> : <p className="text-sm mt-2">Solo el administrador envía invitaciones.</p>}
                 {createInv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">{(createInv.data as {reused?:boolean})?.reused?"Se reutilizó la invitación pendiente.":"Invitación pendiente."}</p>}
                 {hhInvResult && (
-                  <div className="text-sm space-y-2 mt-2">
-                    {hhInvResult.emailSent
-                      ? <p className="text-[var(--green)]">Correo enviado.</p>
-                      : <><p className="text-[var(--red)]">Copie el enlace y envíelo usted:</p><p className="break-all bg-[var(--surface2)] rounded-xl p-2 text-xs">{hhInvResult.inviteUrl}</p><button type="button" className={btnGhost} onClick={()=>copyLink(hhInvResult.inviteUrl)}>{copiedLink===hhInvResult.inviteUrl?"Enlace copiado":"Copiar enlace"}</button></>}
+                  <div className="text-sm space-y-2 mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+                    <p className="font-bold">Enlace de invitación listo{hhInvResult.emailSent?" · también se envió el correo.":""}</p>
+                    <p className="break-all bg-[var(--surface)] border border-[var(--border)] rounded-xl p-2 text-xs">{hhInvResult.inviteUrl}</p>
+                    <div className="flex gap-2 flex-wrap">
+                      <button type="button" className={btnPrimary+" flex-1"} onClick={()=>copyLink(hhInvResult.inviteUrl)}>{copiedLink===hhInvResult.inviteUrl?"Enlace copiado":"Copiar enlace"}</button>
+                      <a className={btnGhost+" flex-1 flex items-center justify-center text-center"} href={`https://wa.me/?text=${encodeURIComponent(`Te invito a SyncFinanzas, para llevar el dinero del hogar: ${hhInvResult.inviteUrl}`)}`} target="_blank" rel="noreferrer">Compartir por WhatsApp</a>
+                    </div>
+                    {!hhInvResult.emailConfigured && <p className="text-xs text-[var(--dim)]">El correo no está configurado; comparta el enlace por WhatsApp.</p>}
                   </div>
                 )}
                 {createInv.error && <p className="text-sm text-[var(--red)] mt-2">{String(createInv.error)}</p>}
@@ -1694,7 +1701,7 @@ export function App(){
                   {data.invitations.map(iv=>(
                     <div key={iv.id} className="py-2.5 text-sm">
                       <div className="flex justify-between gap-2 flex-wrap"><span><b>{iv.email}</b>{iv.invitedName?` · ${iv.invitedName}`:""}</span><span className={`text-xs font-bold rounded-full px-2 py-0.5 ${iv.status==="accepted"?"bg-green-100 text-green-800":iv.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{iv.status==="accepted"?"Aceptada":iv.status==="rejected"?"Rechazada":"Pendiente"}</span></div>
-                      {iv.status==="pending" && <div className="mt-2 space-y-2"><div className="grid grid-cols-2 gap-2"><input aria-label={`Nombre de quien acepta ${iv.email}`} placeholder="Su nombre" className={inputCls} value={acceptFirst[iv.id]||iv.invitedName||""} onChange={e=>setAcceptFirst({...acceptFirst,[iv.id]:e.target.value})} /><input aria-label={`Apellido de quien acepta ${iv.email}`} placeholder="Su apellido" className={inputCls} value={acceptLast[iv.id]||""} onChange={e=>setAcceptLast({...acceptLast,[iv.id]:e.target.value})} /></div><div className="flex gap-2 flex-wrap"><button aria-label={`Aceptar invitación de ${iv.email}`} className={btnPrimary} onClick={()=>respondInv2.mutate({id:iv.id,accept:true})}>Aceptar y entrar</button><button aria-label={`Rechazar invitación de ${iv.email}`} className={btnGhost} onClick={()=>respondInv2.mutate({id:iv.id,accept:false})}>Rechazar</button>{isAdmin && <><button aria-label={`Reenviar invitación a ${iv.email}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"household",invitationId:iv.id})}>Reenviar correo</button><button aria-label={`Borrar invitación de ${iv.email}`} className="text-xs underline text-[var(--red)]" onClick={()=>delInv.mutate(iv.id)}>Borrar</button></>}</div></div>}
+                      {iv.status==="pending" && <div className="mt-2 space-y-2"><div className="grid grid-cols-2 gap-2"><input aria-label={`Nombre de quien acepta ${iv.email}`} placeholder="Su nombre" className={inputCls} value={acceptFirst[iv.id]||iv.invitedName||""} onChange={e=>setAcceptFirst({...acceptFirst,[iv.id]:e.target.value})} /><input aria-label={`Apellido de quien acepta ${iv.email}`} placeholder="Su apellido" className={inputCls} value={acceptLast[iv.id]||""} onChange={e=>setAcceptLast({...acceptLast,[iv.id]:e.target.value})} /></div><div className="flex gap-2 flex-wrap"><button aria-label={`Aceptar invitación de ${iv.email}`} className={btnPrimary} onClick={()=>respondInv2.mutate({id:iv.id,accept:true})}>Aceptar y entrar</button><button aria-label={`Rechazar invitación de ${iv.email}`} className={btnGhost} onClick={()=>respondInv2.mutate({id:iv.id,accept:false})}>Rechazar</button>{isAdmin && <><button aria-label={`Reenviar invitación a ${iv.email}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"household",invitationId:iv.id})} disabled={resendInv.isPending}>{resendInv.isPending?"Reenviando…":"Reenviar invitación"}</button><button aria-label={`Borrar invitación de ${iv.email}`} className="text-xs underline text-[var(--red)]" onClick={()=>delInv.mutate(iv.id)}>Borrar</button></>}</div></div>}
                     </div>
                   ))}
                   {data.invitations.length===0 && <p className="text-sm text-[var(--dim)] py-2">Sin invitaciones registradas.</p>}
