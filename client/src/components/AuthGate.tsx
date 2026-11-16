@@ -111,6 +111,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
         const { error: err } = await supabase.auth.updateUser({ password });
         if (err) throw new Error("No se pudo restablecer la contraseña. Solicite un enlace nuevo.");
         setInfo("Su contraseña se restableció. Ya puede iniciar sesión.");
+        // El token de recuperación ya se usó: se quita del enlace para que
+        // al recargar no se vuelva a entrar en modo de recuperación con un
+        // token consumido.
+        try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch { /* sin historial disponible */ }
         setMode("login");
         setPassword("");
         return;

@@ -81,9 +81,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (mode === "forgot") {
       // Se envía el correo de recuperación aunque el correo no exista: el
       // mensaje es el mismo para no revelar si la cuenta existe.
-      const origin = (req.headers.origin as string | undefined) ?? "";
+      // El enlace debe volver SIEMPRE a la app desplegada. El correo de
+      // Supabase se construye sobre la Site URL del panel (si sigue en
+      // http://localhost:3000, el enlace abre localhost en el teléfono y
+      // falla); el redirectTo solo decide a dónde vuelve tras verificar el
+      // token. Por eso no se toma del origen de la petición (una vista
+      // previa o el desarrollo local mandarían el enlace a otro lado): se
+      // usa APP_URL (documentada en el README) con el dominio de
+      // producción como valor fijo si no está configurada.
+      const siteUrl = (process.env.APP_URL?.replace(/\/$/, "")) || "https://syncfinanzas.vercel.app";
       await supabaseAnon().auth.resetPasswordForEmail(email, {
-        redirectTo: origin ? `${origin}/` : undefined,
+        redirectTo: `${siteUrl}/`,
       });
       return res.status(200).json({ ok: true, message: "Si el correo está registrado, recibirá un enlace para restablecer su contraseña." });
     }
