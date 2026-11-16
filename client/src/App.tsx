@@ -688,6 +688,10 @@ export function App(){
   const [tokenDone,setTokenDone]=useState(false);
   const [copiedLink,setCopiedLink]=useState("");
   const copyLink=async(url:string)=>{ try{ await navigator.clipboard.writeText(url); setCopiedLink(url); }catch{ try{ const t=document.createElement("textarea"); t.value=url; document.body.appendChild(t); t.select(); document.execCommand("copy"); document.body.removeChild(t); setCopiedLink(url); }catch{} } };
+  // Mensaje de invitación: el enlace real (un solo uso, con token) va primero
+  // y visible, seguido de los pasos para entrar. El mismo mensaje se copia
+  // y se comparte por WhatsApp.
+  const inviteMessage=(url:string)=>`${url}\nLe invito a SyncFinanzas, la app para llevar el dinero del hogar.\nPara entrar:\n1. Abra este enlace.\n2. Cree su cuenta con su correo y una contraseña.\n3. Acepte la invitación y entre al hogar.`;
   useEffect(()=>{
     const token = readInviteToken();
     if (!token) return;
@@ -1690,8 +1694,8 @@ export function App(){
                     <p className="font-bold">Enlace de invitación listo{hhInvResult.emailSent?" · también se envió el correo.":""}</p>
                     <p className="break-all bg-[var(--surface)] border border-[var(--border)] rounded-xl p-2 text-xs">{hhInvResult.inviteUrl}</p>
                     <div className="flex gap-2 flex-wrap">
-                      <button type="button" className={btnPrimary+" flex-1"} onClick={()=>copyLink(hhInvResult.inviteUrl)}>{copiedLink===hhInvResult.inviteUrl?"Enlace copiado":"Copiar enlace"}</button>
-                      <a className={btnGhost+" flex-1 flex items-center justify-center text-center"} href={`https://wa.me/?text=${encodeURIComponent(`Te invito a SyncFinanzas, para llevar el dinero del hogar: ${hhInvResult.inviteUrl}`)}`} target="_blank" rel="noreferrer">Compartir por WhatsApp</a>
+                      <button type="button" className={btnPrimary+" flex-1"} onClick={()=>copyLink(inviteMessage(hhInvResult.inviteUrl))}>{copiedLink===inviteMessage(hhInvResult.inviteUrl)?"Invitación copiada":"Copiar invitación"}</button>
+                      <a className={btnGhost+" flex-1 flex items-center justify-center text-center"} href={`https://wa.me/?text=${encodeURIComponent(inviteMessage(hhInvResult.inviteUrl))}`} target="_blank" rel="noreferrer">Compartir por WhatsApp</a>
                     </div>
                     {!hhInvResult.emailConfigured && <p className="text-xs text-[var(--dim)]">El correo no está configurado; comparta el enlace por WhatsApp.</p>}
                   </div>
