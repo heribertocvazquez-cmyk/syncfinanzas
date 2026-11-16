@@ -639,8 +639,9 @@ export function App(){
   const handleInstallClick=()=>{ if(installPrompt){ void doInstall(); } else { setInstallStepsOpen(true); } };
   const dismissInstall=()=>{ setInstallDismissed(true); try{ localStorage.setItem("sf-install-dismissed","1"); }catch{} };
   // Aviso de actualización: cuando el service worker nuevo queda en espera,
-  // la app muestra el aviso con el botón Actualizar. Al actualizar solo
-  // cambia el código; la sesión y los datos no se tocan.
+  // la app muestra el aviso con el botón Actualizar (pancarta arriba de
+  // Inicio y entrada en la campanilla). Al actualizar solo cambia el código;
+  // la sesión y los datos no se tocan.
   const [darkMode,setDarkMode]=useState(()=>{ try{ return document.documentElement.classList.contains("dark"); }catch{ return false; } });
   const toggleTheme=()=>{ const next=!darkMode; setDarkMode(next); try{ localStorage.setItem("sf-theme", next?"dark":"light"); }catch{} try{ document.documentElement.classList.toggle("dark", next); }catch{} };
   const [updateAvailable,setUpdateAvailable]=useState(false); const [updateApplying,setUpdateApplying]=useState(false); const [updateChecking,setUpdateChecking]=useState(false); const [updateCheckMsg,setUpdateCheckMsg]=useState<string|null>(null);
@@ -691,6 +692,12 @@ export function App(){
   // vacía y nada se rompe.
   const notifQuery=useQuery({queryKey:["notifications"],queryFn:()=>api.listNotifications({householdId:data!.household!.id}),enabled:!!data?.household});
   const unreadCount=notifQuery.data?.unreadCount??0;
+  // La campanilla también avisa de una versión nueva en espera: cuenta como
+  // un aviso sin leer más, para llegar a Actualizar sin subir hasta arriba.
+  const bellCount = unreadCount + (updateAvailable ? 1 : 0);
+  const bellLabel = updateAvailable
+    ? (unreadCount>0 ? `Notificaciones: ${unreadCount} sin leer y una nueva versión disponible` : "Notificaciones: hay una nueva versión disponible")
+    : (unreadCount>0 ? `Notificaciones: ${unreadCount} sin leer` : "Notificaciones");
   const [notifOpen,setNotifOpen]=useState(false);
   const markNotifRead=useMutation({mutationFn:async(id:number)=>await api.markNotificationRead({id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
   const markAllNotifRead=useMutation({mutationFn:async()=>await api.markAllNotificationsRead({householdId:data!.household!.id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
@@ -1430,9 +1437,9 @@ export function App(){
                   <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
                 )}
               </button>
-              <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={unreadCount>0?`Notificaciones: ${unreadCount} sin leer`:"Notificaciones"} onClick={()=>setNotifOpen(o=>!o)}>
+              <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={bellLabel} onClick={()=>setNotifOpen(o=>!o)}>
                 <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-                {unreadCount>0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-[var(--red)] text-white text-[11px] font-bold flex items-center justify-center">{unreadCount>99?"99+":unreadCount}</span>}
+                {bellCount>0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-[var(--red)] text-white text-[11px] font-bold flex items-center justify-center">{bellCount>99?"99+":bellCount}</span>}
               </button>
               {!appInstalled && <button type="button" className={btnGhost + " max-sm:px-2.5 max-sm:text-xs"} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
               <button className={btnGhost + " max-sm:px-2.5 max-sm:text-xs"} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>Demo</button>
@@ -1467,7 +1474,14 @@ export function App(){
               </div>
             </div>
             {notifQuery.isPending && <p className="text-sm text-[var(--dim)] mt-2">Cargando avisos…</p>}
-            {notifQuery.data && notifQuery.data.notifications.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Sin avisos por ahora.</p>}
+            {notifQuery.data && notifQuery.data.notifications.length===0 && !updateAvailable && <p className="text-sm text-[var(--dim)] mt-2">Sin avisos por ahora.</p>}
+            {updateAvailable && (
+              <div className="mt-2 rounded-xl border-2 border-[var(--gold)] bg-[var(--surface2)] p-3" role="status">
+                <p className="text-sm font-bold">Hay una nueva versión de la app</p>
+                <p className="text-sm text-[var(--dim)] mt-0.5">Actualice para ver los últimos cambios. Su cuenta y sus datos no cambian.</p>
+                <button type="button" className={btnPrimary+" mt-2"} disabled={updateApplying} onClick={()=>{ setUpdateApplying(true); applyAppUpdate(); }}>{updateApplying?"Actualizando…":"Actualizar ahora"}</button>
+              </div>
+            )}
             <ul className="mt-2 space-y-2">
               {notifQuery.data?.notifications.map(n=>(
                 <li key={n.id}>
