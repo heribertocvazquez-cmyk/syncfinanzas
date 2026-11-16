@@ -1,4 +1,4 @@
--- SyncFinanzas — Arqueo de efectivo (auditoría).
+-- SyncFinanzas — Arqueo de cuentas (auditoría).
 -- Cómo aplicarlo: en Supabase, abra SQL Editor > New query, pegue TODO este
 -- archivo y pulse Run. Puede ejecutarse dos veces sin duplicar nada.
 -- Debe ejecutarse ANTES de guardar un arqueo. Sin este archivo, la app

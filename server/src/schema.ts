@@ -350,7 +350,7 @@ export const goalPlans = pgTable("goal_plans", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
-// Arqueo de efectivo (auditoría): recuento de lo que dice la app contra lo
+// Arqueo de cuentas (auditoría): recuento de lo que dice la app contra lo
 // contado en físico, por cada cuenta y en efectivo. El arqueo solo muestra
 // la diferencia; nunca cambia los saldos. Las tablas se crean con
 // supabase/cash-counts.sql; RLS con denegación total, solo service_role.

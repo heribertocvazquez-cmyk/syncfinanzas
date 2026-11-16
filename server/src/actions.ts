@@ -79,7 +79,7 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
 // Meses en formato YYYY-MM; las fechas de movimientos son YYYY-MM-DD.
 const ymOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 const ymParts = (ym: string) => { const [y = 2026, m = 1] = ym.split("-").map(Number); return { y, m }; };
-// ---- Arqueo de efectivo (auditoría) ----
+// ---- Arqueo de cuentas (auditoría) ----
 // Saldos que dice la app, con la misma lógica que getOverview: movimientos
 // activos (sin reversiones ni reversados), saldo inicial más movimientos por
 // cuenta, y el efectivo como los movimientos sin cuenta (unassignedNet).
@@ -114,7 +114,7 @@ async function appBalancesForHousehold(db: Ctx["db"], householdId: number) {
 async function requireCashCountAdmin(ctx: Ctx, householdId: number) {
   const hh = await ctx.db.select().from(schema.households).where(eq(schema.households.id, householdId)).limit(1);
   if (!hh[0]) throw new Error("No se encontró el hogar indicado.");
-  if (hh[0].mode === "familiar" && ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede hacer el arqueo de efectivo.");
+  if (hh[0].mode === "familiar" && ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede hacer el arqueo de cuentas.");
 }
 const monthDiff = (fromYm: string, toYm: string) => { const a = ymParts(fromYm); const b = ymParts(toYm); return (b.y - a.y) * 12 + (b.m - a.m); };
 const ymAdd = (ym: string, n: number) => { const { y, m } = ymParts(ym); return ymOf(new Date(y, m - 1 + n, 1)); };
@@ -1669,7 +1669,7 @@ export const Actions = {
       return { total: users.length, users };
     },
   }),
-  // Arqueo de efectivo (auditoría): recuento de lo que dice la app contra
+  // Arqueo de cuentas (auditoría): recuento de lo que dice la app contra
   // lo contado en físico, por cada cuenta y en efectivo. El arqueo solo
   // muestra la diferencia; nunca cambia los saldos. Las líneas se guardan
   // con el saldo que decía la app al momento del arqueo. Solo el
@@ -1677,7 +1677,7 @@ export const Actions = {
   // despachador por membresía). Si falta correr supabase/cash-counts.sql,
   // guardar avisa y la lista sale vacía, sin romper la app.
   saveCashCount: defineAction({
-    description: "Guarda un arqueo de efectivo: compara lo contado en físico con el saldo que dice la app, por cada cuenta y en efectivo, y guarda la diferencia sin cambiar los saldos.",
+    description: "Guarda un arqueo de cuentas: compara lo contado en físico con el saldo que dice la app, por cada cuenta y en efectivo, y guarda la diferencia sin cambiar los saldos.",
     request: z.object({ householdId: z.number(), lines: z.array(z.object({ accountId: z.number().nullable(), counted: z.number().min(0).max(999999999) })).min(1).max(100), note: z.string().max(200).default("") }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
@@ -1709,7 +1709,7 @@ export const Actions = {
         if (e instanceof Error && /does not exist/i.test(e.message)) throw new Error("Para guardar el arqueo, primero ejecute supabase/cash-counts.sql en el SQL Editor de Supabase.");
         throw e;
       }
-      await logActivity(ctx, args.householdId, "Arqueo de efectivo", `Diferencia total ${moneyShort(totalDiff)}`);
+      await logActivity(ctx, args.householdId, "Arqueo de cuentas", `Diferencia total ${moneyShort(totalDiff)}`);
       ctx.invalidateQueries();
       return { ok: true, id: countId };
     },
