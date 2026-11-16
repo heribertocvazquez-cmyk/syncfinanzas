@@ -101,10 +101,9 @@ const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D",
 type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
 // Gráfica de dona de gasto por categoría. La dona solo muestra el gasto del
 // mes y al tocarla no se abre ningún detalle; los movimientos de cada rubro
-// se ven al tocar su renglón en la lista de abajo, que se despliega ahí mismo.
-type ChartMovement = {id:number;concept:string;amount:number;categoryId:number|null;date:string;type:string;isReversed:boolean;reversalOfId:number|null};
-function CategoryChart({data, movements, month}:{data:CatSlice[]; movements:ChartMovement[]; month:string}){
-  const [openCat,setOpenCat]=useState<string|null>(null);
+// se ven al tocar su renglón en la lista de abajo, que abre una vista aparte
+// (ventana con desplazamiento propio, como el detalle de ingresos vs gastos).
+function CategoryChart({data, onSelect}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void}){
   if(data.length===0) return <p className="text-sm text-[var(--dim)] mt-2">Sin gastos este mes.</p>;
   const total=data.reduce((a,d)=>a+d.total,0);
   return <div className="mt-2">
@@ -125,23 +124,12 @@ function CategoryChart({data, movements, month}:{data:CatSlice[]; movements:Char
     <p className="text-xs text-[var(--dim)] mt-2">Toque un rubro para ver sus gastos.</p>
     <div className="mt-2 space-y-2">
       {data.map((d,i)=>{
-        const key = String(d.categoryId ?? "none");
-        const items = movements.filter(m=>(m.categoryId??null)===d.categoryId && m.date.startsWith(month) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && m.reversalOfId==null).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id);
-        const isOpen = openCat===key;
         return (
         <div key={d.name} className="w-full text-left">
-          <button type="button" aria-expanded={isOpen} aria-label={`${isOpen?"Ocultar":"Ver"} los gastos de ${d.name}`} className="w-full text-left" onClick={()=>setOpenCat(isOpen?null:key)}>
-            <div className="flex justify-between gap-2 text-sm"><span className="inline-flex items-center gap-2 min-w-0" style={{color:DONUT_COLORS[i%DONUT_COLORS.length]}}><CatIcon name={d.name} size="sm" className="text-inherit" /><span className="text-[var(--text)] truncate">{d.name}</span></span><b className="shrink-0">{money(d.total)} · {d.pct}% {isOpen?"▾":"▸"}</b></div>
+          <button type="button" aria-label={`Ver los gastos de ${d.name}`} className="w-full text-left" onClick={()=>onSelect(d)}>
+            <div className="flex justify-between gap-2 text-sm"><span className="inline-flex items-center gap-2 min-w-0" style={{color:DONUT_COLORS[i%DONUT_COLORS.length]}}><CatIcon name={d.name} size="sm" className="text-inherit" /><span className="text-[var(--text)] truncate">{d.name}</span></span><b className="shrink-0">{money(d.total)} · {d.pct}% ▸</b></div>
             <div className="h-1.5 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className="h-full rounded-full" style={{width:`${Math.min(100,Math.max(0,d.pct))}%`, background:DONUT_COLORS[i%DONUT_COLORS.length]}} /></div>
           </button>
-          {isOpen && (
-            <div className="mt-2 ml-1 border-l-2 pl-3 space-y-1" style={{borderColor:DONUT_COLORS[i%DONUT_COLORS.length]}}>
-              {items.length===0 ? <p className="text-sm text-[var(--dim)]">Sin gastos registrados en este rubro.</p> : items.map(m=>(
-                <div key={m.id} className="flex justify-between gap-2 py-1 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}</span></span><b className="shrink-0">−{money(m.amount)}</b></div>
-              ))}
-              <p className="text-sm pt-1">Total del rubro: <b>{money2(d.total)}</b> · {items.length} gasto(s)</p>
-            </div>
-          )}
         </div>
         );
       })}
@@ -731,6 +719,7 @@ export function App(){
   const [goalName,setGoalName]=useState(""); const [goalTarget,setGoalTarget]=useState(""); const [goalDate,setGoalDate]=useState(""); const [goalSaved,setGoalSaved]=useState("0"); const [goalAdd,setGoalAdd]=useState<Record<number,string>>({}); const [quickBud,setQuickBud]=useState<number|null>(null); const [quickBudAmt,setQuickBudAmt]=useState(""); const [quickBudAcc,setQuickBudAcc]=useState(""); const [quickGoal,setQuickGoal]=useState<number|null>(null); const [quickGoalAmt,setQuickGoalAmt]=useState(""); const [quickGoalAcc,setQuickGoalAcc]=useState(""); const [quickPat,setQuickPat]=useState<number|null>(null); const [quickPatVal,setQuickPatVal]=useState("");
   // Detalle de la gráfica de ingresos vs gastos: tipo y mes tocados.
   const [incExpDetail,setIncExpDetail]=useState<{kind:"income"|"expense";month:string;label:string}|null>(null);
+  const [catDetail,setCatDetail]=useState<{categoryId:number|null;name:string;total:number;month:string}|null>(null);
   const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
   const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:()=>{inv();setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");setSavedNotice("Gasto registrado.");}});
@@ -1039,6 +1028,7 @@ export function App(){
   // servidor arma las barras (mes tocado, ingreso o gasto/pago de deuda, sin
   // reversados ni reversiones), para que la suma coincida con la barra.
   const incExpMovs = incExpDetail ? data.movements.filter(m=> m.date.startsWith(incExpDetail.month) && !m.isReversed && !m.reversalOfId && (incExpDetail.kind==="income" ? m.type==="income" : (m.type==="expense"||m.type==="debt_payment"))).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
+  const catDetailMovs = catDetail ? data.movements.filter(m=> (m.categoryId??null)===catDetail.categoryId && m.date.startsWith(catDetail.month) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && m.reversalOfId==null).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
   const getCatName=(id:number|null)=>data.categories.find(c=>c.id===id)?.name||"—";
   const getAccName=(id:number|null)=>data.accounts.find(a=>a.id===id)?.name||"Efectivo";
   const incExpByAcc: {key:string;name:string;total:number;movs:typeof incExpMovs}[] = (()=>{ const groups=new Map<string,{name:string;total:number;movs:typeof incExpMovs}>(); for(const m of incExpMovs){ const key=m.accountId==null?"efectivo":`cta-${m.accountId}`; const g=groups.get(key) ?? {name:getAccName(m.accountId),total:0,movs:[]}; g.total+=m.amount; g.movs.push(m); groups.set(key,g); } return [...groups.entries()].map(([key,g])=>({key,...g})).sort((a,b)=>b.total-a.total); })();
@@ -1175,7 +1165,7 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-3 mt-3">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
-                                <CategoryChart data={data.personal.byCategory} movements={data.movements} month={s.currentMonth} />
+                                <CategoryChart data={data.personal.byCategory} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                 <h2 className="font-display font-bold">Ingresos vs gastos</h2>
@@ -1711,7 +1701,7 @@ export function App(){
               <div className="space-y-3">
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
                   <h2 className="font-display font-bold">Gasto por categoría</h2>
-                                    <CategoryChart data={data.personal.byCategory} movements={data.movements} month={s.currentMonth} />
+                                    <CategoryChart data={data.personal.byCategory} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante: <b>{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
@@ -2194,6 +2184,27 @@ export function App(){
           <div className="flex gap-2 mt-4">
             <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setIncExpDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
             <button type="button" className={btnGhost} onClick={()=>setIncExpDetail(null)}>Cerrar</button>
+          </div>
+        </div>
+      </div>}
+      {catDetail && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Gastos de ${catDetail.name} de ${fmtMonth(catDetail.month)}`} onClick={()=>setCatDetail(null)}>
+        <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4" onClick={e=>e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">GASTOS · {fmtMonth(catDetail.month).toUpperCase()}</p>
+              <p className="font-display font-bold text-lg leading-tight">Gastos de {catDetail.name}</p>
+              <p className="text-sm text-[var(--dim)] mt-1">{catDetailMovs.length} gasto(s)</p>
+            </div>
+            <button type="button" aria-label="Cerrar los gastos del rubro" onClick={()=>setCatDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+          </div>
+          <p className="font-display text-2xl font-extrabold mt-2">−{money2(catDetail.total)}</p>
+          <div className="mt-2">
+            {catDetailMovs.length===0 && <p className="text-sm text-[var(--dim)]">Sin gastos registrados en este rubro.</p>}
+            {catDetailMovs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0">−{money(m.amount)}</b></div>)}
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setCatDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
+            <button type="button" className={btnGhost} onClick={()=>setCatDetail(null)}>Cerrar</button>
           </div>
         </div>
       </div>}
