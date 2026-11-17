@@ -213,9 +213,12 @@ function CategoryChart({data, onSelect, detailOpen, palette, large, reserveLine,
 // conserva el comportamiento anterior): leyenda como texto con punto de
 // color (las barras siguen siendo táctiles), meses sin datos atenuados al
 // 40%, mes actual con etiqueta «nov · actual» y eje ajustado al máximo real.
-function MonthlyChart({series,currentMonth,onSelect,inicio}:{series:{month:string;label:string;income:number;expense:number}[];currentMonth:string;onSelect:(kind:"income"|"expense",month:string,label:string)=>void;inicio?:boolean}){
+function MonthlyChart({series,currentMonth,todayMonth,onSelect,inicio}:{series:{month:string;label:string;income:number;expense:number}[];currentMonth:string;todayMonth:string;onSelect:(kind:"income"|"expense",month:string,label:string)=>void;inicio?:boolean}){
   const data=series.map(x=>({label:x.label, month:x.month, Ingresos:x.income, Gastos:x.expense}));
   const curMonth=data.find(d=>d.month===currentMonth) ?? data[data.length-1];
+  // «· actual» marca el mes real en curso, no el mes que muestra el tablero
+  // (si se ve un mes pasado, la etiqueta no aparece en ningún mes).
+  const todayEntry=data.find(d=>d.month===todayMonth);
   const allZero=data.every(d=>d.Ingresos===0&&d.Gastos===0);
   const isEmptyMonth=(d:{Ingresos:number;Gastos:number})=>d.Ingresos===0&&d.Gastos===0;
   if(allZero) return <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>;
@@ -223,7 +226,7 @@ function MonthlyChart({series,currentMonth,onSelect,inicio}:{series:{month:strin
     <ResponsiveContainer width="100%" height={170}>
       <BarChart data={data} margin={{left:0,right:8,top:10,bottom:4}} barCategoryGap="30%" barGap={6}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-        <XAxis dataKey="label" tick={{fontSize:12, fill:"var(--text)"}} tickFormatter={(v:string)=> inicio && curMonth && v===curMonth.label ? `${v} · actual` : v} axisLine={{stroke:"var(--border)"}} tickLine={false} />
+        <XAxis dataKey="label" tick={{fontSize:12, fill:"var(--text)"}} tickFormatter={(v:string)=> inicio && todayEntry && v===todayEntry.label ? `${v} · actual` : v} axisLine={{stroke:"var(--border)"}} tickLine={false} />
         <YAxis domain={inicio ? [0, "dataMax"] : undefined} tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize: inicio?12:11, fill:"var(--dim)"}} width={56} axisLine={false} tickLine={false} />
         <Legend content={()=> inicio ? (<div className="flex justify-center gap-4 text-xs mt-1"><span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1B7A4D]" />Ingresos</span><span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#B42318]" />Gastos</span></div>) : (<div className="flex justify-center gap-4 text-xs mt-1"><button type="button" aria-label={`Ver de dónde vienen los ingresos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("income",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1B7A4D]" />Ingresos</button><button type="button" aria-label={`Ver de dónde salieron los gastos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("expense",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#B42318]" />Gastos</button></div>)} />
         <Bar dataKey="Ingresos" fill="#1B7A4D" radius={[6,6,0,0]} maxBarSize={26} style={{cursor:"pointer"}} onClick={(d:any)=>{ const p=d?.payload ?? d; if(p?.month) onSelect("income",p.month,p.label); }}>
@@ -235,6 +238,38 @@ function MonthlyChart({series,currentMonth,onSelect,inicio}:{series:{month:strin
       </BarChart>
     </ResponsiveContainer>
   </div>;
+}
+// Selector de mes y año (tarjeta Movimientos): el mes elegido es el mes
+// que muestra el tablero. La ventanita se cierra al elegir un mes, con
+// Escape o al tocar fuera.
+const MONTH_SHORT = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+function MonthPicker({value,onChange}:{value:string;onChange:(ym:string)=>void}){
+  const [open,setOpen]=useState(false);
+  const [year,setYear]=useState(()=>Number(value.slice(0,4))||new Date().getFullYear());
+  const todayMonth=todayISO().slice(0,7);
+  useEffect(()=>{ if(!open) return; const onKey=(e:KeyboardEvent)=>{ if(e.key==="Escape") setOpen(false); }; document.addEventListener("keydown",onKey); return ()=>document.removeEventListener("keydown",onKey); },[open]);
+  const pick=(m:number)=>{ onChange(`${year}-${String(m+1).padStart(2,"0")}`); setOpen(false); };
+  return (
+    <div className="relative shrink-0">
+      <button type="button" aria-label={`Cambiar el mes, actualmente ${fmtMonth(value)}`} aria-haspopup="dialog" aria-expanded={open} onClick={()=>{ setYear(Number(value.slice(0,4))); setOpen(o=>!o); }} className="rounded-full border border-[var(--gold)] text-[var(--gold-text)] px-3 py-1.5 text-[13px] font-bold whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
+        {fmtMonth(value)} <svg aria-hidden="true" className="inline w-3.5 h-3.5 -mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      {open && (<>
+        <div aria-hidden="true" className="fixed inset-0 z-40" onClick={()=>setOpen(false)} />
+        <div role="dialog" aria-label="Elegir mes y año" className="absolute right-0 top-full mt-2 z-50 w-[272px] rounded-2xl border border-[var(--gold)] bg-[var(--surface)] p-4 shadow-2xl">
+          <div className="flex items-center justify-between">
+            <button type="button" aria-label={`Año anterior, ${year-1}`} onClick={()=>setYear(y=>y-1)} className="w-9 h-9 rounded-full border border-[var(--border)] font-bold text-lg leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">‹</button>
+            <span className="font-display text-2xl font-extrabold text-[var(--gold-text)]">{year}</span>
+            <button type="button" aria-label={`Año siguiente, ${year+1}`} onClick={()=>setYear(y=>y+1)} className="w-9 h-9 rounded-full border border-[var(--border)] font-bold text-lg leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">›</button>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mt-3">
+            {MONTH_SHORT.map((label,m)=>{ const ym=`${year}-${String(m+1).padStart(2,"0")}`; const selected=ym===value; return <button key={label} type="button" aria-label={`${label} de ${year}`} aria-pressed={selected} autoFocus={selected} onClick={()=>pick(m)} className={`rounded-xl py-2 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${selected?"bg-[#E8B84A] text-[#13262E]":"bg-[var(--surface2)]"}`}>{label}</button>; })}
+          </div>
+          {value!==todayMonth && <button type="button" className="text-[13px] font-bold underline mt-3" onClick={()=>{ onChange(todayMonth); setOpen(false); }}>Ver el mes actual</button>}
+        </div>
+      </>)}
+    </div>
+  );
 }
 function Help({children}:{children:React.ReactNode}){ return <p className="text-[13px] leading-snug text-[var(--dim)] bg-[var(--surface2)] rounded-xl px-3 py-2">{children}</p>; }
 function Empty({title,body,action}:{title:string;body:string;action?:{label:string;onClick:()=>void}}){ return <div className="border border-dashed border-[var(--border)] rounded-2xl p-4 sm:p-5 text-center"><p className="font-display font-bold text-lg">{title}</p><p className="text-sm text-[var(--dim)] mt-1">{body}</p>{action && <button type="button" aria-label={action.label} className={btnPrimary+" mt-3"} onClick={action.onClick}>{action.label}</button>}</div>; }
@@ -711,7 +746,11 @@ export function App(){
   };
   const [currentProfileId,setCurrentProfileId]=useState<number|null>(()=>{ try{ const v=localStorage.getItem("sf-profile"); return v?Number(v):null; }catch{ return null; } });
   const pickProfile=(id:number|null)=>{ setCurrentProfileId(id); try{ if(id) localStorage.setItem("sf-profile",String(id)); else localStorage.removeItem("sf-profile"); }catch{} };
-  const q=useQuery({queryKey:["overview"],queryFn:()=>api.getOverview({})});
+  // Mes que muestra el tablero: null = mes en curso; el selector de mes y
+  // año de la tarjeta Movimientos fija otro mes y el servidor recalcula
+  // las cifras del mes sobre él.
+  const [viewMonth,setViewMonth]=useState<string|null>(null);
+  const q=useQuery({queryKey:["overview",viewMonth],queryFn:()=>api.getOverview(viewMonth?{month:viewMonth}:{})});
   const inv=()=>{ qc.invalidateQueries({queryKey:["overview"]}); qc.invalidateQueries({queryKey:["notifications"]}); };
   const data=q.data;
   // Opiniones de testers (segunda etapa): se consultan solo si hay hogar y
@@ -1410,6 +1449,9 @@ export function App(){
   // y avisan cuántos movimientos privados quedan fuera.
   const canSeeMov = (m:{visibility:string;profileId:number|null})=> m.visibility==="shared" || (me ? (m.profileId===me.id || (m.profileId===null && me.role==="admin")) : true);
   const visibleMovs = data.movements.filter(canSeeMov);
+  // Movimientos de la tarjeta de Inicio: solo los del mes que muestra el
+  // tablero (los 5 más recientes de ese mes).
+  const homeMovs = visibleMovs.filter(m=>m.date.startsWith(s.currentMonth));
   // Movimientos del detalle de ingresos vs gastos: misma regla con la que el
   // servidor arma las barras (mes tocado, ingreso o gasto/pago de deuda, sin
   // reversados ni reversiones), para que la suma coincida con la barra.
@@ -1584,29 +1626,29 @@ export function App(){
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <h2 className="font-display font-bold text-lg">Ingresos vs gastos · últimos 6 meses</h2>
-                <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} inicio onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
+                <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} todayMonth={todayISO().slice(0,7)} inicio onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
               </div>
             </div>
             )}
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-4 md:mt-6">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="font-display font-bold text-lg">Movimientos · {fmtMonth(s.currentMonth)}</h2>
-                {data.movements.length>0 && <button type="button" aria-expanded={showHomeMovs} aria-label={showHomeMovs?"Ocultar la lista de movimientos":"Ver la lista de movimientos"} className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-[13px] font-semibold" onClick={()=>setShowHomeMovs(v=>!v)}>{showHomeMovs?"Ocultar movimientos":"Ver movimientos"}</button>}
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h2 className="font-display font-bold text-lg">Movimientos</h2>
+                <div className="flex items-center gap-2 shrink-0">
+                  <MonthPicker value={s.currentMonth} onChange={setViewMonth} />
+                  {homeMovs.length>0 && <button type="button" aria-expanded={showHomeMovs} aria-label={showHomeMovs?"Ocultar la lista de movimientos":"Ver la lista de movimientos"} className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-[13px] font-semibold" onClick={()=>setShowHomeMovs(v=>!v)}>{showHomeMovs?"Ocultar movimientos":"Ver movimientos"}</button>}
+                </div>
               </div>
               {data.movements.length===0 ? (
-                <><p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p><div className="flex gap-2 mt-3">
-                    <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
-                    <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
-                  </div></>
+                <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>
+              ) : homeMovs.length===0 ? (
+                <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos en {fmtMonth(s.currentMonth)}.</p>
               ) : (
-                <>
-                  {showHomeMovs && visibleMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-[13px]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`text-base whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
-                  <div className="flex gap-2 mt-3">
-                    <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
-                    <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
-                  </div>
-                </>
+                showHomeMovs && homeMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-[13px]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`text-base whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)
               )}
+              <div className="flex gap-2 mt-3">
+                <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
+                <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
+              </div>
             </div>
             <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
@@ -2184,7 +2226,7 @@ export function App(){
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                   <h2 className="font-display font-bold text-lg">Ingresos vs gastos · últimos 6 meses</h2>
-                  <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} inicio onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
+                  <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} todayMonth={todayISO().slice(0,7)} inicio onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                   <h2 className="font-display font-bold text-lg">Mis tandas</h2>

@@ -690,7 +690,7 @@ const EXPENSE_CATS: [string, string[]][] = [
 export const Actions = {
   getOverview: defineAction({
     description: "Returns the full household state with computed totals that always reconcile.",
-    request: z.object({}),
+    request: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() }),
     response: z.object({
       household: z.object({ id: z.number(), name: z.string(), currency: z.string(), cutoffDay: z.number(), contributionRule: z.string(), approvalRule: z.string(), approvalThreshold: z.number(), mode: z.string() }).nullable(),
       profiles: z.array(z.object({ id: z.number(), name: z.string(), lastName: z.string().nullable(), role: z.string(), email: z.string().nullable(), kind: z.string(), dependentType: z.string().nullable(), monthlyIncome: z.number(), fixedCommitments: z.number(), capacity: z.number() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string(), householdName: z.string() })),
@@ -719,8 +719,16 @@ export const Actions = {
       }),
       activity: z.array(z.object({ id: z.number(), action: z.string(), detail: z.string(), createdAt: z.string() })),
     }),
-    async handler(ctx) {
+    async handler(ctx, args) {
       const db = ctx.db;
+      // Mes que muestra el tablero: por defecto el mes en curso; el cliente
+      // puede pedir otro mes con el selector de mes y año. Todas las cifras
+      // del mes (dona, gráfica, movimientos del mes, presupuestos, reparto)
+      // se calculan sobre ese mes. Lo de "hoy" (gasto del día, planes de
+      // ahorro, tandas) sigue usando la fecha real.
+      const now = new Date();
+      const currentMonth = args.month ?? `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+      const [viewYear = 2026, viewMonthNum = 1] = currentMonth.split("-").map(Number);
       // Seguridad multiusuario: en la versión de Muse había un solo hogar por
       // espacio y se tomaba "el primero de la base". Fuera de Muse hay muchos
       // hogares; el hogar es siempre el del usuario autenticado (ctx.householdId,
@@ -731,7 +739,7 @@ export const Actions = {
       if (!hh) {
         return {
           household: null, profiles: [], invitations: [], accounts: [], categories: [], movements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
-          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth: new Date().toISOString().slice(0,7), contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
+          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth, contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
         };
       }
       const hid = hh.id;
@@ -817,8 +825,9 @@ export const Actions = {
       });
       const totalInFunds = funds.reduce((s,f)=>s+f.balance,0);
 
-      const now = new Date();
-      const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+      // Serie mensual: termina en el mes que muestra el tablero, no
+      // necesariamente en el mes real.
+      const viewDate = new Date(viewYear, (viewMonthNum || 1) - 1, 1);
       const monthMovs = activeMovs.filter(m=>m.date.startsWith(currentMonth));
       const monthIncome = monthMovs.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0);
       const monthExpense = monthMovs.filter(m=>m.type==="expense"||m.type==="debt_payment").reduce((s,m)=>s+m.amount,0);
@@ -875,7 +884,7 @@ export const Actions = {
       // ---- Monthly series (last 6 months) + movement receipt URLs ----
       const monthLabel = (ym:string)=>{ const [yy=2026,mm=1]=ym.split("-").map(Number); return new Date(yy,(mm||1)-1,1).toLocaleDateString("es-MX",{month:"short"}); };
       const monthlySeries: {month:string;label:string;income:number;expense:number}[] = [];
-      for (let k=5;k>=0;k--){ const d=new Date(now.getFullYear(), now.getMonth()-k, 1); const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; const ms=activeMovs.filter(m=>m.date.startsWith(ym)); monthlySeries.push({ month: ym, label: monthLabel(ym), income: Math.round(ms.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0)*100)/100, expense: Math.round(ms.filter(m=>m.type==="expense"||m.type==="debt_payment").reduce((s,m)=>s+m.amount,0)*100)/100 }); }
+      for (let k=5;k>=0;k--){ const d=new Date(viewDate.getFullYear(), viewDate.getMonth()-k, 1); const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; const ms=activeMovs.filter(m=>m.date.startsWith(ym)); monthlySeries.push({ month: ym, label: monthLabel(ym), income: Math.round(ms.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0)*100)/100, expense: Math.round(ms.filter(m=>m.type==="expense"||m.type==="debt_payment").reduce((s,m)=>s+m.amount,0)*100)/100 }); }
       const movementsOut: {id:number;type:string;amount:number;concept:string;accountId:number|null;toAccountId:number|null;categoryId:number|null;subcategory:string|null;date:string;visibility:string;profileId:number|null;receiptUrl:string|null;reversalOfId:number|null;isReversed:boolean}[] = [];
       // Solo viajan las filas que el usuario puede ver (ver canSeeMovement):
       // los movimientos privados de otros integrantes no salen del servidor.
