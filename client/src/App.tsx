@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaTopScrim } from "./components/SafeArea";
 import { readInviteToken, type InvitePreview } from "./components/AuthGate";
 import { fileToBase64 } from "./lib/file";
-import { matchRule, normText, parseReceiptText, parseVoiceText, suggestCategoryId } from "./lib/smart";
+import { matchRule, normText, parseReceiptText, parseVoiceText, resolveReceiptCategory, suggestCategoryId } from "./lib/smart";
+import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
@@ -81,6 +82,43 @@ const GUIDE_PDF_BY_GROUP: Record<string,string> = {
 const money = (n:number) => n.toLocaleString("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0});
 const money2 = (n:number) => n.toLocaleString("es-MX",{style:"currency",currency:"MXN"});
 function fmtDate(iso:string){ const [y=2026,m=1,d=1]=iso.split("-").map(Number); return new Date(y,(m||1)-1,d||1).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"}); }
+// Detalle leído del comprobante (solo lectura, no se guarda): lo que el
+// lector propio encontró en el ticket para que la persona lo revise antes
+// de guardar. Si la suma de artículos no cuadra con el total, el total
+// queda marcado «Por revisar».
+function OcrDetail({ detail }: { detail: ReceiptRead }) {
+  return (
+    <div className="mt-2 border border-[var(--border)] rounded-xl p-3 bg-[var(--surface2)]">
+      <p className="text-sm font-bold">Detalle leído del comprobante</p>
+      <p className="text-xs text-[var(--dim)]">Solo para revisar; no se guarda con el movimiento.</p>
+      <dl className="mt-2 space-y-1 text-sm">
+        {detail.store && <div className="flex justify-between gap-2"><dt className="text-[var(--dim)]">Comercio</dt><dd className="font-semibold text-right">{detail.store}</dd></div>}
+        {detail.date && <div className="flex justify-between gap-2"><dt className="text-[var(--dim)]">Fecha del ticket</dt><dd className="font-semibold text-right">{fmtDate(detail.date)}</dd></div>}
+        {detail.rfc && <div className="flex justify-between gap-2"><dt className="text-[var(--dim)]">RFC</dt><dd className="font-semibold text-right">{detail.rfc}</dd></div>}
+        {detail.payment && <div className="flex justify-between gap-2"><dt className="text-[var(--dim)]">Forma de pago</dt><dd className="font-semibold text-right">{detail.payment}</dd></div>}
+        {detail.subtotal != null && <div className="flex justify-between gap-2"><dt className="text-[var(--dim)]">Subtotal</dt><dd className="font-semibold text-right">{money2(detail.subtotal)}</dd></div>}
+        <div className="flex justify-between gap-2"><dt className="text-[var(--dim)]">Total</dt><dd className="font-semibold text-right">{money2(detail.total ?? 0)}{detail.sumsMatch === false && <span className="ml-1 font-bold text-[var(--red)]">· Por revisar</span>}</dd></div>
+      </dl>
+      {detail.items.length > 0 && (
+        <div className="mt-2">
+          <p className="text-xs font-bold text-[var(--dim)]">Artículos ({detail.items.length})</p>
+          <ul className="mt-1 space-y-1 text-sm">
+            {detail.items.map((it, i) => (
+              <li key={i} className="flex justify-between gap-2"><span className="min-w-0">{it.name}</span><b className="whitespace-nowrap shrink-0">{money2(it.amount)}</b></li>
+            ))}
+          </ul>
+          {detail.itemsSum != null && detail.total != null && (
+            <p className={`text-xs mt-2 ${detail.sumsMatch ? "text-[var(--green)]" : "font-bold text-[var(--red)]"}`}>
+              {detail.sumsMatch
+                ? `Los artículos suman ${money2(detail.itemsSum)} y cuadran con el total.`
+                : `Los artículos suman ${money2(detail.itemsSum)} y el total leído es ${money2(detail.total)}. No cuadra: revise el total antes de guardar.`}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 function fmtMonth(ym:string|null){ if(!ym) return ""; const [y=2026,m=1]=ym.split("-").map(Number); return new Date(y,(m||1)-1,1).toLocaleDateString("es-MX",{month:"long",year:"numeric"}); }
 function todayISO(){ const t=new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`; }
 function monthNow(){ return todayISO().slice(0,7); }
@@ -950,7 +988,7 @@ export function App(){
     if(target==="mv"){ if(mvCat==="" || appliedRuleMv){ setMvCat(String(r.categoryId)); setAppliedRuleMv({keyword:r.keyword,categoryName:cat.name}); } }
     else { if(persCat==="" || appliedRulePers){ setPersCat(String(r.categoryId)); setAppliedRulePers({keyword:r.keyword,categoryName:cat.name}); } }
   };
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();setMvAmount("");setMvConcept("");setMvCat("");setMvSub("");setAppliedRuleMv(null);setEditingMv(null);setReceipt(null);setMvStep(1);setSavedNotice("Movimiento guardado.");}});
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();setMvAmount("");setMvConcept("");setMvCat("");setMvSub("");setAppliedRuleMv(null);setEditingMv(null);setReceipt(null);setMvStep(1);setOcrDetailMv(null);setOcrLabelMv("");setSavedNotice("Movimiento guardado.");}});
   const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:inv});
   const [confirmReverseId,setConfirmReverseId]=useState<number|null>(null);
   const revMv=useMutation({mutationFn:async(id:number)=>await api.reverseMovement({id}),onSuccess:()=>{inv();setConfirmReverseId(null);}});
@@ -1046,7 +1084,7 @@ export function App(){
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setAppliedRulePers(null);setPersStep(1);setSavedNotice("Gasto del día guardado.");}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setAppliedRulePers(null);setPersStep(1);setOcrDetailPers(null);setOcrLabelPers("");setSavedNotice("Gasto del día guardado.");}});
   // Acceso directo para registrar un gasto rápido (?accion=nuevo-gasto):
   // al entrar con ese parámetro, después de iniciar sesión y con el espacio
   // creado, se abre el formulario de gasto con el importe listo para escribir.
@@ -1119,30 +1157,49 @@ export function App(){
     const setProgress=target==="mv"?setOcrProgressMv:setOcrProgressPers;
     const setError=target==="mv"?setOcrErrorMv:setOcrErrorPers;
     const setNotice=target==="mv"?setOcrNoticeMv:setOcrNoticePers;
-    setBusy(true); setError(""); setNotice(""); setProgress("Preparando la lectura…");
+    const setDetail=target==="mv"?setOcrDetailMv:setOcrDetailPers;
+    setBusy(true); setError(""); setNotice(""); setDetail(null); setProgress("Preparando la lectura…");
     try{
       const jpeg=await imageFileToJpeg(file);
       setProgress("Leyendo el comprobante en su dispositivo…");
       const text=await readReceiptText(`data:${jpeg.mimeType};base64,${jpeg.dataBase64}`,(p)=>{ if(p.status==="recognizing text") setProgress(`Leyendo el comprobante… ${Math.round((p.progress||0)*100)}%`); });
       const parsed=parseReceiptText(text);
       if(parsed.total==null){ setError("No se pudo leer el total del comprobante. Verifique que la foto sea nítida o escriba el importe."); return; }
+      setDetail(parsed);
+      const cat=resolveReceiptCategory(data.categories,parsed,"expense",rules);
       if(target==="mv"){
         setMvAmount(String(parsed.total));
         if(parsed.store){ setMvConcept(parsed.store); applyRuleTo(parsed.store,"mv"); }
         if(parsed.date) setMvDate(parsed.date);
-        const catId=parsed.store?suggestCategoryId(data.categories,parsed.store,rules):null;
-        if(catId && mvCat==="") setMvCat(String(catId));
+        if(cat && "id" in cat){ if(mvCat==="") setMvCat(String(cat.id)); setOcrLabelMv(""); }
+        else if(cat && "label" in cat){ setOcrLabelMv(cat.label); setOcrNewCatName(cat.label); }
+        else setOcrLabelMv("");
+        // La revisión va por pasos con «Siguiente»: datos leídos (paso 1) →
+        // categoría (paso 2, con crear la sugerida si no está) → revisar y
+        // guardar (paso 3, con el detalle leído en «Más opciones»).
+        setMvMore(true); setMvStep(1); scrollFormTop("mv-form");
         setNotice(`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de guardar.`);
       } else {
         setPersAmt(String(parsed.total));
         if(parsed.store){ setPersConcept(parsed.store); applyRuleTo(parsed.store,"pers"); }
-        const catId=parsed.store?suggestCategoryId(data.categories,parsed.store,rules):null;
-        if(catId && persCat==="") setPersCat(String(catId));
+        if(cat && "id" in cat){ if(persCat==="") setPersCat(String(cat.id)); setOcrLabelPers(""); }
+        else if(cat && "label" in cat){ setOcrLabelPers(cat.label); setOcrNewCatName(cat.label); }
+        else setOcrLabelPers("");
+        setPersMore(true); setPersStep(1); scrollFormTop("pers-exp-form");
         setNotice(`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de guardar.`);
       }
     }catch{ setError("No se pudo leer el comprobante en este dispositivo. Revise su conexión o escriba el importe."); }
     finally{ setBusy(false); setProgress(""); }
   };
+  // Detalle leído del comprobante y categoría sugerida por el lector propio.
+  // El detalle solo se muestra para revisar, no se guarda. Si la categoría
+  // sugerida no está en el hogar, el paso 2 ofrece crearla ya ajustada al
+  // ticket, con la misma API del módulo Categorías (sin SQL nuevo).
+  const [ocrDetailMv,setOcrDetailMv]=useState<ReceiptRead|null>(null);
+  const [ocrDetailPers,setOcrDetailPers]=useState<ReceiptRead|null>(null);
+  const [ocrLabelMv,setOcrLabelMv]=useState(""); const [ocrLabelPers,setOcrLabelPers]=useState("");
+  const [ocrNewCatName,setOcrNewCatName]=useState("");
+  const createOcrCat=useMutation({mutationFn:async(v:{target:"mv"|"pers";name:string})=>await api.saveCategory({householdId:data!.household!.id,name:v.name,kind:"expense",subcategories:[],isActive:1}),onSuccess:(r,v)=>{inv(); if(v.target==="mv"){ if(r.id) setMvCat(String(r.id)); setOcrLabelMv(""); } else { if(r.id) setPersCat(String(r.id)); setOcrLabelPers(""); } setOcrNewCatName(""); setSavedNotice("Categoría creada y seleccionada.");}});
   // Registro por voz con Web Speech API (gratis, en el navegador): dictar
   // "gasté 320 en el súper" llena importe, concepto y categoría; se revisa
   // antes de guardar. Si el navegador no lo soporta, se escribe el gasto.
@@ -1739,6 +1796,7 @@ export function App(){
               <h2 className="font-display font-bold text-lg">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
               <p className="text-xs text-[var(--dim)]">Paso {mvStep} de 3</p>
               <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${mvStep*33.33}%`}} /></div>
+              {ocrNoticeMv && <p className="text-xs text-[var(--green)]">{ocrNoticeMv}</p>}
               {mvStep===1 && <>
               <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
                 {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
@@ -1753,6 +1811,12 @@ export function App(){
                 </div>
               </>}
               {mvType==="transfer" && <p className="text-sm text-[var(--dim)]">Las transferencias no llevan categoría.</p>}
+              {ocrLabelMv && mvCat==="" && mvType!=="transfer" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
+                <p className="text-sm">La categoría sugerida «{ocrLabelMv}» no está en su hogar. Puede crearla ya ajustada a este ticket.</p>
+                <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" className={inputCls} value={ocrNewCatName} onChange={e=>setOcrNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría sugerida y usarla" className={btnPrimary} disabled={!ocrNewCatName.trim() || createOcrCat.isPending} onClick={()=>createOcrCat.mutate({target:"mv",name:ocrNewCatName.trim()})}>{createOcrCat.isPending?"Creando…":"Crear y usar"}</button></div>
+                <button type="button" className="text-xs underline mt-2" onClick={()=>setOcrLabelMv("")}>Omitir, elegiré otra</button>
+                {createOcrCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createOcrCat.error)}</p>}
+              </div>}
               <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
               </>}
               {mvStep===3 && <>
@@ -1773,12 +1837,13 @@ export function App(){
                 <Label htmlFor="mv-receipt">Foto del comprobante (opcional)</Label>
                 <input id="mv-receipt" aria-label="Adjuntar foto del comprobante" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setReceipt); }} />
                 <p className="text-xs text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
-                {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>setReceipt(null)}>Quitar foto</button></div>}
+                {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");}}>Quitar foto</button></div>}
                 {receipt && (mvType==="expense"||mvType==="debt_payment") && <div className="mt-2">
                   <button type="button" aria-label="Leer el comprobante y llenar el formulario" className={btnPrimary+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante"}</button>
                   {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
                   {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
                   {ocrNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticeMv}</p>}
+                  {ocrDetailMv && <OcrDetail detail={ocrDetailMv} />}
                   <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
                 </div>}
               </div>
@@ -2246,12 +2311,19 @@ export function App(){
                   <h2 className="font-display font-bold text-lg">Gasto del día</h2>
                   <p className="text-xs text-[var(--dim)]">Paso {persStep} de 3</p>
                   <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${persStep*33.33}%`}} /></div>
+                  {ocrNoticePers && <p className="text-xs text-[var(--green)]">{ocrNoticePers}</p>}
                   {persStep===1 && <>
                   <div><Label htmlFor="pers-amt">Importe ($)</Label><input id="pers-amt" aria-label="Importe del gasto del día" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={persAmt} onChange={e=>setPersAmt(e.target.value)} /></div>
                   <button type="button" className={btnPrimary+" w-full"} disabled={!persAmt} onClick={()=>{setPersStep(2); scrollFormTop("pers-exp-form");}}>Siguiente</button>
                   </>}
                   {persStep===2 && <>
                   <div><Label htmlFor="pers-cat">Tipo de gasto</Label><select id="pers-cat" aria-label="Tipo de gasto del día" className={inputCls} value={persCat} onChange={e=>{setPersCat(e.target.value);setAppliedRulePers(null);}}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  {ocrLabelPers && persCat==="" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
+                    <p className="text-sm">La categoría sugerida «{ocrLabelPers}» no está en su hogar. Puede crearla ya ajustada a este ticket.</p>
+                    <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" className={inputCls} value={ocrNewCatName} onChange={e=>setOcrNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría sugerida y usarla" className={btnPrimary} disabled={!ocrNewCatName.trim() || createOcrCat.isPending} onClick={()=>createOcrCat.mutate({target:"pers",name:ocrNewCatName.trim()})}>{createOcrCat.isPending?"Creando…":"Crear y usar"}</button></div>
+                    <button type="button" className="text-xs underline mt-2" onClick={()=>setOcrLabelPers("")}>Omitir, elegiré otra</button>
+                    {createOcrCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createOcrCat.error)}</p>}
+                  </div>}
                   <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setPersStep(1); scrollFormTop("pers-exp-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setPersStep(3); scrollFormTop("pers-exp-form");}}>Siguiente</button></div>
                   </>}
                   {persStep===3 && <>
@@ -2270,6 +2342,7 @@ export function App(){
                     {ocrProgressPers && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressPers}</p>}
                     {ocrErrorPers && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorPers}</p>}
                     {ocrNoticePers && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticePers}</p>}
+                    {ocrDetailPers && <OcrDetail detail={ocrDetailPers} />}
                     <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
                   </div>}</div>
                     </div>)}

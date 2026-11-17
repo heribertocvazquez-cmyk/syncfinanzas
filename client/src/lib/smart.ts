@@ -2,7 +2,7 @@
 // comprobantes, dictado por voz y reglas de auto-categorización. Todo corre
 // en el dispositivo, sin servicios de pago.
 
-export type SimpleCategory = { id: number; name: string; kind: string; subcategories: string[] };
+export type SimpleCategory = { id: number; name: string; kind: string; subcategories: string[]; isActive?: number };
 export type SimpleRule = { id: number; keyword: string; categoryId: number };
 
 export function normText(s: string): string {
@@ -75,7 +75,17 @@ export function matchRule(rules: SimpleRule[], concept: string): SimpleRule | nu
 
 // ---- Lectura de comprobantes (texto de OCR) ----
 
-export type ReceiptRead = { store: string | null; date: string | null; total: number | null };
+export type ReceiptItem = { name: string; amount: number };
+// Lectura completa de un comprobante: lo que llena el formulario (comercio,
+// fecha, total) más el detalle que solo se muestra para revisar (subtotal,
+// RFC, forma de pago, artículos y si la suma de artículos cuadra con el
+// total). Nada de este detalle se guarda con el movimiento.
+export type ReceiptRead = {
+  store: string | null; date: string | null; total: number | null;
+  subtotal: number | null; rfc: string | null; payment: string | null;
+  items: ReceiptItem[]; itemsSum: number | null; sumsMatch: boolean | null;
+  suggestedCategoryLabel: string | null;
+};
 
 const MONTHS_ES: Record<string, string> = { ene: "01", feb: "02", mar: "03", abr: "04", may: "05", jun: "06", jul: "07", ago: "08", sep: "09", oct: "10", nov: "11", dic: "12" };
 
@@ -92,10 +102,78 @@ function amountsIn(line: string, moneyOnly = false): number[] {
   return out;
 }
 
+// Importes con decimales dentro de una línea ("46.50", "1,234.56", "201,50").
+// Los enteros sin decimales no cuentan: una cantidad, un año o un folio no
+// es un importe. Igual que todosLosMontos del previo, pero con el manejo
+// de miles del lector actual ("1,234.56" son 1234.56, no 1.23).
+function decimalAmounts(line: string): number[] {
+  const out: number[] = [];
+  const re = /\$?\s*(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+,\d{2}|\d+(?:\.\d{1,2})?)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line))) {
+    const raw = m[1]!;
+    if (!/\.\d{1,2}$/.test(raw) && !/,\d{2}$/.test(raw)) continue;
+    const v = raw.includes(".") ? Number(raw.replace(/,/g, "")) : Number(raw.replace(",", "."));
+    if (Number.isFinite(v)) out.push(v);
+  }
+  return out;
+}
+
+// Tabla de categorías sugeridas del lector propio (la del previo): palabras
+// de comercios y giros comunes en México → etiqueta sugerida. La etiqueta
+// es solo una sugerencia: la app siempre usa las categorías reales del
+// hogar y, si la etiqueta no está, ofrece crearla.
+const TICKET_CATEGORY_LABELS: { keys: string[]; label: string }[] = [
+  { keys: ["oxxo", "7-eleven", "7 eleven", "circulo k", "tienda de conveniencia"], label: "Tienda de conveniencia" },
+  { keys: ["gasolina", "pemex", "combustible", "bp ", "shell", "g500", "oxxo gas"], label: "Transporte y gasolina" },
+  { keys: ["farmacia", "guadalajara", "del ahorro", "benavides", "similares"], label: "Salud y farmacia" },
+  { keys: ["walmart", "soriana", "chedraui", "bodega aurrera", "aurrera", "la comer", "heb", "h-e-b", "super", "mercado", "abarrotes"], label: "Súper y despensa" },
+  { keys: ["restaurante", "restaurant", "tacos", "cocina", "cafe", "café", "pizza", "hamburguesa", "sushi", "comida"], label: "Comida fuera de casa" },
+  { keys: ["cfe", "telmex", "izzi", "totalplay", "agua", "predial", "luz"], label: "Hogar y servicios" },
+  { keys: ["cinepolis", "cinemex", "cine", "teatro", "concierto"], label: "Entretenimiento" },
+];
+
+export function suggestTicketCategoryLabel(text: string): string | null {
+  const bag = text.toLowerCase();
+  for (const c of TICKET_CATEGORY_LABELS) {
+    for (const k of c.keys) if (bag.includes(k)) return c.label;
+  }
+  return null;
+}
+
+export type OcrCategoryResult = { id: number } | { label: string } | null;
+
+// Resuelve la categoría de un comprobante leído contra las categorías
+// reales del hogar: primero el nombre exacto de la etiqueta sugerida,
+// luego las reglas y palabras del comercio y los artículos; si nada
+// coincide, devuelve la etiqueta para ofrecer crearla.
+export function resolveReceiptCategory(categories: SimpleCategory[], parsed: ReceiptRead, kind: "income" | "expense", rules?: SimpleRule[]): OcrCategoryResult {
+  const cats = categories.filter((c) => c.kind === kind && c.isActive === 1);
+  if (parsed.suggestedCategoryLabel) {
+    const label = parsed.suggestedCategoryLabel;
+    const byName = cats.find((c) => normText(c.name) === normText(label));
+    if (byName) return { id: byName.id };
+  }
+  const haystack = [parsed.store, ...parsed.items.map((i) => i.name)].filter(Boolean).join(" ");
+  if (haystack.trim()) {
+    const id = suggestCategoryId(categories, haystack, rules);
+    if (id != null) {
+      const cat = cats.find((c) => c.id === id);
+      if (cat) return { id: cat.id };
+    }
+  }
+  if (parsed.suggestedCategoryLabel) return { label: parsed.suggestedCategoryLabel };
+  return null;
+}
+
 export function parseReceiptText(text: string): ReceiptRead {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   let total: number | null = null;
-  const totalLines = lines.filter((l) => normText(l).includes("total"));
+  // La línea de total es la que dice "total" sin ser "subtotal".
+  const totalLines = lines.filter((l) => {
+    const n = normText(l);
+    return n.includes("total") && !n.includes("subtotal") && !n.includes("sub total");
+  });
   for (const l of totalLines) {
     const amts = amountsIn(l);
     if (amts.length > 0) total = amts[amts.length - 1]!;
@@ -103,21 +181,25 @@ export function parseReceiptText(text: string): ReceiptRead {
   if (total == null) {
     // Sin línea de total: el importe mayor del último tercio, en líneas con
     // signo de pesos o decimales (una fecha no debe tomarse por importe).
+    // Se conserva el respaldo del lector actual, no el del previo (el
+    // importe mayor de todo el texto es más débil).
     const tail = lines.slice(Math.floor((lines.length * 2) / 3));
     let best = 0;
     for (const l of tail) {
-      if (/\d{1,2}[/\-.]\d{1,2}[/\-.]\d{4}/.test(l)) continue;
+      if (/\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}/.test(l)) continue;
       for (const a of amountsIn(l, true)) if (a > best && a < 1000000) best = a;
     }
     total = best > 0 ? best : null;
   }
   let date: string | null = null;
-  const dateRe = /(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})/;
-  const dateReEs = /(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[a-z]*\s+(\d{4})/i;
+  const dateRe = /(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})\b/;
+  const dateReEs = /(\d{1,2})\s*(?:de\s*)?(ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic)[a-z]*\.?\s*(?:de\s*)?(\d{4})/i;
   for (const l of lines) {
     const m = dateRe.exec(l);
     if (m) {
-      const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+      let d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+      if (y < 100) y += 2000;
+      if (mo > 12 && d <= 12) { const t = mo; mo = d; d = t; }
       if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) { date = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`; break; }
     }
     const m2 = dateReEs.exec(l);
@@ -137,7 +219,43 @@ export function parseReceiptText(text: string): ReceiptRead {
     store = l.replace(/[^\p{L}\p{N} &.'-]/gu, "").trim() || null;
     if (store) break;
   }
-  return { store, date, total };
+  // Subtotal: último importe de la línea que dice "subtotal".
+  let subtotal: number | null = null;
+  for (const l of lines) {
+    const n = normText(l);
+    if (!n.includes("subtotal") && !n.includes("sub total")) continue;
+    const amts = decimalAmounts(l);
+    if (amts.length > 0) subtotal = amts[amts.length - 1]!;
+  }
+  // RFC del comercio.
+  const rfcMatch = text.toUpperCase().match(/[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}/);
+  const rfc = rfcMatch ? rfcMatch[0] : null;
+  // Forma de pago.
+  const nt = normText(text);
+  const payment = nt.includes("efectivo") ? "Efectivo"
+    : /tarjeta|credito|debito|visa|mastercard/.test(nt) ? "Tarjeta"
+    : /transferencia|spei/.test(nt) ? "Transferencia" : null;
+  // Artículos: líneas con importe al final, que no sean totales, impuestos
+  // ni pago. Igual que en el previo.
+  const itemSkip = /total|iva|impuesto|cambio|efectivo|tarjeta|recib|saldo|puntos|redondeo|descuento/i;
+  const items: ReceiptItem[] = [];
+  for (const l of lines) {
+    if (itemSkip.test(l)) continue;
+    const amts = decimalAmounts(l);
+    if (amts.length === 0) continue;
+    const name = l
+      .replace(/[\s$]*\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?\s*$/, "")
+      .replace(/[\s$]*\d+,\d{2}\s*$/, "")
+      .trim();
+    if (name.length < 3 || !/[A-Za-zÁÉÍÓÚÑ]/i.test(name)) continue;
+    if (/^\d+$/.test(name)) continue;
+    items.push({ name: name.replace(/\s{2,}/g, " "), amount: amts[amts.length - 1]! });
+    if (items.length >= 40) break;
+  }
+  const itemsSum = items.length > 0 ? items.reduce((a, i) => a + i.amount, 0) : null;
+  const sumsMatch = itemsSum != null && total != null ? Math.abs(itemsSum - total) <= 0.51 : null;
+  const suggestedCategoryLabel = suggestTicketCategoryLabel(text);
+  return { store, date, total, subtotal, rfc, payment, items, itemsSum, sumsMatch, suggestedCategoryLabel };
 }
 
 // ---- Dictado por voz (texto del reconocimiento de voz) ----
