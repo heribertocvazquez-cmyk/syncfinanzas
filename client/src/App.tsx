@@ -8,6 +8,7 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
+import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, type HelpFaq, type HelpMsg } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
@@ -21,7 +22,7 @@ import { APP_UPDATE_EVENT, applyAppUpdate, checkForAppUpdate, isUpdateAvailable 
 import { clearDeferredInstallPrompt, consumeDeferredInstallPrompt } from "./installPrompt";
 import appIcon512 from "./assets/app-icon-512.png";
 
-type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"guia"|"desarrollador";
+export type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"guia"|"desarrollador";
 const TABS: {id:Tab;label:string}[] = [
   {id:"inicio",label:"Inicio"},{id:"personal",label:"Personal"},{id:"movimientos",label:"Movimientos"},{id:"cuentas",label:"Cuentas"},{id:"presupuestos",label:"Presupuestos"},
   {id:"fondos",label:"Fondos"},{id:"aportaciones",label:"Aportaciones"},{id:"metas",label:"Metas"},{id:"acuerdos",label:"Acuerdos"},{id:"tandas",label:"Tandas"},
@@ -515,120 +516,57 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
   );
 }
 
-// ---- Ayudante de uso (respuestas preparadas, sin servicios externos) ----
+// ---- Ayudante de uso (respuestas preparadas + respuestas dinámicas con datos reales) ----
 // Botón flotante con signo de interrogación, visible en toda la app. Al tocarlo
 // abre una ventanita de chat que responde dudas de uso con una base de
-// respuestas preparadas por palabras clave (sin claves ni servicios de pago).
+// respuestas preparadas por palabras clave (sin claves ni servicios de pago)
+// y preguntas dinámicas calculadas en el dispositivo con los datos del hogar
+// (en qué se gasta de más, dónde ahorrar, cómo va la meta, cuánto queda).
 // Cada respuesta es corta, en tono formal de usted, y trae un botón que lleva
-// directo al lugar cuando la vista ya tiene navegación (onGo).
-type HelpMsg = { from: "user" | "bot"; text: string; go?: Tab; goLabel?: string };
-type HelpFaq = { keys: string[]; q: string; a: string; go?: Tab; goLabel?: string };
-const HELP_FAQS: HelpFaq[] = [
-  { keys: ["gast", "registr"], q: "¿Cómo registro un gasto?", a: "En Movimientos, escriba el importe, elija el tipo de gasto y pulse Registrar. En modo Personal también puede usar Gasto del día en Personal. Elija de dónde se descuenta: Efectivo o una de sus cuentas.", go: "movimientos", goLabel: "Ir a Movimientos" },
-  { keys: ["gasto del dia", "gast"], q: "¿Cómo registro el gasto del día?", a: "En Personal, en Gasto del día, escriba el importe, elija el tipo de gasto y de dónde se descuenta, y pulse Registrar.", go: "personal", goLabel: "Ir a Personal" },
-  { keys: ["gasto", "limite", "umbral", "supera", "excede"], q: "¿Qué pasa si un gasto supera el límite?", a: "Si un gasto supera el límite permitido del hogar, aparece un aviso en la campanita. Revise el límite en Hogar y el presupuesto de la categoría en Presupuestos.", go: "hogar", goLabel: "Ir a Hogar" },
-  { keys: ["ingres", "registr"], q: "¿Cómo registro un ingreso?", a: "En Movimientos, elija Ingreso, escriba el importe y pulse Registrar.", go: "movimientos", goLabel: "Ir a Movimientos" },
-  { keys: ["cuenta", "agreg", "banc", "efectivo"], q: "¿Cómo agrego una cuenta?", a: "En Cuentas, pulse Nueva cuenta, escriba el nombre, el tipo y el saldo inicial.", go: "cuentas", goLabel: "Ir a Cuentas" },
-  { keys: ["arqueo", "auditor", "conteo", "recuento", "cierre de caja"], q: "¿Cómo hago un arqueo de cuentas?", a: "En Cuentas, pulse Arqueo de cuentas y anote lo que contó en físico por cada cuenta y en efectivo. El renglón de efectivo compara el restante del sueldo (sueldo del mes menos lo gastado) con lo contado en físico. La app muestra al lado lo que dice la app y la diferencia: en rojo si falta dinero, en verde si sobra, y Sin diferencia cuando coincide. El arqueo no cambia los saldos, solo guarda el recuento para revisarlo después.", go: "cuentas", goLabel: "Ir a Cuentas" },
-  { keys: ["tanda"], q: "¿Cómo creo una tanda?", a: "En Tandas, escriba el nombre, el monto y el número de participantes, elija la regla si alguien no paga, el tesorero y el día de reunión, y pulse Crear tanda. Después invite por correo a los participantes. En cada ronda verá la ficha, el pase de lista y los saldos separados.", go: "tandas", goLabel: "Ir a Tandas" },
-  { keys: ["invit", "persona", "unir", "alguien", "invito a mi pareja"], q: "¿Cómo invito a alguien?", a: "En Perfiles, escriba el correo de la persona y pulse Invitar. Recibirá un enlace directo para entrar a su hogar.", go: "perfiles", goLabel: "Ir a Perfiles" },
-  { keys: ["espacio", "hogar", "inici", "empez"], q: "¿Cómo creo mi espacio?", a: "Para crear su espacio, elija Personal o Familiar, escriba el nombre de su hogar y sus datos, y pulse Crear hogar.", go: "hogar", goLabel: "Ir a Hogar" },
-  { keys: ["instal", "celular", "pantalla", "descarg"], q: "¿Cómo instalo la app en mi celular?", a: "En iPhone, abra la app en Safari, pulse Compartir y seleccione Agregar a pantalla de inicio. En Android, abra el menú ⋮ de Chrome, seleccione «Instalar y crear acceso directo» y confirme con «Instalar».", go: "guia", goLabel: "Ir a Guía de uso" },
-  { keys: ["actualiz", "nueva versión", "versión"], q: "¿Cómo actualizo la app?", a: "Si hay una versión nueva, aparece un aviso con el botón Actualizar. También puede revisar en Hogar → Buscar actualizaciones. Su cuenta y sus datos no cambian.", go: "hogar", goLabel: "Ir a Hogar" },
-  { keys: ["reinici", "reset", "borrar mis datos", "borrar todo", "borrar los datos", "borrar la cuenta", "borrar mi cuenta", "eliminar mis datos", "eliminar todo", "eliminar la cuenta", "empezar de nuevo"], q: "¿Cómo reinicio todo?", a: "En Hogar, al final, pulse el texto discreto Reiniciar la aplicación y responda las 3 preguntas de control una por una (la segunda muestra el número real de tandas y personas). Después escriba REINICIAR. Se borra todo (movimientos, cuentas, presupuestos, tandas y el hogar) y la app vuelve al inicio para elegir de nuevo Personal o Familiar.", go: "hogar", goLabel: "Ir a Hogar" },
-  { keys: ["sueldo", "salario", "mi sueldo", "mi salario"], q: "¿Cómo registro mi sueldo?", a: "En Personal, escriba su sueldo mensual y pulse Guardar sueldo.", go: "personal", goLabel: "Ir a Personal" },
-  { keys: ["presupuest", "limite"], q: "¿Cómo creo un presupuesto?", a: "En Presupuestos, elija la categoría, escriba el límite del mes y pulse Guardar. Los gastos de esa categoría en el mes se descuentan solos del presupuesto, sin hacer nada más.", go: "presupuestos", goLabel: "Ir a Presupuestos" },
-  { keys: ["pagar presupuesto", "pago desde inicio", "aportar desde inicio"], q: "¿Cómo pago un presupuesto desde Inicio?", a: "En Inicio, pulse la tarjeta del presupuesto, escriba el importe, elija de dónde se descuenta (Efectivo o una cuenta) y pulse Guardar pago. El gasto se asigna a esa categoría y se resta de la cuenta elegida. Lo mismo con las metas y el patrimonio.", go: "inicio", goLabel: "Ir a Inicio" },
-  { keys: ["comprobante", "foto", "ticket", "escanear", "leer el comprobante"], q: "¿Cómo leo un comprobante?", a: "En Movimientos, en Más opciones, suba la foto del comprobante y pulse Leer el comprobante: la app lee el total en su dispositivo, sin costo, y llena el importe, el concepto y la categoría. Revise antes de guardar.", go: "movimientos", goLabel: "Ir a Movimientos" },
-  { keys: ["revers", "revier", "revierto", "revertir", "deshacer", "corregir", "eliminar", "borrar un", "gast"], q: "¿Cómo reverso un movimiento?", a: "En Movimientos, pulse Reversar junto al movimiento. El registro queda, pero ya no cuenta en los totales.", go: "movimientos", goLabel: "Ir a Movimientos" },
-  { keys: ["categor", "subcategor", "tipo de gasto", "una categoria"], q: "¿Cómo agrego una categoría?", a: "En Categorías puede ver, agregar y quitar categorías y subcategorías.", go: "categorias", goLabel: "Ir a Categorías" },
-  { keys: ["perfil", "pareja", "familiar", "a mi pareja"], q: "¿Cómo agrego a mi pareja?", a: "En Perfiles puede ver a las personas del hogar y agregar a su pareja o familiares.", go: "perfiles", goLabel: "Ir a Perfiles" },
-  { keys: ["saldo", "disponible", "cuanto me queda", "restante", "queda"], q: "¿Cuánto me queda?", a: "Su saldo disponible está en Inicio, en la tarjeta de arriba.", go: "inicio", goLabel: "Ir a Inicio" },
-  { keys: ["grafic", "ingresos vs gastos"], q: "¿Dónde veo las gráficas?", a: "Las gráficas están en Inicio y aparecen cuando hay movimientos. La dona de gasto por categoría lleva el símbolo de cada rubro dentro de su color: al tocar un segmento queda marcado, aparece su monto y porcentaje debajo, y se abre la ventana con sus gastos registrados.", go: "inicio", goLabel: "Ir a Inicio" },
-  { keys: ["modo oscuro", "modo claro", "oscuro", "claro", "noche", "tema oscuro", "tema claro"], q: "¿Cómo cambio a modo oscuro o claro?", a: "Abra el menú, entre a Configuración y pulse «Vista»; ahí elija Claro u Oscuro. Su elección se guarda para la próxima vez.", go: "inicio", goLabel: "Ir a Inicio" },
-  { keys: ["modo", "cambi", "personal"], q: "¿Cómo cambio el modo?", a: "El modo se elige al crear el espacio y se cambia en Hogar.", go: "hogar", goLabel: "Ir a Hogar" },
-  { keys: ["contrase", "clave", "correo", "mi cuenta"], q: "¿Cómo es mi cuenta?", a: "Su cuenta se crea con su correo y una contraseña de al menos 12 caracteres." },
-  { keys: ["fondo", "apart"], q: "¿Cómo creo un fondo?", a: "En Fondos, cree un apartado con su meta y agregue dinero desde sus cuentas.", go: "fondos", goLabel: "Ir a Fondos" },
-  { keys: ["meta", "ahorr"], q: "¿Cómo creo una meta?", a: "En Metas, escriba su meta, el monto y la fecha, y registre su ahorro.", go: "metas", goLabel: "Ir a Metas" },
-  { keys: ["plan de ahorro", "plan", "coche"], q: "¿Cómo armo un plan de ahorro para una meta?", a: "En Metas, pulse Armar plan de ahorro en su meta. La app calcula cuánto debe aportar al mes según su sueldo, sus compromisos y su gasto, y le dice si le alcanza. Si no le alcanza, le muestra de qué categoría puede recortar o alargar el plazo. Al aceptar, el dinero se aparta en un fondo de la meta y recibe avisos de cada aportación.", go: "metas", goLabel: "Ir a Metas" },
-  { keys: ["ajuste", "recorte", "me pase del presupuesto", "me pase de presupuesto", "me excedi", "me pase"], q: "¿Cómo funciona el ajuste de gastos?", a: "Si una categoría se pasa de su presupuesto, la app propone recortar de otras categorías con margen para que su aportación a la meta casi no cambie. Primero le avisa con la campanita, con cuánto se pasó, de dónde se recorta y qué se mantiene igual. Nada se mueve sin que usted lo acepte en Metas; ahí puede cambiar de dónde se recorta.", go: "metas", goLabel: "Ir a Metas" },
-  { keys: ["sobrante", "sobr", "gasto menos", "gasto menos de lo planeado"], q: "¿Qué pasa con el sobrante de una categoría?", a: "Si un mes gastó menos de lo planeado en una categoría, la app le propone mover ese sobrante al fondo de su meta para llegar antes. También le avisa antes con la campanita y nada se mueve sin que usted lo acepte en Metas.", go: "metas", goLabel: "Ir a Metas" },
-  { keys: ["acuerdo", "vot", "aprobaci", "aprueb", "gasto mayor", "gast"], q: "¿Cómo se aprueba un gasto mayor?", a: "En Acuerdos se votan los gastos mayores al umbral de su hogar.", go: "acuerdos", goLabel: "Ir a Acuerdos" },
-  { keys: ["patrimonio", "activo", "pasivo", "neto", "mi patrimonio"], q: "¿Cómo registro mi patrimonio?", a: "En Patrimonio registre sus activos y pasivos para ver su patrimonio neto.", go: "patrimonio", goLabel: "Ir a Patrimonio" },
-  { keys: ["demo", "demostraci", "ejemplo", "probar"], q: "¿Cómo pruebo con datos de ejemplo?", a: "En la Guía de uso, pulse «Cargar demo». Solo funciona sin movimientos." },
-  { keys: ["aportaci", "reparto", "compartido"], q: "¿Dónde veo las aportaciones?", a: "Las aportaciones se calculan solas desde Movimientos y se ven en Aportaciones.", go: "aportaciones", goLabel: "Ir a Aportaciones" },
-];
-function normHelp(s: string){ return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
-// Busca por palabras clave, no por la frase exacta: la pregunta se normaliza
-// (minúsculas, sin acentos) y se divide en palabras. Una clave de una sola
-// palabra vale 1 punto si alguna palabra de la pregunta empieza con ella
-// (así "reinici" casa con "reiniciar", pero "inici" no casa con "reiniciar").
-// Una clave de varias palabras vale 2 puntos si la frase aparece tal cual
-// (así "borrar mis datos" gana a "borrar un"). Gana la respuesta con más
-// puntos; en empate gana la primera de la lista.
-function findHelpAnswer(input: string): HelpFaq | null {
-  const n = normHelp(input);
-  if (!n) return null;
-  const words = n.split(" ");
-  let best: HelpFaq | null = null; let bestScore = 0;
-  for (const f of HELP_FAQS) {
-    let score = 0;
-    for (const k of f.keys) {
-      const nk = normHelp(k);
-      if (nk.includes(" ")) { if (n.includes(nk)) score += 2; }
-      else if (words.some(w => w.startsWith(nk))) score += 1;
-    }
-    if (score > bestScore) { bestScore = score; best = f; }
-  }
-  return bestScore > 0 ? best : null;
-}
-// Preguntas predictivas: mientras el usuario escribe, muestra las preguntas
-// preparadas que coinciden con lo que lleva escrito (por claves y por las
-// palabras de la propia pregunta), ordenadas por coincidencia. Así, al escribir
-// "gastos" salen todas las preguntas de gastos: registrar un gasto, gasto del
-// día, reversar un gasto, gasto que supera el límite y aprobar un gasto mayor.
-// Tocar una pregunta muestra su respuesta, igual que al enviarla escrita.
-function predictHelp(input: string, max = 5): HelpFaq[] {
-  const n = normHelp(input);
-  if (n.length < 2) return [];
-  const words = n.split(" ");
-  const scored = HELP_FAQS.map(f => {
-    let score = 0;
-    for (const k of f.keys) {
-      const nk = normHelp(k);
-      if (nk.includes(" ")) { if (n.includes(nk)) score += 2; }
-      else if (words.some(w => w.startsWith(nk) || nk.startsWith(w))) score += 1;
-    }
-    const qn = normHelp(f.q);
-    for (const w of words) if (w.length >= 3 && qn.split(" ").some(qw => qw.startsWith(w))) score += 1;
-    return { f, score };
-  }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
-  return scored.slice(0, max).map(s => s.f);
-}
-// Ayudante de uso. Sin `open`/`onOpenChange` se maneja solo y muestra el
+// directo al lugar cuando la vista ya tiene navegación (onGo). La lógica vive
+// en ./lib/helpDynamic. Sin `open`/`onOpenChange` se maneja solo y muestra el
 // botón flotante (así lo usa el asistente de creación de espacio). Con
 // `open`/`onOpenChange` lo controla la app: se abre solo desde la entrada
 // del cajón, hasta abajo (el botón del encabezado se quitó para despejarlo).
-function HelpAssistant({ onGo, open: controlledOpen, onOpenChange }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void }) {
+// Con `greeting`, al entrar a la app aparece un saludo suave una vez por
+// sesión, que se puede descartar; nunca bloquea la pantalla.
+function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, greeting, onDismissGreeting }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void; dynamicFaqs?: HelpFaq[]; greeting?: { text: string; personal?: string | null } | null; onDismissGreeting?: () => void }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Bienvenido al Ayudante de uso. Escriba cualquier duda sobre la app y le ayudaré." }]);
-  const suggestions = useMemo(()=>predictHelp(input), [input]);
+  const [freq, setFreq] = useState<Record<string, number>>(() => frequentQuestions(loadHelpLearning()));
+  const allFaqs = useMemo(() => [...HELP_FAQS, ...(dynamicFaqs ?? [])], [dynamicFaqs]);
+  const suggestions = useMemo(()=>predictHelp(input, allFaqs, 5, freq), [input, allFaqs, freq]);
   const ask = (text: string) => {
     const q = text.trim(); if (!q) return;
-    const found = findHelpAnswer(q);
+    const found = findHelpAnswer(q, allFaqs);
     const reply: HelpMsg = found
       ? { from: "bot", text: found.a, go: found.go, goLabel: found.goLabel }
       : { from: "bot", text: "No encontré la respuesta a eso. Pruebe con otras palabras o revise la Guía de uso.", go: onGo ? "guia" : undefined, goLabel: "Ir a Guía de uso" };
     setMsgs(m => [...m, { from: "user", text: q }, reply]);
+    recordHelpQuestion(q);
+    setFreq(frequentQuestions(loadHelpLearning()));
     setInput("");
   };
   return (
     <>
-      {controlledOpen === undefined && (
+      {controlledOpen === undefined && !open && (
         <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full bg-[var(--gold)] text-[#13262E] font-display font-extrabold text-2xl shadow-lg flex items-center justify-center">?</button>
+      )}
+      {greeting && !open && controlledOpen !== undefined && (
+        <div className="fixed bottom-4 right-4 z-40 flex items-end gap-2">
+          <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
+            <p className="text-sm font-semibold">{greeting.text}</p>
+            {greeting.personal && <p className="text-xs text-[var(--dim)] mt-1">{greeting.personal}</p>}
+            <div className="flex gap-2 mt-2">
+              <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{ setOpen(true); ask("¿Me das un resumen del mes?"); }}>Resumen del mes</button>
+              <button type="button" aria-label="Descartar el saludo del ayudante" onClick={()=>onDismissGreeting?.()} className={btnGhost}>×</button>
+            </div>
+          </div>
+          <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="w-14 h-14 rounded-full bg-[var(--gold)] text-[#13262E] font-display font-extrabold text-2xl shadow-lg flex items-center justify-center shrink-0">?</button>
+        </div>
       )}
       {open && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Ayudante de uso" onClick={()=>setOpen(false)}>
@@ -1095,6 +1033,28 @@ export function App(){
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
   const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setAppliedRulePers(null);setPersStep(1);setOcrDetailPers(null);setOcrLabelPers("");setSavedNotice("Gasto del día guardado.");}});
+  // Ayudante dinámico: preguntas con cifras reales del mes que se está viendo,
+  // calculadas en el dispositivo con los datos ya cargados (sin llamadas nuevas
+  // ni servicios externos). Las respuestas usan solo los movimientos que el
+  // usuario ya ve en pantalla (en Familiar, compartidos más sus privados).
+  const dynamicFaqs = useMemo(() => data ? dynamicHelpFaqs(data) : [], [data]);
+  const helpLearning = useMemo(() => loadHelpLearning(), [data]);
+  const [greetingDismissed, setGreetingDismissed] = useState(false);
+  const greeting = useMemo(() => {
+    if (!data?.household || greetingDismissed) return null;
+    try { if (sessionStorage.getItem(HELP_GREETED_KEY)) return null; } catch {}
+    return buildGreeting(data, helpLearning);
+  }, [data, helpLearning, greetingDismissed]);
+  const dismissGreeting = () => { try { sessionStorage.setItem(HELP_GREETED_KEY, "1"); } catch {} setGreetingDismissed(true); };
+  // El ayudante aprende del uso: al cargar el resumen, anota en el dispositivo
+  // qué categorías se pasaron de presupuesto este mes y qué conceptos se
+  // repiten (ver ./lib/helpDynamic). No se envía nada fuera del dispositivo.
+  useEffect(() => { if (data) recordHelpLearning(data); }, [data]);
+  // Revisión en vivo de lo que el usuario está capturando: presupuesto
+  // restante, posible duplicado y monto sobre el promedio de la categoría.
+  // Son solo avisos: nunca bloquean el guardado.
+  const mvReview = useMemo(() => data ? reviewMovement(data, { type: mvType, amount: Number(mvAmount) || 0, categoryId: mvCat ? Number(mvCat) : null, concept: mvConcept, date: mvDate, excludeId: editingMv ?? undefined }) : [], [data, mvType, mvAmount, mvCat, mvConcept, mvDate, editingMv]);
+  const persReview = useMemo(() => data ? reviewMovement(data, { type: "expense", amount: Number(persAmt) || 0, categoryId: persCat ? Number(persCat) : null, concept: persConcept, date: todayISO() }) : [], [data, persAmt, persCat, persConcept]);
   // Acceso directo para registrar un gasto rápido (?accion=nuevo-gasto):
   // al entrar con ese parámetro, después de iniciar sesión y con el espacio
   // creado, se abre el formulario de gasto con el importe listo para escribir.
@@ -1922,6 +1882,11 @@ export function App(){
               </div>
                 </div>)}
               </div>
+              {mvReview.length>0 && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+                <p className="text-sm font-bold">Revisión del Ayudante</p>
+                {mvReview.map((w,i)=><p key={i} className="text-sm mt-1">{w}</p>)}
+                <p className="text-xs text-[var(--dim)] mt-1">Es solo un aviso: puede guardar de todos modos.</p>
+              </div>}
               {Number(mvAmount)>=hh.approvalThreshold && mvVis==="shared" && mvType==="expense" && <Help>Supera el umbral de {money(hh.approvalThreshold)}: requiere un Acuerdo.</Help>}
               {saveMv.error && <p className="text-sm text-[var(--red)]">{String(saveMv.error)}</p>}
               <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(2); scrollFormTop("mv-form");}}>Atrás</button><button className={btnPrimary+" flex-1"} disabled={saveMv.isPending || !mvAmount || !mvConcept}>{saveMv.isPending?"Guardando…":editingMv?"Guardar cambios":"Finalizar"}</button></div>
@@ -2411,6 +2376,11 @@ export function App(){
                   </div>}</div>
                     </div>)}
                   </div>
+                  {persReview.length>0 && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+                    <p className="text-sm font-bold">Revisión del Ayudante</p>
+                    {persReview.map((w,i)=><p key={i} className="text-sm mt-1">{w}</p>)}
+                    <p className="text-xs text-[var(--dim)] mt-1">Es solo un aviso: puede guardar de todos modos.</p>
+                  </div>}
                   <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setPersStep(2); scrollFormTop("pers-exp-form");}}>Atrás</button><button className={btnPrimary+" flex-1"} disabled={savePersExp.isPending || !persAmt}>Finalizar</button></div>
                   <p className="text-xs text-[var(--dim)]">Se guarda hoy, en privado.</p>
                   </>}
@@ -2952,7 +2922,7 @@ export function App(){
         )}
       </main>
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
-      <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} />
+      <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} dynamicFaqs={dynamicFaqs} greeting={greeting} onDismissGreeting={dismissGreeting} />
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">
