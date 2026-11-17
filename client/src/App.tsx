@@ -1519,15 +1519,14 @@ export function App(){
               <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-opacity ${menuOpen?"opacity-0":""}`} />
               <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"-translate-y-[7.5px] -rotate-45":""}`} />
             </button>
-            <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{goTab("inicio");setMenuOpen(false);}} className="shrink-0 h-10 rounded-full bg-[var(--accent)] text-[var(--accent-text)] flex items-center justify-center gap-1.5 px-3 font-bold text-sm">
-              <svg aria-hidden="true" className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-              <span className="hidden min-[430px]:inline">Inicio</span>
-            </button>
             <div className="min-w-0 flex-1">
               <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-x-2 gap-y-1 text-[17px] sm:text-xl"><span className="min-w-0 truncate">{hh.name}</span><span className="shrink-0 text-[11px] bg-[#E8B84A] text-[#13262E] rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
               <p className="text-xs text-[var(--dim)] mt-1">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}</p>
             </div>
             <div className="flex gap-2 shrink-0">
+              <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{goTab("inicio");setMenuOpen(false);window.setTimeout(()=>window.scrollTo({top:0,behavior:"smooth"}),60);}} className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--accent)] text-[var(--accent-text)] flex items-center justify-center">
+                <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              </button>
               <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={darkMode?"Cambiar a modo claro":"Cambiar a modo oscuro"} title={darkMode?"Modo claro":"Modo oscuro"} onClick={toggleTheme}>
                 {darkMode ? (
                   <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
