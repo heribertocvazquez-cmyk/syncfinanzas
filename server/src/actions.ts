@@ -1,4 +1,12 @@
 import { defineAction, rateLimitDb, z, type ActionsModule, type Ctx } from "./space-shim.js";
+import {
+  mpCreateOrder,
+  mpExternalReference,
+  mpGetOrder,
+  mpMarkPaidFromReference,
+  parseMpExternalReference,
+  requireMpToken,
+} from "./mercadopago.js";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { supabaseAdmin } from "./supabase.js";
@@ -2028,6 +2036,69 @@ export const Actions = {
       if (mine) { await db.update(schema.tandaPayments).set({ status, paidDate: status==="paid"? (paidDateArg ?? mine.paidDate ?? todayStr) : null, ...(proofBlobKey?{ proofBlobKey, verified: 0 }:{}), ...(status==="pending"?{ verified: 0 }:{}) }).where(eq(schema.tandaPayments.id, mine.id)); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
       const [r] = await db.insert(schema.tandaPayments).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: args.participantId, quincenaIndex: args.quincenaIndex, status, paidDate: status==="paid"? (paidDateArg ?? todayStr) : null, proofBlobKey: proofBlobKey ?? null, verified: 0 }).returning({ id: schema.tandaPayments.id });
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
+    },
+  }),
+  // ---- Pago de tanda con Mercado Pago (Checkout Pro, API de Orders,
+  // PRUEBA) ----
+  // El integrante paga su turno en el checkout y el dinero cae en la
+  // cuenta del organizador (la que posee el Access Token de prueba). La
+  // orden se crea con el importe exacto del pago de la tanda; el pago
+  // solo se marca pagado después de leer en Mercado Pago que está
+  // aprobado (aquí o por el webhook). Sin la clave de prueba en el
+  // despliegue, devuelve un error claro y la app sigue funcionando.
+  createMercadoPagoOrder: defineAction({
+    description: "Crea una orden de pago en Mercado Pago (Checkout Pro, API de Orders, PRUEBA) para un pago de tanda pendiente: el integrante paga su turno en el checkout y el dinero cae en la cuenta del organizador. Solo quien paga o el organizador pueden crearla. Sin la clave de prueba en el despliegue devuelve un error claro.",
+    request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), quincenaIndex: z.number().int().min(0) }),
+    response: z.object({ ok: z.literal(true), orderId: z.string(), checkoutUrl: z.string(), amount: z.number(), externalReference: z.string() }),
+    async handler(ctx, args): Promise<{ ok: true; orderId: string; checkoutUrl: string; amount: number; externalReference: string }> {
+      await rateLimit("createMercadoPagoOrder", 10, 60_000);
+      const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId);
+      // Su propio pago lo crea el participante; el de otro solo el
+      // organizador o el administrador del hogar.
+      if (!acc.isAdmin && acc.rank < 3 && acc.participantId !== args.participantId) throw new Error("No tiene permiso para esta acción.");
+      const td = acc.tanda;
+      const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
+      const part = parts.find((p) => p.id === args.participantId);
+      if (!part) throw new Error("Participante no encontrado en esta tanda.");
+      const pays = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId, args.tandaId));
+      const mine = pays.find((r) => r.participantId === args.participantId && r.quincenaIndex === args.quincenaIndex);
+      if (mine?.status === "paid") throw new Error("Ese pago ya está registrado como pagado.");
+      const amount = td.amountPerQuincena;
+      if (!(amount > 0)) throw new Error("La tanda no tiene un importe de pago válido.");
+      const token = requireMpToken();
+      const payerEmail = (part.email || "").trim() || ctx.user.email;
+      const externalReference = mpExternalReference(args.tandaId, args.quincenaIndex, ctx.user.id);
+      const { orderId, checkoutUrl } = await mpCreateOrder(token, { amount, externalReference, title: `Tanda ${td.name} ronda ${args.quincenaIndex + 1}`, payerEmail });
+      return { ok: true, orderId, checkoutUrl, amount, externalReference };
+    },
+  }),
+  checkMercadoPagoOrder: defineAction({
+    description: "Consulta en Mercado Pago el estado de una orden creada para un pago de tanda y, solo si el pago está aprobado y el importe coincide con el de la tanda, marca ese pago como pagado (el organizador aún lo verifica). Es el respaldo cuando el webhook no llegó.",
+    request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), quincenaIndex: z.number().int().min(0), orderId: z.string().min(1) }),
+    response: z.object({ ok: z.literal(true), status: z.string(), paid: z.boolean() }),
+    async handler(ctx, args): Promise<{ ok: true; status: string; paid: boolean }> {
+      await rateLimit("checkMercadoPagoOrder", 10, 60_000);
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId);
+      if (!acc.isAdmin && acc.rank < 3 && acc.participantId !== args.participantId) throw new Error("No tiene permiso para esta acción.");
+      const token = requireMpToken();
+      const order = await mpGetOrder(token, args.orderId);
+      // La orden debe ser la de este pago de tanda (misma tanda y mismo
+      // periodo); si no, no se marca nada.
+      const ref = parseMpExternalReference(order.externalReference ?? "");
+      if (!ref || ref.tandaId !== args.tandaId || ref.quincenaIndex !== args.quincenaIndex) throw new Error("Esa orden no corresponde a este pago.");
+      if (!order.approved) return { ok: true, status: order.status, paid: false };
+      const res = await mpMarkPaidFromReference({
+        tandaId: args.tandaId,
+        quincenaIndex: args.quincenaIndex,
+        participantId: args.participantId,
+        payerEmail: order.payerEmail ?? order.approved.payerEmail,
+        payerUserId: ref.userId,
+        paidDate: order.approved.paidDate,
+        approvedAmount: order.approved.amount,
+      });
+      if (res.marked) await logActivity(ctx, args.householdId, "Pago de tanda por Mercado Pago", `Tanda ${args.tandaId} · periodo ${args.quincenaIndex + 1}`);
+      return { ok: true, status: order.status, paid: res.marked || res.reason === "already_paid" };
     },
   }),
   verifyTandaPayment: defineAction({

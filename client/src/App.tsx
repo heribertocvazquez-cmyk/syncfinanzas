@@ -1161,6 +1161,27 @@ export function App(){
   const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:inv});
   const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:data!.household!.id,tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
   const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:data!.household!.id,...v}),onSuccess:inv});
+  // Pago de tanda con Mercado Pago (Checkout Pro, PRUEBA): crea la orden
+  // en el servidor y abre el checkout en otra pestaña. La pestaña se abre
+  // en blanco al pulsar (gesto del usuario) y se le pone la URL al
+  // responder el servidor, para que el navegador no la bloquee. La orden
+  // pendiente se guarda en el dispositivo para poder verificar el pago al
+  // volver, sin depender solo del webhook.
+  const mpTabRef=useRef<Window|null>(null);
+  const mpOrderKey=(tandaId:number,quincenaIndex:number)=>`sf-mp-order-${tandaId}-${quincenaIndex}`;
+  const [mpOrders,setMpOrders]=useState<Record<string,string>>(()=>{ try{ const out:Record<string,string>={}; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k?.startsWith("sf-mp-order-")){ const v=localStorage.getItem(k); if(v) out[k]=v; } } return out; }catch{ return {}; } });
+  const mpSaveOrder=(tandaId:number,quincenaIndex:number,orderId:string)=>{ const k=mpOrderKey(tandaId,quincenaIndex); try{ localStorage.setItem(k,orderId); }catch{} setMpOrders(p=>({...p,[k]:orderId})); };
+  const mpClearOrder=(tandaId:number,quincenaIndex:number)=>{ const k=mpOrderKey(tandaId,quincenaIndex); try{ localStorage.removeItem(k); }catch{} setMpOrders(p=>{ const n={...p}; delete n[k]; return n; }); };
+  const createMpOrder=useMutation({
+    mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.createMercadoPagoOrder({householdId:data!.household!.id,...v}),
+    onMutate:()=>{ try{ mpTabRef.current=window.open("about:blank","_blank"); }catch{ mpTabRef.current=null; } },
+    onSuccess:(r,v)=>{ mpSaveOrder(v.tandaId,v.quincenaIndex,r.orderId); const tab=mpTabRef.current; mpTabRef.current=null; if(tab && !tab.closed) tab.location.href=r.checkoutUrl; else window.open(r.checkoutUrl,"_blank","noopener"); inv(); setSavedNotice("Se abrió el pago de Mercado Pago (PRUEBA) en otra pestaña. Al volver, pulse Verificar pago."); },
+    onError:()=>{ const tab=mpTabRef.current; mpTabRef.current=null; try{ tab?.close(); }catch{} },
+  });
+  const checkMpOrder=useMutation({
+    mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;orderId:string})=>await api.checkMercadoPagoOrder({householdId:data!.household!.id,...v}),
+    onSuccess:(r,v)=>{ if(r.paid){ mpClearOrder(v.tandaId,v.quincenaIndex); inv(); setSavedNotice("Pago confirmado por Mercado Pago."); } else { setSavedNotice("El pago aún no aparece como aprobado en Mercado Pago. Inténtelo de nuevo en un momento."); } },
+  });
   const [mvProfile,setMvProfile]=useState("");
   const [receipt,setReceipt]=useState<{dataBase64:string;mimeType:string;preview:string;file?:File}|null>(null);
   const [persReceipt,setPersReceipt]=useState<{dataBase64:string;mimeType:string;preview:string;file?:File}|null>(null);
@@ -2631,6 +2652,7 @@ export function App(){
                                 <span className="flex flex-wrap gap-1 mt-1.5">
                                   {pay?.proofUrl && <span className="flex items-center gap-1"><img src={pay.proofUrl} alt={`Comprobante de pago de ${pt.name} periodo ${c.index+1}`} className="w-8 h-8 object-cover rounded-md border border-[var(--border)]" /><button aria-label={`Ver comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setReceiptView(pay.proofUrl)}>Ver comprobante</button></span>}
                                   {(p.canTreasury || p.isOwn(pt.id)) && <label className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)] cursor-pointer" aria-label={`Subir comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`}>{pay?.proofUrl?"Cambiar comprobante":"Subir comprobante"}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de ${pt.name} periodo ${c.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) void pickTandaProof({tandaId:td.id,participantId:pt.id,participantName:pt.name,quincenaIndex:c.index,file:f}); e.target.value=""; }} /></label>}
+                                  {!paid && p.isOwn(pt.id) && (()=>{ const orderId=mpOrders[mpOrderKey(td.id,c.index)]; if(orderId){ return (<><button aria-label={`Verificar pago de Mercado Pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" disabled={checkMpOrder.isPending} onClick={()=>checkMpOrder.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,orderId})}>{checkMpOrder.isPending?"Verificando…":"Verificar pago"}</button><button aria-label={`Cancelar el pago de Mercado Pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>mpClearOrder(td.id,c.index)}>Cancelar</button><span className="text-[var(--dim)]">Pago abierto en Mercado Pago (PRUEBA).</span></>); } return (<button aria-label={`Pagar con Mercado Pago el periodo ${c.index+1} de ${pt.name} en ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" disabled={createMpOrder.isPending} onClick={()=>createMpOrder.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index})}>{createMpOrder.isPending?"Abriendo pago…":"Pagar con Mercado Pago · PRUEBA"}</button>); })()}
                                   {!verified && p.canTreasury && <button aria-label={`Verificar y confirmar el pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--green)] text-white rounded-full px-2 py-1 font-bold" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:true})}>Verificar pago</button>}
                                   {verified && p.canTreasury && <button aria-label={`Retirar la verificación del pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:false})}>Retirar verificación</button>}
                                   {(p.canTreasury || p.isOwn(pt.id)) && <button aria-label={`${paid?"Marcar pendiente":"Marcar pagado sin comprobante"} a ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,status:paid?"pending":"paid"})}>{paid?"Marcar pendiente":"Marcar pagado"}</button>}
@@ -2669,7 +2691,7 @@ export function App(){
                       </div>
                     );})}
                   </div>
-                  {(uploadProof.error || verifyPay.error || remindPay.error) && <p className="text-sm text-[var(--red)] mt-1">{String(uploadProof.error || verifyPay.error || remindPay.error)}</p>}
+                  {(uploadProof.error || verifyPay.error || remindPay.error || createMpOrder.error || checkMpOrder.error) && <p className="text-sm text-[var(--red)] mt-1">{String(uploadProof.error || verifyPay.error || remindPay.error || createMpOrder.error || checkMpOrder.error)}</p>}
                 </div>
                 <div className="border-t border-[var(--border)] pt-3">
                   <h4 className="font-display font-bold text-sm">Calificación del organizador</h4>

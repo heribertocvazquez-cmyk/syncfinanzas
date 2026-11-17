@@ -56,6 +56,8 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   deleteAgreement: { table: "agreements", idField: "id" },
   deletePatrimony: { table: "patrimonyItems", idField: "id" },
   deleteInvitation: { table: "invitations", idField: "id" },
+  createMercadoPagoOrder: { table: "tandas", idField: "tandaId" },
+  checkMercadoPagoOrder: { table: "tandas", idField: "tandaId" },
   deleteTanda: { table: "tandas", idField: "id" },
   deleteMovement: { table: "movements", idField: "id" },
   reverseMovement: { table: "movements", idField: "id" },
