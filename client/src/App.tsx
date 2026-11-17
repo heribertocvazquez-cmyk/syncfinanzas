@@ -248,6 +248,8 @@ function MonthPicker({value,onChange}:{value:string;onChange:(ym:string)=>void})
   const [year,setYear]=useState(()=>Number(value.slice(0,4))||new Date().getFullYear());
   const todayMonth=todayISO().slice(0,7);
   useEffect(()=>{ if(!open) return; const onKey=(e:KeyboardEvent)=>{ if(e.key==="Escape") setOpen(false); }; document.addEventListener("keydown",onKey); return ()=>document.removeEventListener("keydown",onKey); },[open]);
+  // Al abrir, el año es siempre el del mes visto (no el de la última visita).
+  useEffect(()=>{ if(open) setYear(Number(value.slice(0,4))||new Date().getFullYear()); },[open,value]);
   const pick=(m:number)=>{ onChange(`${year}-${String(m+1).padStart(2,"0")}`); setOpen(false); };
   return (
     <div className="relative shrink-0">
@@ -256,7 +258,7 @@ function MonthPicker({value,onChange}:{value:string;onChange:(ym:string)=>void})
       </button>
       {open && (<>
         <div aria-hidden="true" className="fixed inset-0 z-40" onClick={()=>setOpen(false)} />
-        <div role="dialog" aria-label="Elegir mes y año" className="absolute right-0 top-full mt-2 z-50 w-[272px] rounded-2xl border border-[var(--gold)] bg-[var(--surface)] p-4 shadow-2xl">
+        <div role="dialog" aria-label="Elegir mes y año" className="absolute left-0 top-full mt-2 z-50 w-[min(288px,calc(100vw-2rem))] rounded-2xl border border-[var(--gold)] bg-[var(--surface)] p-4 shadow-2xl">
           <div className="flex items-center justify-between">
             <button type="button" aria-label={`Año anterior, ${year-1}`} onClick={()=>setYear(y=>y-1)} className="w-9 h-9 rounded-full border border-[var(--border)] font-bold text-lg leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">‹</button>
             <span className="font-display text-2xl font-extrabold text-[var(--gold-text)]">{year}</span>
@@ -1512,18 +1514,18 @@ export function App(){
       </div>
       {/* Header */}
       <header className={`sticky top-0 ${menuOpen?"z-40":"z-20"} bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)] pt-safe`}>
-        <div className="max-w-5xl mx-auto px-3 py-2">
-          <div className="flex items-center gap-3">
-            <button type="button" aria-label={menuOpen?"Cerrar menú de módulos":"Abrir menú de módulos"} aria-expanded={menuOpen} aria-controls="menu-modulos" onClick={()=>setMenuOpen(o=>!o)} className="shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex flex-col items-center justify-center gap-[5px]">
+        <div className="max-w-5xl mx-auto px-2 sm:px-3 py-2">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button type="button" aria-label={menuOpen?"Cerrar menú de módulos":"Abrir menú de módulos"} aria-expanded={menuOpen} aria-controls="menu-modulos" onClick={()=>setMenuOpen(o=>!o)} className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex flex-col items-center justify-center gap-[5px]">
               <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"translate-y-[7.5px] rotate-45":""}`} />
               <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-opacity ${menuOpen?"opacity-0":""}`} />
               <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"-translate-y-[7.5px] -rotate-45":""}`} />
             </button>
             <div className="min-w-0 flex-1">
-              <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-x-2 gap-y-1 text-[17px] sm:text-xl"><span className="min-w-0 truncate">{hh.name}</span><span className="shrink-0 text-[11px] bg-[#E8B84A] text-[#13262E] rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
-              <p className="text-xs text-[var(--dim)] mt-1">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}</p>
+              <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-x-2 gap-y-1 text-[16px] sm:text-xl"><span className="min-w-0 truncate">{hh.name}</span><span className="shrink-0 text-[11px] bg-[#E8B84A] text-[#13262E] rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
+              <p className="text-xs text-[var(--dim)] mt-1 whitespace-nowrap">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}</p>
             </div>
-            <div className="flex gap-2 shrink-0">
+            <div className="flex gap-1 sm:gap-2 shrink-0">
               <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{goTab("inicio");setMenuOpen(false);window.setTimeout(()=>window.scrollTo({top:0,behavior:"smooth"}),60);}} className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--accent)] text-[var(--accent-text)] flex items-center justify-center">
                 <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
               </button>
@@ -2162,14 +2164,17 @@ export function App(){
         
         {effTab==="personal" && (
           <section className="space-y-4 md:space-y-6">
-            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-4 sm:p-5">
-              <p className="text-sm opacity-80">Restante de su sueldo · {s.currentMonth}</p>
-              <p className="font-display text-4xl font-extrabold mt-1 whitespace-nowrap">{money2(data.personal.remaining)}</p>
-              <p className="text-sm opacity-80 mt-1">Sueldo {money2(data.personal.salary)} − gastado {money2(data.personal.monthSpent)}.</p>
+            {/* Tarjeta principal como la de Inicio: superficie con acento
+                dorado fino, cifra grande y quieta; sin bloque sólido. */}
+            <div className="relative overflow-hidden bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+              <span aria-hidden="true" className="absolute left-0 right-0 top-0 h-[3px] bg-[var(--gold)]" />
+              <p className="text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]">Restante de su sueldo · {fmtMonth(s.currentMonth).toUpperCase()}</p>
+              <p className="font-display text-4xl font-extrabold leading-tight mt-1 whitespace-nowrap">{money2(data.personal.remaining)}</p>
+              <p className="text-sm text-[var(--dim)] mt-1">Sueldo {money2(data.personal.salary)} − gastado {money2(data.personal.monthSpent)}.</p>
               <div className="grid grid-cols-3 gap-2 mt-3 text-center">
-                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Sueldo mensual</p><p className="font-display font-bold whitespace-nowrap">{money(data.personal.salary)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Total gastado</p><p className="font-display font-bold whitespace-nowrap">{money(data.personal.monthSpent)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Gastos de hoy</p><p className="font-display font-bold whitespace-nowrap">{money(data.personal.todaySpent)}</p></div>
+                <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]">Sueldo mensual</p><p className="font-display font-bold whitespace-nowrap text-[var(--green)]">{money(data.personal.salary)}</p></div>
+                <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]">Total gastado</p><p className="font-display font-bold whitespace-nowrap text-[var(--red)]">{money(data.personal.monthSpent)}</p></div>
+                <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]">Gastos de hoy</p><p className="font-display font-bold whitespace-nowrap">{money(data.personal.todaySpent)}</p></div>
               </div>
             </div>
             <div className="grid md:grid-cols-2 gap-4 md:gap-6 items-start">
