@@ -48,3 +48,20 @@
   body { overscroll-behavior-y: none; }
 }
 input,select,textarea { font-size:16px; }
+/* Botón flotante del Ayudante: estrella dorada siempre visible, con un
+   brillo suave para que se note y un anillo expansivo cuando el Ayudante
+   tiene una idea, una pregunta o un aviso para el usuario. */
+@keyframes help-fab-glow {
+  0%, 100% { box-shadow: 0 10px 24px rgba(0,0,0,.35), 0 0 0 0 rgba(217,169,63,.45); }
+  50% { box-shadow: 0 10px 24px rgba(0,0,0,.35), 0 0 0 12px rgba(217,169,63,0); }
+}
+@keyframes help-fab-ring {
+  0% { box-shadow: 0 10px 24px rgba(0,0,0,.35), 0 0 0 0 rgba(217,169,63,.6); }
+  70% { box-shadow: 0 10px 24px rgba(0,0,0,.35), 0 0 0 16px rgba(217,169,63,0); }
+  100% { box-shadow: 0 10px 24px rgba(0,0,0,.35), 0 0 0 0 rgba(217,169,63,0); }
+}
+.help-fab { animation: help-fab-glow 3.2s ease-in-out infinite; }
+.help-fab--idea { animation: help-fab-ring 1.8s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .help-fab, .help-fab--idea { animation: none; }
+}

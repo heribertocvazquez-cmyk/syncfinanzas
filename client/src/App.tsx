@@ -8,7 +8,7 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
+import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, defaultHelpSuggestions, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
@@ -517,19 +517,28 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 // ---- Ayudante de uso (respuestas preparadas + respuestas dinámicas con datos reales) ----
-// Botón flotante con signo de interrogación, visible en toda la app. Al tocarlo
-// abre una ventanita de chat que responde dudas de uso con una base de
-// respuestas preparadas por palabras clave (sin claves ni servicios de pago)
-// y preguntas dinámicas calculadas en el dispositivo con los datos del hogar
-// (en qué se gasta de más, dónde ahorrar, cómo va la meta, cuánto queda).
-// Cada respuesta es corta, en tono formal de usted, y trae un botón que lleva
-// directo al lugar cuando la vista ya tiene navegación (onGo). La lógica vive
-// en ./lib/helpDynamic. Sin `open`/`onOpenChange` se maneja solo y muestra el
-// botón flotante (así lo usa el asistente de creación de espacio). Con
-// `open`/`onOpenChange` lo controla la app: se abre solo desde la entrada
-// del cajón, hasta abajo (el botón del encabezado se quitó para despejarlo).
+// Botón flotante con una estrella dorada, visible SIEMPRE en toda la app
+// mientras el chat está cerrado, en modo Personal y Familiar. (Antes el
+// botón solo aparecía junto al saludo o a un aviso: sin saludo ni aviso no
+// había botón y el chat solo se abría desde la entrada del cajón; ese era
+// el fallo que Heriberto reportó con su captura del 2026-11-17.) Cuando el
+// Ayudante tiene una idea, una pregunta o un aviso para el usuario (saludo
+// o aviso pendiente), la estrella lleva un foco encima y un pulso para que
+// se note. Al tocarlo abre una ventanita de chat que responde dudas de uso
+// con una base de respuestas preparadas por palabras clave (sin claves ni
+// servicios de pago) y preguntas dinámicas calculadas en el dispositivo con
+// los datos del hogar (en qué se gasta de más, dónde ahorrar, cómo va la
+// meta, cuánto queda). Al abrir, el chat muestra el saludo y las preguntas
+// sugeridas (con la caja vacía se muestran las dinámicas primero), nunca
+// solo la caja de texto vacía. Cada respuesta es corta, en tono formal de
+// usted, y trae un botón que lleva directo al lugar cuando la vista ya
+// tiene navegación (onGo). La lógica vive en ./lib/helpDynamic. Sin
+// `open`/`onOpenChange` se maneja solo (así lo usa el asistente de
+// creación de espacio). Con `open`/`onOpenChange` lo controla la app.
 // Con `greeting`, al entrar a la app aparece un saludo suave una vez por
-// sesión, que se puede descartar; nunca bloquea la pantalla.
+// sesión, que se puede descartar; nunca bloquea la pantalla. Con `hidden`
+// (menú abierto) el botón se oculta, porque el cajón ya tiene su entrada
+// al Ayudante.
 // Además el Ayudante es un asistente de ahorro conversacional: si el usuario
 // pregunta cómo ahorrar más, no contesta de una vez, pregunta el motivo (con
 // sus metas como opciones), el monto y el plazo, y piensa con sus datos
@@ -539,7 +548,7 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
 // registrar, presupuesto cerca de su límite, plan de ahorro en riesgo), una
 // sola vez por sesión cada aviso, con × para descartar, nunca un popup que
 // bloquee. El saludo de entrada tiene prioridad sobre los avisos.
-function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, greeting, onDismissGreeting, overview, nudge, onDismissNudge }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void; dynamicFaqs?: HelpFaq[]; greeting?: { text: string; personal?: string | null } | null; onDismissGreeting?: () => void; overview?: OverviewData | null; nudge?: HelpNudge | null; onDismissNudge?: () => void }) {
+export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, greeting, onDismissGreeting, overview, nudge, onDismissNudge, hidden }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void; dynamicFaqs?: HelpFaq[]; greeting?: { text: string; personal?: string | null } | null; onDismissGreeting?: () => void; overview?: OverviewData | null; nudge?: HelpNudge | null; onDismissNudge?: () => void; hidden?: boolean }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
@@ -550,7 +559,7 @@ function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, 
   // plazo en la memoria del chat y piensa con los datos reales.
   const [wizard, setWizard] = useState<WizardState | null>(null);
   const allFaqs = useMemo(() => [...HELP_FAQS, ...(dynamicFaqs ?? [])], [dynamicFaqs]);
-  const suggestions = useMemo(()=> wizard ? [] : predictHelp(input, allFaqs, 5, freq), [input, allFaqs, freq, wizard]);
+  const suggestions = useMemo(()=> wizard ? [] : input.trim().length < 2 ? defaultHelpSuggestions(allFaqs, dynamicFaqs ?? []) : predictHelp(input, allFaqs, 5, freq), [input, allFaqs, freq, wizard, dynamicFaqs]);
   const ask = (text: string) => {
     const q = text.trim(); if (!q) return;
     setInput("");
@@ -589,36 +598,44 @@ function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, 
     recordHelpQuestion(q);
     setFreq(frequentQuestions(loadHelpLearning()));
   };
+  // El botón flotante se ve siempre que el chat está cerrado (antes solo
+  // aparecía con saludo o aviso: sin saludo ni aviso no había botón). La
+  // estrella lleva un foco encima y un pulso cuando el Ayudante tiene una
+  // idea, una pregunta o un aviso para el usuario.
+  const hasIdea = Boolean(greeting || nudge);
   return (
     <>
-      {controlledOpen === undefined && !open && (
-        <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full bg-[var(--gold)] text-[#13262E] font-display font-extrabold text-2xl shadow-lg flex items-center justify-center">?</button>
-      )}
-      {greeting && !open && controlledOpen !== undefined && (
-        <div className="fixed bottom-4 right-4 z-40 flex items-end gap-2">
-          <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
-            <p className="text-sm font-semibold">{greeting.text}</p>
-            {greeting.personal && <p className="text-xs text-[var(--dim)] mt-1">{greeting.personal}</p>}
-            <div className="flex gap-2 mt-2">
-              <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{ setOpen(true); ask("¿Me das un resumen del mes?"); }}>Resumen del mes</button>
-              <button type="button" aria-label="Descartar el saludo del ayudante" onClick={()=>onDismissGreeting?.()} className={btnGhost}>×</button>
+      {!open && !hidden && (
+        <div className="fixed right-4 z-40 flex items-end gap-2" style={{ bottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
+          {greeting && controlledOpen !== undefined && (
+            <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
+              <p className="text-sm font-semibold">{greeting.text}</p>
+              {greeting.personal && <p className="text-xs text-[var(--dim)] mt-1">{greeting.personal}</p>}
+              <div className="flex gap-2 mt-2">
+                <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{ setOpen(true); ask("¿Me das un resumen del mes?"); }}>Resumen del mes</button>
+                <button type="button" aria-label="Descartar el saludo del ayudante" onClick={()=>onDismissGreeting?.()} className={btnGhost}>×</button>
+              </div>
             </div>
-          </div>
-          <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="w-14 h-14 rounded-full bg-[var(--gold)] text-[#13262E] font-display font-extrabold text-2xl shadow-lg flex items-center justify-center shrink-0">?</button>
-        </div>
-      )}
-      {!greeting && nudge && !open && controlledOpen !== undefined && (
-        <div className="fixed bottom-4 right-4 z-40 flex items-end gap-2">
-          <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
-            <p className="text-sm font-semibold">{nudge.text}</p>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {nudge.actions.map(a=>(
-                <button key={a.label} type="button" className={a.ask ? btnPrimary : btnGhost} onClick={()=>{ if (a.ask) { setOpen(true); ask(a.ask); } else if (a.go && onGo) { setOpen(false); onGo(a.go); } onDismissNudge?.(); }}>{a.label}</button>
-              ))}
-              <button type="button" aria-label="Descartar el aviso del ayudante" onClick={()=>onDismissNudge?.()} className={btnGhost}>×</button>
+          )}
+          {!greeting && nudge && controlledOpen !== undefined && (
+            <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
+              <p className="text-sm font-semibold">{nudge.text}</p>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {nudge.actions.map(a=>(
+                  <button key={a.label} type="button" className={a.ask ? btnPrimary : btnGhost} onClick={()=>{ if (a.ask) { setOpen(true); ask(a.ask); } else if (a.go && onGo) { setOpen(false); onGo(a.go); } onDismissNudge?.(); }}>{a.label}</button>
+                ))}
+                <button type="button" aria-label="Descartar el aviso del ayudante" onClick={()=>onDismissNudge?.()} className={btnGhost}>×</button>
+              </div>
             </div>
-          </div>
-          <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="w-14 h-14 rounded-full bg-[var(--gold)] text-[#13262E] font-display font-extrabold text-2xl shadow-lg flex items-center justify-center shrink-0">?</button>
+          )}
+          <button type="button" data-help-fab aria-label={hasIdea ? "Abrir el ayudante: tengo una idea para usted" : "Abrir el ayudante de uso"} onClick={()=>setOpen(true)} className={`relative w-16 h-16 rounded-full bg-[var(--gold)] text-[#13262E] shadow-xl flex items-center justify-center shrink-0 ${hasIdea ? "help-fab help-fab--idea" : "help-fab"}`}>
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="w-8 h-8" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+            {hasIdea && (
+              <span data-help-badge="idea" aria-hidden="true" className="absolute -top-1.5 -right-1.5 w-7 h-7 rounded-full bg-[#13262E] text-[var(--gold)] border-2 border-[var(--surface)] shadow flex items-center justify-center">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
+              </span>
+            )}
+          </button>
         </div>
       )}
       {open && (
@@ -2992,7 +3009,7 @@ export function App(){
         )}
       </main>
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
-      <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} dynamicFaqs={dynamicFaqs} greeting={greeting} onDismissGreeting={dismissGreeting} overview={data} nudge={activeNudge} onDismissNudge={dismissNudge} />
+      <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} hidden={menuOpen} dynamicFaqs={dynamicFaqs} greeting={greeting} onDismissGreeting={dismissGreeting} overview={data} nudge={activeNudge} onDismissNudge={dismissNudge} />
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">

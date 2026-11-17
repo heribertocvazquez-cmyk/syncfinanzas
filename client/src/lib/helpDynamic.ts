@@ -123,6 +123,22 @@ export function predictHelp(input: string, faqs: HelpFaq[] = HELP_FAQS, max = 5,
   return scored.slice(0, max).map(s => s.f);
 }
 
+// Sugerencias al abrir el chat: con la caja vacía no hay nada que predecir
+// (predictHelp devuelve []), así que se muestran primero las preguntas
+// dinámicas con cifras reales y luego las dudas de uso más comunes. Así el
+// chat nunca abre solo con la caja de texto vacía.
+export function defaultHelpSuggestions(faqs: HelpFaq[] = HELP_FAQS, dynamic: HelpFaq[] = [], max = 5): HelpFaq[] {
+  const seen = new Set<string>();
+  const out: HelpFaq[] = [];
+  for (const f of [...dynamic, ...faqs]) {
+    if (seen.has(f.q)) continue;
+    seen.add(f.q);
+    out.push(f);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 // ---- Cálculos con datos reales (solo movimientos visibles) ----
 // Un movimiento reversado y su reversión no cuentan: se excluyen igual que
 // en los totales de la app.
