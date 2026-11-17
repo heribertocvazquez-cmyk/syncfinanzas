@@ -206,9 +206,7 @@ function CategoryChart({data, onSelect, detailOpen, palette, large, reserveLine,
           <span>{sel.name} · {money2(sel.total)} · {sel.pct}%</span>
         </span>
       </div>
-    ) : (
-      <p className="text-xs text-[var(--dim)] mt-2">Toque un segmento de la dona para ver sus gastos.</p>
-    )}
+    ) : null}
   </div>;
 }
 // Variante de Inicio (propuesta Unslop, solo esa instancia; Personal
@@ -221,7 +219,7 @@ function MonthlyChart({series,currentMonth,onSelect,inicio}:{series:{month:strin
   const allZero=data.every(d=>d.Ingresos===0&&d.Gastos===0);
   const isEmptyMonth=(d:{Ingresos:number;Gastos:number})=>d.Ingresos===0&&d.Gastos===0;
   if(allZero) return <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>;
-  return <div className="mt-2" role="img" aria-label={inicio?"Gráfica de ingresos contra gastos por mes.":"Gráfica de ingresos contra gastos por mes. Toque una barra de Ingresos o de Gastos para ver el detalle por cuenta."}>
+  return <div className="mt-2" role="img" aria-label="Gráfica de ingresos contra gastos por mes.">
     <ResponsiveContainer width="100%" height={170}>
       <BarChart data={data} margin={{left:0,right:8,top:10,bottom:4}} barCategoryGap="30%" barGap={6}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
@@ -239,7 +237,7 @@ function MonthlyChart({series,currentMonth,onSelect,inicio}:{series:{month:strin
   </div>;
 }
 function Help({children}:{children:React.ReactNode}){ return <p className="text-[13px] leading-snug text-[var(--dim)] bg-[var(--surface2)] rounded-xl px-3 py-2">{children}</p>; }
-function Empty({title,body,action}:{title:string;body:string;action?:{label:string;onClick:()=>void}}){ return <div className="border border-dashed border-[var(--border)] rounded-2xl p-3.5 text-center"><p className="font-display font-bold">{title}</p><p className="text-sm text-[var(--dim)] mt-1">{body}</p>{action && <button type="button" aria-label={action.label} className={btnPrimary+" mt-3"} onClick={action.onClick}>{action.label}</button>}</div>; }
+function Empty({title,body,action}:{title:string;body:string;action?:{label:string;onClick:()=>void}}){ return <div className="border border-dashed border-[var(--border)] rounded-2xl p-4 sm:p-5 text-center"><p className="font-display font-bold text-lg">{title}</p><p className="text-sm text-[var(--dim)] mt-1">{body}</p>{action && <button type="button" aria-label={action.label} className={btnPrimary+" mt-3"} onClick={action.onClick}>{action.label}</button>}</div>; }
 function focusField(id:string){ const el=document.getElementById(id); el?.scrollIntoView({behavior:"smooth",block:"center"}); (el as HTMLElement|null)?.focus(); }
 function Stars({value,size}:{value:number;size?:string}){ const full=Math.round(value); return <span className={`text-[var(--gold)] ${size||"text-base"}`} role="img" aria-label={`${value} de 5 estrellas`}>{"★★★★★".slice(0,full)}{"☆☆☆☆☆".slice(0,5-full)}</span>; }
 function Label({htmlFor,children}:{htmlFor:string;children:React.ReactNode}){ return <label htmlFor={htmlFor} className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">{children}</label>; }
@@ -299,12 +297,12 @@ function TandaMonthCalendar({td}:{td:TandaCal}){
           <button type="button" aria-label="Volver al mes actual" className={btnGhost} onClick={()=>setView({y:now.getFullYear(), m:now.getMonth()})}>Hoy</button>
         </div>
       </div>
-      <div className="bg-[#FBF6E9] dark:bg-[#2E2617] border border-[var(--gold)] rounded-2xl p-3 space-y-1 mt-2">
+      <div className="bg-[#FBF6E9] dark:bg-[#2E2617] border border-[var(--gold)] rounded-2xl p-4 sm:p-5 space-y-1 mt-2">
         <p className="text-sm font-bold text-[#6B4E0A] dark:text-[#E3C078]">{payLine}</p>
         <p className="text-sm font-bold text-[#1D5A75]">{recLine}</p>
       </div>
       <div className="grid grid-cols-7 gap-1 mt-2">
-        {CAL_WEEKDAYS.map(wd=><div key={wd} className="text-[10px] font-bold text-[var(--dim)] text-center py-1">{wd}</div>)}
+        {CAL_WEEKDAYS.map(wd=><div key={wd} className="text-xs font-bold text-[var(--dim)] text-center py-1">{wd}</div>)}
         {Array.from({length: leading+daysInMonth}, (_,i)=>{
           if(i<leading) return <div key={`b${i}`} />;
           const d = i-leading+1;
@@ -313,10 +311,10 @@ function TandaMonthCalendar({td}:{td:TandaCal}){
           const isToday = key===todayKey;
           const isPast = key<todayKey;
           const inner = (<>
-            <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isToday?"bg-[var(--accent)] text-white":""}`}>{d}</span>
+            <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isToday?"bg-[var(--accent)] text-[var(--accent-text)]":""}`}>{d}</span>
             {c && <>
-              <span className="block mt-0.5 text-[9px] leading-[1.15] font-bold rounded px-0.5 py-px bg-[#F3E3B8] dark:bg-[#453A1B] text-[#6B4E0A] dark:text-[#E8C86A]">Pagar {money(td.amountPerQuincena)}</span>
-              {c.receiverName && <span className="block mt-0.5 text-[9px] leading-[1.15] font-bold rounded px-0.5 py-px bg-[#DCEBF3] dark:bg-[#16303F] text-[#1D5A75] dark:text-[#8FC7E8] truncate">Recibe: {c.receiverName}</span>}
+              <span className="block mt-0.5 text-xs leading-[1.15] font-bold rounded px-0.5 py-px bg-[#F3E3B8] dark:bg-[#453A1B] text-[#6B4E0A] dark:text-[#E8C86A]">Pagar {money(td.amountPerQuincena)}</span>
+              {c.receiverName && <span className="block mt-0.5 text-xs leading-[1.15] font-bold rounded px-0.5 py-px bg-[#DCEBF3] dark:bg-[#16303F] text-[#1D5A75] dark:text-[#8FC7E8] truncate">Recibe: {c.receiverName}</span>}
             </>}
           </>);
           const cls = `min-h-[54px] rounded-lg border p-1 text-left align-top ${c ? "border-[var(--gold)] bg-[#FBF6E9] dark:bg-[#2E2617]" : "border-[var(--border)]"} ${isPast && c ? "opacity-60" : ""} ${isToday && !c ? "ring-2 ring-[var(--accent)]" : ""} ${selected===key ? "ring-2 ring-[var(--gold)]" : ""}`;
@@ -325,14 +323,14 @@ function TandaMonthCalendar({td}:{td:TandaCal}){
             : <div key={key} className={cls}>{inner}</div>;
         })}
       </div>
-      <p className="text-xs text-[var(--dim)] mt-2"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#F3E3B8] dark:bg-[#453A1B] border border-[#C5962C] align-middle mr-1" />Día de pago · <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#DCEBF3] dark:bg-[#16303F] border border-[#2E86AB] align-middle mr-1" />Día de entrega. Toque un día marcado para ver el detalle.</p>
+      <p className="text-xs text-[var(--dim)] mt-2"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#F3E3B8] dark:bg-[#453A1B] border border-[#C5962C] align-middle mr-1" />Día de pago · <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#DCEBF3] dark:bg-[#16303F] border border-[#2E86AB] align-middle mr-1" />Día de entrega.</p>
       {sel && (
-        <div className="bg-[var(--surface2)] rounded-2xl p-3 mt-2">
+        <div className="bg-[var(--surface2)] rounded-2xl p-4 sm:p-5 mt-2">
           <div className="flex justify-between gap-2 items-start">
             <div>
               <p className="font-display font-bold text-sm">Periodo {sel.index+1} · {fmtDate(sel.date)}</p>
-              <p className="text-sm mt-0.5">{sel.receiverName ? <>Recibe <b>{sel.receiverName}</b> · <b>{money(sel.amount)}</b></> : "Pendiente de sorteo"}</p>
-              <p className="text-sm">Cada participante paga <b>{money(td.amountPerQuincena)}</b></p>
+              <p className="text-sm mt-0.5">{sel.receiverName ? <>Recibe <b>{sel.receiverName}</b> · <b className="whitespace-nowrap">{money(sel.amount)}</b></> : "Pendiente de sorteo"}</p>
+              <p className="text-sm">Cada participante paga <b className="whitespace-nowrap">{money(td.amountPerQuincena)}</b></p>
             </div>
             <button type="button" aria-label="Cerrar detalle del día" className={btnGhost} onClick={()=>setSelected(null)}>×</button>
           </div>
@@ -383,12 +381,12 @@ const INSTALL_STEPS: Record<InstallPlatform, string[]> = {
   ],
   ios: [
     "Abra esta página en Safari.",
-    "Toque Compartir, el cuadrado con la flecha hacia arriba.",
+    "Pulse Compartir, el cuadrado con la flecha hacia arriba.",
     "Seleccione «Agregar a pantalla de inicio».",
     "Confirme con «Agregar».",
   ],
   desktop: [
-    "Toque el icono de instalación en la barra de direcciones.",
+    "Pulse el icono de instalación en la barra de direcciones.",
     "Confirme con «Instalar».",
   ],
 };
@@ -416,7 +414,7 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
       <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-sm p-3.5" onClick={e=>e.stopPropagation()}>
         <div className="flex items-start justify-between gap-2">
-          <h2 className="font-display font-bold text-base">{title}</h2>
+          <h2 className="font-display font-bold text-lg">{title}</h2>
           <button type="button" aria-label="Cerrar las instrucciones de instalación" onClick={onClose} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
         </div>
         <p className="text-sm text-[var(--dim)] mt-2">El navegador no ofrece la instalación directa en este momento (por ejemplo, si el aviso se descartó antes). Siga estos pasos:</p>
@@ -448,12 +446,12 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["tanda"], q: "¿Cómo creo una tanda?", a: "En Tandas, escriba el nombre, el monto y el número de participantes, elija la regla si alguien no paga, el tesorero y el día de reunión, y pulse Crear tanda. Después invite por correo a los participantes. En cada ronda verá la ficha, el pase de lista y los saldos separados.", go: "tandas", goLabel: "Ir a Tandas" },
   { keys: ["invit", "persona", "unir", "alguien", "invito a mi pareja"], q: "¿Cómo invito a alguien?", a: "En Perfiles, escriba el correo de la persona y pulse Invitar. Recibirá un enlace directo para entrar a su hogar.", go: "perfiles", goLabel: "Ir a Perfiles" },
   { keys: ["espacio", "hogar", "inici", "empez"], q: "¿Cómo creo mi espacio?", a: "Para crear su espacio, elija Personal o Familiar, escriba el nombre de su hogar y sus datos, y pulse Crear hogar.", go: "hogar", goLabel: "Ir a Hogar" },
-  { keys: ["instal", "celular", "pantalla", "descarg"], q: "¿Cómo instalo la app en mi celular?", a: "En iPhone, abra la app en Safari, toque Compartir y seleccione Agregar a pantalla de inicio. En Android, abra el menú ⋮ de Chrome, seleccione «Instalar y crear acceso directo» y confirme con «Instalar».", go: "guia", goLabel: "Ir a Guía de uso" },
+  { keys: ["instal", "celular", "pantalla", "descarg"], q: "¿Cómo instalo la app en mi celular?", a: "En iPhone, abra la app en Safari, pulse Compartir y seleccione Agregar a pantalla de inicio. En Android, abra el menú ⋮ de Chrome, seleccione «Instalar y crear acceso directo» y confirme con «Instalar».", go: "guia", goLabel: "Ir a Guía de uso" },
   { keys: ["actualiz", "nueva versión", "versión"], q: "¿Cómo actualizo la app?", a: "Si hay una versión nueva, aparece un aviso con el botón Actualizar. También puede revisar en Hogar → Buscar actualizaciones. Su cuenta y sus datos no cambian.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["reinici", "reset", "borrar mis datos", "borrar todo", "borrar los datos", "borrar la cuenta", "borrar mi cuenta", "eliminar mis datos", "eliminar todo", "eliminar la cuenta", "empezar de nuevo"], q: "¿Cómo reinicio todo?", a: "En Hogar, al final, pulse el texto discreto Reiniciar la aplicación y responda las 3 preguntas de control una por una (la segunda muestra el número real de tandas y personas). Después escriba REINICIAR. Se borra todo (movimientos, cuentas, presupuestos, tandas y el hogar) y la app vuelve al inicio para elegir de nuevo Personal o Familiar.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["sueldo", "salario", "mi sueldo", "mi salario"], q: "¿Cómo registro mi sueldo?", a: "En Personal, escriba su sueldo mensual y pulse Guardar sueldo.", go: "personal", goLabel: "Ir a Personal" },
   { keys: ["presupuest", "limite"], q: "¿Cómo creo un presupuesto?", a: "En Presupuestos, elija la categoría, escriba el límite del mes y pulse Guardar. Los gastos de esa categoría en el mes se descuentan solos del presupuesto, sin hacer nada más.", go: "presupuestos", goLabel: "Ir a Presupuestos" },
-  { keys: ["pagar presupuesto", "pago desde inicio", "aportar desde inicio"], q: "¿Cómo pago un presupuesto desde Inicio?", a: "En Inicio, toque la tarjeta del presupuesto, escriba el importe, elija de dónde se descuenta (Efectivo o una cuenta) y pulse Guardar pago. El gasto se asigna a esa categoría y se resta de la cuenta elegida. Lo mismo con las metas y el patrimonio.", go: "inicio", goLabel: "Ir a Inicio" },
+  { keys: ["pagar presupuesto", "pago desde inicio", "aportar desde inicio"], q: "¿Cómo pago un presupuesto desde Inicio?", a: "En Inicio, pulse la tarjeta del presupuesto, escriba el importe, elija de dónde se descuenta (Efectivo o una cuenta) y pulse Guardar pago. El gasto se asigna a esa categoría y se resta de la cuenta elegida. Lo mismo con las metas y el patrimonio.", go: "inicio", goLabel: "Ir a Inicio" },
   { keys: ["comprobante", "foto", "ticket", "escanear", "leer el comprobante"], q: "¿Cómo leo un comprobante?", a: "En Movimientos, en Más opciones, suba la foto del comprobante y pulse Leer el comprobante: la app lee el total en su dispositivo, sin costo, y llena el importe, el concepto y la categoría. Revise antes de guardar.", go: "movimientos", goLabel: "Ir a Movimientos" },
   { keys: ["revers", "revier", "revierto", "revertir", "deshacer", "corregir", "eliminar", "borrar un", "gast"], q: "¿Cómo reverso un movimiento?", a: "En Movimientos, pulse Reversar junto al movimiento. El registro queda, pero ya no cuenta en los totales.", go: "movimientos", goLabel: "Ir a Movimientos" },
   { keys: ["categor", "subcategor", "tipo de gasto", "una categoria"], q: "¿Cómo agrego una categoría?", a: "En Categorías puede ver, agregar y quitar categorías y subcategorías.", go: "categorias", goLabel: "Ir a Categorías" },
@@ -545,13 +543,13 @@ function HelpAssistant({ onGo, open: controlledOpen, onOpenChange }: { onGo?: (t
   return (
     <>
       {controlledOpen === undefined && (
-        <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full bg-[var(--gold)] text-white font-display font-extrabold text-2xl shadow-lg flex items-center justify-center">?</button>
+        <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full bg-[var(--gold)] text-[#13262E] font-display font-extrabold text-2xl shadow-lg flex items-center justify-center">?</button>
       )}
       {open && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Ayudante de uso" onClick={()=>setOpen(false)}>
           <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[82vh] flex flex-col overflow-hidden" onClick={e=>e.stopPropagation()}>
             <div className="flex items-start justify-between gap-2 px-3 py-2.5 border-b border-[var(--border)]">
-              <div><h2 className="font-display font-bold text-base">Ayudante de uso</h2><p className="text-xs text-[var(--dim)]">Pregunte cómo usar la app.</p></div>
+              <div><h2 className="font-display font-bold text-lg">Ayudante de uso</h2><p className="text-xs text-[var(--dim)]">Pregunte cómo usar la app.</p></div>
               <button type="button" aria-label="Cerrar el ayudante de uso" onClick={()=>setOpen(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
             </div>
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -1196,18 +1194,18 @@ export function App(){
       <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
         <SafeAreaTopScrim backgroundColor="var(--bg)" />
         <main className="max-w-xl mx-auto px-3 pb-6 pt-4">
-          {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-3 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+          {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-4 sm:p-5 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
           <p className="text-[var(--gold)] font-display font-extrabold tracking-wide text-sm">SYNCFINANZAS · VERSIÓN GRANDE</p>
           <h1 className="font-display text-2xl font-extrabold mt-2 leading-tight">Un solo hogar,<br/>cuentas claras.</h1>
           <p className="text-[var(--dim)] mt-3">Registre sus gastos e ingresos y vea cuánto le queda.</p>
           <div className="mt-4"><InstallCard installed={appInstalled} onInstall={handleInstallClick} /></div>
           <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2">
-            <h2 className="font-display font-bold text-base">¿Recibió una invitación?</h2>
+            <h2 className="font-display font-bold text-lg">¿Recibió una invitación?</h2>
             <p className="text-sm text-[var(--dim)]">Escriba su correo.</p>
             <div className="flex gap-2"><input aria-label="Correo para buscar invitación" type="email" placeholder="tu@correo.com" className={inputCls} value={invEmail} onChange={e=>setInvEmail(e.target.value)} /><button type="button" className={btnPrimary} onClick={()=>findInv.mutate()} disabled={!invEmail || findInv.isPending}>Buscar invitación</button></div>
             {invSearched && invFound.length===0 && <p className="text-sm text-[var(--dim)]">No hay invitación pendiente para ese correo.</p>}
             {invFound.map(iv=>(
-              <div key={`${iv.kind}-${iv.id}`} className="border border-[var(--border)] rounded-2xl p-3 space-y-2">
+              <div key={`${iv.kind}-${iv.id}`} className="border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2">
                 {iv.kind==="tanda"
                   ? <p className="text-sm"><b>Invitación pendiente</b> para participar en la tanda <b>“{iv.tandaName}”</b>{iv.invitedName?` · confirme su nombre:`:" · confirme su nombre:"}</p>
                   : <p className="text-sm"><b>Invitación pendiente</b> para unirse a <b>“{iv.householdName}”</b>{iv.invitedName?` · confirme su nombre:`:" · confirme su nombre:"}</p>}
@@ -1234,7 +1232,7 @@ export function App(){
           </div>
           {tokenInvite && !tokenDone && (
             <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2" role="status">
-              <h2 className="font-display font-bold text-base">Invitación recibida por correo</h2>
+              <h2 className="font-display font-bold text-lg">Invitación recibida por correo</h2>
               {tokenInvite.kind==="household" && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará a ese hogar.</p>}
               {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante.</p>}
               {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
@@ -1256,7 +1254,7 @@ export function App(){
           )}
           {tokenDone && <p className="text-sm text-[var(--green)] mt-4" role="status">Invitación respondida.</p>}
           <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-2">
-            <h2 className="font-display font-bold text-base">Invitar a crear una cuenta personal</h2>
+            <h2 className="font-display font-bold text-lg">Invitar a crear una cuenta personal</h2>
             <p className="text-sm text-[var(--dim)]">Recibirá un enlace directo.</p>
             <div className="flex flex-wrap gap-2">
               <input aria-label="Correo para invitar a crear una cuenta personal" type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={genEmail} onChange={e=>setGenEmail(e.target.value)} />
@@ -1278,7 +1276,7 @@ export function App(){
               <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md p-3.5">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h2 className="font-display font-bold text-base">¿Cómo quiere usar SyncFinanzas?</h2>
+                    <h2 className="font-display font-bold text-lg">¿Cómo quiere usar SyncFinanzas?</h2>
                     <p className="text-sm text-[var(--dim)] mt-1">Podrá cambiarlo después en Hogar.</p>
                   </div>
                   <button type="button" aria-label="Cerrar la elección de modo" onClick={()=>setModeModalOpen(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
@@ -1293,7 +1291,7 @@ export function App(){
           )}
           <form className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();createHh.mutate();}}>
             <div className="flex items-center justify-between gap-2">
-              <h2 className="font-display font-bold text-base">{planMode==="personal"?"Su espacio personal":"Cree su hogar"}</h2>
+              <h2 className="font-display font-bold text-lg">{planMode==="personal"?"Su espacio personal":"Cree su hogar"}</h2>
               <span className="text-xs font-bold text-[var(--dim)] shrink-0">Paso {obStep+1} de 3</span>
             </div>
             <div className="flex gap-1.5" aria-label={`Paso ${obStep+1} de 3`}>
@@ -1442,7 +1440,7 @@ export function App(){
           <div className="flex items-start justify-between gap-2 pt-3">
             <div className="min-w-0">
               <p className="font-display font-extrabold leading-tight truncate">{hh.name}</p>
-              <p className="text-[11px] text-[var(--dim)] mt-0.5">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</p>
+              <p className="text-xs text-[var(--dim)] mt-0.5">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</p>
             </div>
             <button type="button" aria-label="Cerrar menú" onClick={()=>setMenuOpen(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
           </div>
@@ -1472,12 +1470,16 @@ export function App(){
       </div>
       {/* Header */}
       <header className={`sticky top-0 ${menuOpen?"z-40":"z-20"} bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)] pt-safe`}>
-        <div className="max-w-5xl mx-auto px-3 py-3">
+        <div className="max-w-5xl mx-auto px-3 py-2">
           <div className="flex items-center gap-3">
             <button type="button" aria-label={menuOpen?"Cerrar menú de módulos":"Abrir menú de módulos"} aria-expanded={menuOpen} aria-controls="menu-modulos" onClick={()=>setMenuOpen(o=>!o)} className="shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex flex-col items-center justify-center gap-[5px]">
               <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"translate-y-[7.5px] rotate-45":""}`} />
               <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-opacity ${menuOpen?"opacity-0":""}`} />
               <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"-translate-y-[7.5px] -rotate-45":""}`} />
+            </button>
+            <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{goTab("inicio");setMenuOpen(false);}} className="shrink-0 h-10 rounded-full bg-[var(--accent)] text-[var(--accent-text)] flex items-center justify-center gap-1.5 px-3 font-bold text-sm">
+              <svg aria-hidden="true" className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              <span className="hidden min-[430px]:inline">Inicio</span>
             </button>
             <div className="min-w-0 flex-1">
               <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-x-2 gap-y-1 text-[17px] sm:text-xl"><span className="min-w-0 truncate">{hh.name}</span><span className="shrink-0 text-[11px] bg-[#E8B84A] text-[#13262E] rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
@@ -1503,7 +1505,7 @@ export function App(){
         {notifOpen && (
           <div className="absolute right-3 top-full mt-1 z-40 w-[min(22rem,calc(100vw-1.5rem))] max-h-[70vh] overflow-y-auto bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl p-3" role="dialog" aria-label="Notificaciones">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="font-display font-bold">Notificaciones</h2>
+              <h2 className="font-display font-bold text-lg">Notificaciones</h2>
               <div className="flex items-center gap-2">
                 {unreadCount>0 && <button type="button" className="text-xs font-bold underline" onClick={()=>markAllNotifRead.mutate()} disabled={markAllNotifRead.isPending}>Marcar todas como leídas</button>}
                 <button type="button" aria-label="Cerrar notificaciones" onClick={()=>setNotifOpen(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
@@ -1524,7 +1526,7 @@ export function App(){
                   <button type="button" className={`w-full text-left rounded-xl border p-3 ${n.isRead?"border-[var(--border)]":"border-[var(--gold)] bg-[var(--surface2)]"}`} onClick={()=>openNotif(n)}>
                     <p className="text-sm font-bold">{n.title}{!n.isRead && <span className="ml-2 inline-block w-2 h-2 rounded-full bg-[var(--red)]" aria-label="Sin leer" />}</p>
                     <p className="text-sm text-[var(--dim)] mt-0.5">{n.body}</p>
-                    <p className="text-[11px] text-[var(--dim)] mt-1">{new Date(n.createdAt).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
+                    <p className="text-xs text-[var(--dim)] mt-1">{new Date(n.createdAt).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
                   </button>
                 </li>
               ))}
@@ -1534,14 +1536,14 @@ export function App(){
       </header>
 
       <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
-        {updateAvailable && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 flex items-center gap-2" role="status"><p className="text-sm flex-1"><b>Hay una nueva versión de SyncFinanzas.</b> Su cuenta y sus datos no cambian.</p><button type="button" className={btnPrimary} disabled={updateApplying} onClick={()=>{ setUpdateApplying(true); applyAppUpdate(); }}>{updateApplying?"Actualizando…":"Actualizar"}</button><button type="button" aria-label="Cerrar el aviso de actualización" onClick={()=>setUpdateAvailable(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
-        {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-3 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
-        {savedNotice && <div ref={savedNoticeRef} className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 flex flex-wrap items-center gap-2" role="status"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--green)] text-white font-bold flex items-center justify-center text-sm">✓</span><p className="text-sm font-bold flex-1 min-w-40">{savedNotice}</p><button type="button" aria-label="Ir a Inicio" className="w-full sm:w-auto rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-6 py-3 text-base flex items-center justify-center gap-2 shrink-0" onClick={()=>{setSavedNotice(null);goTab("inicio");}}>↑ Ir a Inicio</button><button type="button" aria-label="Cerrar el aviso" onClick={()=>setSavedNotice(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+        {updateAvailable && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 flex items-center gap-2" role="status"><p className="text-sm flex-1"><b>Hay una nueva versión de SyncFinanzas.</b> Su cuenta y sus datos no cambian.</p><button type="button" className={btnPrimary} disabled={updateApplying} onClick={()=>{ setUpdateApplying(true); applyAppUpdate(); }}>{updateApplying?"Actualizando…":"Actualizar"}</button><button type="button" aria-label="Cerrar el aviso de actualización" onClick={()=>setUpdateAvailable(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+        {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-4 sm:p-5 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+        {savedNotice && <div ref={savedNoticeRef} className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 flex flex-wrap items-center gap-2" role="status"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--green)] text-white font-bold flex items-center justify-center text-sm">✓</span><p className="text-sm font-bold flex-1 min-w-40">{savedNotice}</p><button type="button" aria-label="Ir a Inicio" className="w-full sm:w-auto rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-6 py-3 text-base flex items-center justify-center gap-2 shrink-0" onClick={()=>{setSavedNotice(null);goTab("inicio");}}>↑ Ir a Inicio</button><button type="button" aria-label="Cerrar el aviso" onClick={()=>setSavedNotice(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
-          <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 sm:p-3.5" role="status">
+          <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 sm:p-3.5" role="status">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="font-display font-bold text-base">Empiece en 3 pasos</h2>
+                <h2 className="font-display font-bold text-lg">Empiece en 3 pasos</h2>
                 
               </div>
               <button type="button" aria-label="Cerrar la guía de inicio" onClick={dismissFirstGuide} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
@@ -1598,7 +1600,7 @@ export function App(){
                   </div></>
               ) : (
                 <>
-                  {showHomeMovs && visibleMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-[13px]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`text-base ${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
+                  {showHomeMovs && visibleMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-[13px]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`text-base whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
                   <div className="flex gap-2 mt-3">
                     <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
                     <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
@@ -1610,18 +1612,18 @@ export function App(){
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <h2 className="font-display font-bold text-lg">Presupuestos</h2>
                 {data.budgets.filter(b=>b.month===s.currentMonth).length===0 ? <><p className="text-sm text-[var(--dim)] mt-2">Sin presupuestos este mes.</p><button type="button" aria-label="Agregar presupuesto" className={btnPrimary+" mt-2"} onClick={()=>goToForm("presupuestos","bud-amount")}>+ Agregar presupuesto</button></> : data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
-                  <div key={b.id} className="mt-3"><button type="button" aria-label={`Pagar del presupuesto de ${getCatName(b.categoryId)}`} className="w-full text-left" onClick={()=>{setQuickBud(quickBud===b.id?null:b.id);setQuickBudAmt("");setQuickBudAcc("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><span className="flex items-center gap-1 shrink-0"><b className="text-base">{money(b.spent)} / {money(b.amount)}</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--accent)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-[13px] font-bold text-[var(--red)]">Sobrepasado por {money(-b.remaining)} · {b.pct}% usado</p>:<p className="text-[13px] text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p>}</button>{quickBud===b.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickBudAmt||Number(quickBudAmt)<=0) return; payBudget.mutate({categoryId:b.categoryId,categoryName:getCatName(b.categoryId),visibility:b.visibility,amount:Number(quickBudAmt),accountId:quickBudAcc?Number(quickBudAcc):null});}}><p className="font-display font-bold text-sm">Pagar · {getCatName(b.categoryId)}</p><div><Label htmlFor={`qb-amt-${b.id}`}>Importe ($)</Label><input id={`qb-amt-${b.id}`} autoFocus aria-label={`Importe a pagar del presupuesto de ${getCatName(b.categoryId)}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickBudAmt} onChange={e=>setQuickBudAmt(e.target.value)} /></div><div><Label htmlFor={`qb-acc-${b.id}`}>¿De dónde se descuenta?</Label><select id={`qb-acc-${b.id}`} aria-label="Cuenta de donde se descuenta el pago del presupuesto" className={inputCls} value={quickBudAcc} onChange={e=>setQuickBudAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{payBudget.error && <p className="text-sm text-[var(--red)]">{String(payBudget.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={payBudget.isPending||!quickBudAmt}>{payBudget.isPending?"Guardando…":"Guardar pago"}</button><button type="button" className={btnGhost} onClick={()=>setQuickBud(null)}>Cancelar</button></div></form>)}
+                  <div key={b.id} className="mt-3"><button type="button" aria-label={`Pagar del presupuesto de ${getCatName(b.categoryId)}`} className="w-full text-left" onClick={()=>{setQuickBud(quickBud===b.id?null:b.id);setQuickBudAmt("");setQuickBudAcc("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><span className="flex items-center gap-1 shrink-0"><b className="text-base whitespace-nowrap">{money(b.spent)} / {money(b.amount)}</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--accent)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-[13px] font-bold text-[var(--red)]">Sobrepasado por {money(-b.remaining)} · {b.pct}% usado</p>:<p className="text-[13px] text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p>}</button>{quickBud===b.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickBudAmt||Number(quickBudAmt)<=0) return; payBudget.mutate({categoryId:b.categoryId,categoryName:getCatName(b.categoryId),visibility:b.visibility,amount:Number(quickBudAmt),accountId:quickBudAcc?Number(quickBudAcc):null});}}><p className="font-display font-bold text-sm">Pagar · {getCatName(b.categoryId)}</p><div><Label htmlFor={`qb-amt-${b.id}`}>Importe ($)</Label><input id={`qb-amt-${b.id}`} autoFocus aria-label={`Importe a pagar del presupuesto de ${getCatName(b.categoryId)}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickBudAmt} onChange={e=>setQuickBudAmt(e.target.value)} /></div><div><Label htmlFor={`qb-acc-${b.id}`}>¿De dónde se descuenta?</Label><select id={`qb-acc-${b.id}`} aria-label="Cuenta de donde se descuenta el pago del presupuesto" className={inputCls} value={quickBudAcc} onChange={e=>setQuickBudAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{payBudget.error && <p className="text-sm text-[var(--red)]">{String(payBudget.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={payBudget.isPending||!quickBudAmt}>{payBudget.isPending?"Guardando…":"Guardar pago"}</button><button type="button" className={btnGhost} onClick={()=>setQuickBud(null)}>Cancelar</button></div></form>)}
                   </div>
                 ))}
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <h2 className="font-display font-bold text-lg">Metas y patrimonio</h2>
-                {data.goals.slice(0,3).map(g=><div key={g.id} className="mt-3"><button type="button" aria-label={`Aportar a la meta ${g.name}`} className="w-full text-left" onClick={()=>{setQuickGoal(quickGoal===g.id?null:g.id);setQuickGoalAmt("");setQuickGoalAcc("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{g.name}</span><span className="flex items-center gap-1 shrink-0"><b>{g.pct}%</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div><p className="text-[13px] text-[var(--dim)]">{money(g.savedAmount)} de {money(g.targetAmount)}{g.targetDate?` · meta ${fmtDate(g.targetDate)}`:""} · {g.targetAmount-g.savedAmount>0?`Restan ${money(g.targetAmount-g.savedAmount)} para la meta`:"Meta alcanzada"}</p></button>{quickGoal===g.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickGoalAmt||Number(quickGoalAmt)<=0) return; contributeGoal.mutate({id:g.id,amount:Number(quickGoalAmt),accountId:quickGoalAcc?Number(quickGoalAcc):null});}}><p className="font-display font-bold text-sm">Aportar a {g.name}</p><div><Label htmlFor={`qg-amt-${g.id}`}>Importe ($)</Label><input id={`qg-amt-${g.id}`} autoFocus aria-label={`Importe a aportar a la meta ${g.name}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickGoalAmt} onChange={e=>setQuickGoalAmt(e.target.value)} /></div><div><Label htmlFor={`qg-acc-${g.id}`}>¿De dónde se descuenta?</Label><select id={`qg-acc-${g.id}`} aria-label="Cuenta de donde se descuenta el aporte a la meta" className={inputCls} value={quickGoalAcc} onChange={e=>setQuickGoalAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{contributeGoal.error && <p className="text-sm text-[var(--red)]">{String(contributeGoal.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={contributeGoal.isPending||!quickGoalAmt}>{contributeGoal.isPending?"Guardando…":"Guardar aporte"}</button><button type="button" className={btnGhost} onClick={()=>setQuickGoal(null)}>Cancelar</button></div></form>)}
+                {data.goals.slice(0,3).map(g=><div key={g.id} className="mt-3"><button type="button" aria-label={`Aportar a la meta ${g.name}`} className="w-full text-left" onClick={()=>{setQuickGoal(quickGoal===g.id?null:g.id);setQuickGoalAmt("");setQuickGoalAcc("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{g.name}</span><span className="flex items-center gap-1 shrink-0"><b>{g.pct}%</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div><p className="text-[13px] text-[var(--dim)]">{money(g.savedAmount)} de {money(g.targetAmount)}{g.targetDate?` · meta ${fmtDate(g.targetDate)}`:""} · {g.targetAmount-g.savedAmount>0?`Restan ${money(g.targetAmount-g.savedAmount)} para la meta`:"Meta alcanzada"}</p></button>{quickGoal===g.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickGoalAmt||Number(quickGoalAmt)<=0) return; contributeGoal.mutate({id:g.id,amount:Number(quickGoalAmt),accountId:quickGoalAcc?Number(quickGoalAcc):null});}}><p className="font-display font-bold text-sm">Aportar a {g.name}</p><div><Label htmlFor={`qg-amt-${g.id}`}>Importe ($)</Label><input id={`qg-amt-${g.id}`} autoFocus aria-label={`Importe a aportar a la meta ${g.name}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickGoalAmt} onChange={e=>setQuickGoalAmt(e.target.value)} /></div><div><Label htmlFor={`qg-acc-${g.id}`}>¿De dónde se descuenta?</Label><select id={`qg-acc-${g.id}`} aria-label="Cuenta de donde se descuenta el aporte a la meta" className={inputCls} value={quickGoalAcc} onChange={e=>setQuickGoalAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{contributeGoal.error && <p className="text-sm text-[var(--red)]">{String(contributeGoal.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={contributeGoal.isPending||!quickGoalAmt}>{contributeGoal.isPending?"Guardando…":"Guardar aporte"}</button><button type="button" className={btnGhost} onClick={()=>setQuickGoal(null)}>Cancelar</button></div></form>)}
                 </div>)}
                 {data.goals.length===0 && <><p className="text-sm text-[var(--dim)] mt-2">Sin metas registradas.</p><button type="button" aria-label="Agregar meta" className={btnPrimary+" mt-2"} onClick={()=>goToForm("metas","goal-target")}>+ Agregar meta</button></>}
-                <div className="border-t border-[var(--border)] mt-3 pt-3 flex justify-between"><span className="text-sm">Patrimonio neto</span><b className="font-display text-lg">{money2(s.netWorth)}</b></div>
+                <div className="border-t border-[var(--border)] mt-3 pt-3 flex justify-between"><span className="text-sm">Patrimonio neto</span><b className="font-display text-lg whitespace-nowrap">{money2(s.netWorth)}</b></div>
                 <p className="text-xs text-[var(--dim)]">Activos {money(s.totalAssets)} − Pasivos {money(s.totalLiabilities)}.</p>
-                {data.patrimony.slice(0,3).map(p=><div key={p.id} className="mt-2"><button type="button" aria-label={`Actualizar el valor de ${p.name}`} className="w-full text-left flex justify-between gap-2 text-sm" onClick={()=>{setQuickPat(quickPat===p.id?null:p.id);setQuickPatVal(String(p.value));}}><span className="min-w-0">{p.name} · {p.kind==="asset"?"Activo":"Pasivo"}</span><b className="shrink-0">{money(p.value)}</b></button>{quickPat===p.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); updatePat.mutate({id:p.id,name:p.name,kind:p.kind,category:p.category,value:Number(quickPatVal)||0,owner:p.owner});}}><p className="font-display font-bold text-sm">Actualizar · {p.name}</p><div><Label htmlFor={`qp-val-${p.id}`}>Valor ($)</Label><input id={`qp-val-${p.id}`} autoFocus aria-label={`Nuevo valor de ${p.name}`} type="number" min="0" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickPatVal} onChange={e=>setQuickPatVal(e.target.value)} /></div>{updatePat.error && <p className="text-sm text-[var(--red)]">{String(updatePat.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={updatePat.isPending}>{updatePat.isPending?"Guardando…":"Guardar valor"}</button><button type="button" className={btnGhost} onClick={()=>setQuickPat(null)}>Cancelar</button></div></form>)}
+                {data.patrimony.slice(0,3).map(p=><div key={p.id} className="mt-2"><button type="button" aria-label={`Actualizar el valor de ${p.name}`} className="w-full text-left flex justify-between gap-2 text-sm" onClick={()=>{setQuickPat(quickPat===p.id?null:p.id);setQuickPatVal(String(p.value));}}><span className="min-w-0">{p.name} · {p.kind==="asset"?"Activo":"Pasivo"}</span><b className="shrink-0 whitespace-nowrap">{money(p.value)}</b></button>{quickPat===p.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); updatePat.mutate({id:p.id,name:p.name,kind:p.kind,category:p.category,value:Number(quickPatVal)||0,owner:p.owner});}}><p className="font-display font-bold text-sm">Actualizar · {p.name}</p><div><Label htmlFor={`qp-val-${p.id}`}>Valor ($)</Label><input id={`qp-val-${p.id}`} autoFocus aria-label={`Nuevo valor de ${p.name}`} type="number" min="0" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickPatVal} onChange={e=>setQuickPatVal(e.target.value)} /></div>{updatePat.error && <p className="text-sm text-[var(--red)]">{String(updatePat.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={updatePat.isPending}>{updatePat.isPending?"Guardando…":"Guardar valor"}</button><button type="button" className={btnGhost} onClick={()=>setQuickPat(null)}>Cancelar</button></div></form>)}
                 </div>)}
                 {data.patrimony.length>3 && <button type="button" aria-label="Ver todo el patrimonio" className="text-sm font-bold underline mt-2" onClick={()=>goTab("patrimonio")}>Ver todos</button>}
                 {data.patrimony.length===0 && <button type="button" aria-label="Agregar patrimonio" className={btnPrimary+" mt-2"} onClick={()=>goToForm("patrimonio","pat-value")}>+ Agregar patrimonio</button>}
@@ -1632,9 +1634,9 @@ export function App(){
         )}
 
         {effTab==="movimientos" && (
-          <section className="grid md:grid-cols-[340px_1fr] gap-3 items-start">
-            <form id="mv-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(mvStep<3){ if(mvStep===1 && !mvAmount) return; setMvStep(mvStep+1); scrollFormTop("mv-form"); } else saveMv.mutate();}}>
-              <h2 className="font-display font-bold text-base">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
+          <section className="grid md:grid-cols-[340px_1fr] gap-4 md:gap-6 items-start">
+            <form id="mv-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(mvStep<3){ if(mvStep===1 && !mvAmount) return; setMvStep(mvStep+1); scrollFormTop("mv-form"); } else saveMv.mutate();}}>
+              <h2 className="font-display font-bold text-lg">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
               <p className="text-xs text-[var(--dim)]">Paso {mvStep} de 3</p>
               <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${mvStep*33.33}%`}} /></div>
               {mvStep===1 && <>
@@ -1667,17 +1669,17 @@ export function App(){
               <div className="grid grid-cols-2 gap-2">
                 <div><Label htmlFor="mv-date">Fecha</Label><input id="mv-date" aria-label="Fecha del movimiento" type="date" required className={inputCls} value={mvDate} onChange={e=>setMvDate(e.target.value)} /></div>
               </div>
-              <div className="border border-dashed border-[var(--border)] rounded-2xl p-3">
+              <div className="border border-dashed border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <Label htmlFor="mv-receipt">Foto del comprobante (opcional)</Label>
                 <input id="mv-receipt" aria-label="Adjuntar foto del comprobante" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setReceipt); }} />
-                <p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
+                <p className="text-xs text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
                 {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>setReceipt(null)}>Quitar foto</button></div>}
                 {receipt && (mvType==="expense"||mvType==="debt_payment") && <div className="mt-2">
                   <button type="button" aria-label="Leer el comprobante y llenar el formulario" className={btnPrimary+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante"}</button>
                   {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
                   {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
                   {ocrNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticeMv}</p>}
-                  <p className="text-[11px] text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
+                  <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
                 </div>}
               </div>
               <div><Label htmlFor="mv-profile">Hecho por</Label><select id="mv-profile" aria-label="Integrante que hizo el movimiento" className={inputCls} value={mvProfile} onChange={e=>setMvProfile(e.target.value)}><option value="">{me?`Yo (${fullName(me)})`:"El hogar"}</option>{data.profiles.filter(x=>x.kind==="adult").map(x=><option key={x.id} value={x.id}>{fullName(x)}</option>)}</select></div>
@@ -1687,7 +1689,7 @@ export function App(){
                   <button type="button" aria-label="Movimiento compartido" onClick={()=>setMvVis("shared")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="shared"?"bg-[var(--green)] text-white":"border border-[var(--border)]"}`}>Compartido</button>
                   <button type="button" aria-label="Movimiento privado" onClick={()=>setMvVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
                 </div>
-                <p className="text-[11px] text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos.":"Solo usted lo ve."}</p>
+                <p className="text-xs text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos.":"Solo usted lo ve."}</p>
               </div>
                 </div>)}
               </div>
@@ -1698,7 +1700,7 @@ export function App(){
               {data.accounts.length===0 && <Help>Si no tiene cuentas, los movimientos se descuentan de Efectivo.</Help>}
               </>}
             </form>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
               <div className="flex gap-2 flex-wrap" role="group" aria-label="Mostrar movimientos por tipo">
                 {([["all","Todos"],["income","Ingresos"],["expense","Gastos"],["transfer","Transferencias"],["debt_payment","Pagos de deuda"]] as const).map(([v,l])=>(
                   <button key={v} type="button" aria-label={`Mostrar ${l}`} aria-pressed={mvFilter===v} onClick={()=>setMvFilter(v)} className={`rounded-full px-3.5 py-2 text-[13px] font-bold ${mvFilter===v?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{l}</button>
@@ -1714,7 +1716,7 @@ export function App(){
                 <button type="button" aria-label="Importar movimientos desde un archivo CSV" aria-expanded={importOpen} className={btnGhost} onClick={()=>{setImportOpen(o=>!o); setImportError("");}}>{importOpen?"Cerrar importación":"Importar CSV"}</button>
               </div>
               {importOpen && (
-                <div className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2">
+                <div className="mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)] space-y-2">
                   <p className="font-display font-bold text-sm">Importar movimientos</p>
                   <p className="text-xs text-[var(--dim)]">Archivo CSV con columnas Fecha, Concepto e Importe (opcional: Tipo, Categoría, Cuenta). Se separan por coma o punto y coma.</p>
                   <input aria-label="Elegir archivo CSV para importar" type="file" accept=".csv,text/csv" className="w-full text-sm" onChange={e=>{ void handleImportFile(e.target.files?.[0]); e.target.value=""; }} />
@@ -1752,12 +1754,12 @@ export function App(){
               {revMv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">Movimiento reversado.</p>}
               <div className="divide-y divide-[var(--border)] mt-2">
                 {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm">{m.concept}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
-                {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-[11px] text-[var(--dim)]">Fuera de los totales.</span></p>}
-                {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-[11px] text-[var(--dim)]">Anula «{data.movements.find(x=>x.id===m.reversalOfId)?.concept||""}».</span></p>}
-                </div><div className="text-right shrink-0"><p className={`font-display font-bold ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
+                {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-xs text-[var(--dim)]">Fuera de los totales.</span></p>}
+                {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-xs text-[var(--dim)]">Anula «{data.movements.find(x=>x.id===m.reversalOfId)?.concept||""}».</span></p>}
+                </div><div className="text-right shrink-0"><p className={`font-display font-bold whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
                 {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setMvStep(1);setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");scrollFormTop("mv-form");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>delMv.mutate(m.id)}>Eliminar</button></>}
                 </div></div>
-                {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{m.concept}» por <b>{money2(m.amount)}</b>? Ambos quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
+                {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{m.concept}» por <b className="whitespace-nowrap">{money2(m.amount)}</b>? Ambos quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
                 </div>; })}
               </div>
               {filteredMovs.length===0 && <Empty title="Sin movimientos con ese filtro" body="Cambie el filtro o registre el primero." />}
@@ -1766,9 +1768,9 @@ export function App(){
         )}
 
         {effTab==="cuentas" && (<>
-          <section className="grid md:grid-cols-[320px_1fr] gap-3 items-start">
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAcc.mutate();}}>
-              <h2 className="font-display font-bold text-base">{editingAcc?"Editar cuenta":"Nueva cuenta"}</h2>
+          <section className="grid md:grid-cols-[320px_1fr] gap-4 md:gap-6 items-start">
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAcc.mutate();}}>
+              <h2 className="font-display font-bold text-lg">{editingAcc?"Editar cuenta":"Nueva cuenta"}</h2>
               <Help>Se captura una sola vez.</Help>
               <div><Label htmlFor="acc-name">Nombre</Label><input id="acc-name" aria-label="Nombre de la cuenta" required className={inputCls} value={accFormName} onChange={e=>setAccFormName(e.target.value)} placeholder="Ej. Nómina Banorte" /></div>
               <div className="grid grid-cols-2 gap-2">
@@ -1779,8 +1781,8 @@ export function App(){
               <button className={btnPrimary+" w-full"} disabled={saveAcc.isPending}>{editingAcc?"Guardar cambios":"Crear cuenta"}</button>
               {editingAcc && <button type="button" className={btnGhost+" w-full"} onClick={()=>setEditingAcc(null)}>Cancelar</button>}
             </form>
-            <div className="grid sm:grid-cols-2 gap-2">
-              {data.accounts.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">{a.name}</p><p className="text-xs text-[var(--dim)]">{TYPE_LABEL[a.type]||a.type} · {a.visibility==="shared"?"Compartida":"Privada"} · Inicial {money(a.initialBalance)}</p><p className="font-display text-xl font-extrabold mt-2">{money2(a.balance)}</p><div className="mt-2 flex gap-2"><button aria-label={`Editar cuenta ${a.name}`} className="text-xs underline" onClick={()=>{setEditingAcc(a.id);setAccFormName(a.name);setAccType(a.type as typeof accType);setAccVis(a.visibility as "private"|"shared");setAccInit(String(a.initialBalance));}}>Editar</button><button aria-label={`Eliminar cuenta ${a.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delAcc.mutate(a.id)}>Eliminar</button></div></div>)}
+            <div className="grid sm:grid-cols-2 gap-4 md:gap-6">
+              {data.accounts.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">{a.name}</p><p className="text-xs text-[var(--dim)]">{TYPE_LABEL[a.type]||a.type} · {a.visibility==="shared"?"Compartida":"Privada"} · Inicial {money(a.initialBalance)}</p><p className="font-display text-xl font-extrabold mt-2 whitespace-nowrap">{money2(a.balance)}</p><div className="mt-2 flex gap-2"><button aria-label={`Editar cuenta ${a.name}`} className="text-xs underline" onClick={()=>{setEditingAcc(a.id);setAccFormName(a.name);setAccType(a.type as typeof accType);setAccVis(a.visibility as "private"|"shared");setAccInit(String(a.initialBalance));}}>Editar</button><button aria-label={`Eliminar cuenta ${a.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delAcc.mutate(a.id)}>Eliminar</button></div></div>)}
               {data.accounts.length===0 && <Empty title="Sin cuentas" body="Cree su primera cuenta." action={{label:"+ Agregar cuenta",onClick:()=>focusField("acc-name")}} />}
             </div>
           </section>
@@ -1788,8 +1790,8 @@ export function App(){
             <div className="mt-3">
               <button type="button" aria-label={ccOpen?"Cerrar el arqueo de cuentas":"Abrir el arqueo de cuentas"} className={btnPrimary} onClick={()=>{ setCcOpen(!ccOpen); setCcError(""); }}>{ccOpen?"Cerrar arqueo":"Arqueo de cuentas"}</button>
               {ccOpen && (()=>{ const useSalary=s.hasSalaryIncome===1; const rows=[{key:"cash",name:"Efectivo",app:useSalary?s.salaryRemaining:s.unassignedNet,detail:useSalary?`Sueldo ${money(s.salaryIncome)} - Gastado ${money(s.salarySpent)} = Restante ${money2(s.salaryRemaining)}`:`En la app: ${money2(s.unassignedNet)}`,note:useSalary?undefined:"Registre el ingreso en Perfiles para comparar con el restante del sueldo."},...data.accounts.map(a=>({key:`acc-${a.id}`,name:a.name,app:a.balance,detail:`En la app: ${money2(a.balance)}`,note:undefined as string|undefined}))]; const countedRows=rows.filter(r=>{const v=ccCounted[r.key]; return v!=null&&v!==""&&Number(v)>=0&&!Number.isNaN(Number(v));}); const totalApp=Math.round(countedRows.reduce((x,r)=>x+r.app,0)*100)/100; const totalCounted=Math.round(countedRows.reduce((x,r)=>x+Number(ccCounted[r.key]),0)*100)/100; const totalDiff=Math.round((totalCounted-totalApp)*100)/100; return (
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5 mt-3">
-                <h2 className="font-display font-bold text-base">Arqueo de cuentas</h2>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-3">
+                <h2 className="font-display font-bold text-lg">Arqueo de cuentas</h2>
                 <p className="text-sm text-[var(--dim)] mt-1">Anote lo que contó en físico. El renglón de efectivo compara el restante del sueldo con lo contado. El arqueo no cambia los saldos, solo muestra la diferencia para revisarla después.</p>
                 <div className="divide-y divide-[var(--border)] mt-2">
                   {rows.map(r=>{ const v=ccCounted[r.key]??""; const n=Number(v); const has=v!==""&&!Number.isNaN(n)&&n>=0; const d=has?Math.round((n-r.app)*100)/100:0; return (
@@ -1799,22 +1801,22 @@ export function App(){
                     <div className="sm:text-right">{!has ? <span className="text-xs text-[var(--dim)]">Sin contar</span> : d===0 ? <span className="text-xs font-bold text-[var(--green)]">Sin diferencia</span> : <span className={`text-xs font-bold ${d<0?"text-[var(--red)]":"text-[var(--green)]"}`}>{d<0?`Falta ${money2(-d)}`:`Sobra ${money2(d)}`}</span>}</div>
                   </div>); })}
                 </div>
-                <div className="flex flex-wrap gap-4 text-sm mt-2 pt-2 border-t border-[var(--border)]"><span>En la app: <b>{money2(totalApp)}</b></span><span>Contado: <b>{money2(totalCounted)}</b></span><span>Diferencia: {countedRows.length===0 ? <b className="text-[var(--dim)]">Sin contar</b> : totalDiff===0 ? <b className="text-[var(--green)]">Sin diferencia</b> : <b className={totalDiff<0?"text-[var(--red)]":"text-[var(--green)]"}>{totalDiff<0?`Falta ${money2(-totalDiff)}`:`Sobra ${money2(totalDiff)}`}</b>}</span></div>
+                <div className="flex flex-wrap gap-4 text-sm mt-2 pt-2 border-t border-[var(--border)]"><span>En la app: <b className="whitespace-nowrap">{money2(totalApp)}</b></span><span>Contado: <b className="whitespace-nowrap">{money2(totalCounted)}</b></span><span>Diferencia: {countedRows.length===0 ? <b className="text-[var(--dim)]">Sin contar</b> : totalDiff===0 ? <b className="text-[var(--green)]">Sin diferencia</b> : <b className={totalDiff<0?"text-[var(--red)]":"text-[var(--green)]"}>{totalDiff<0?`Falta ${money2(-totalDiff)}`:`Sobra ${money2(totalDiff)}`}</b>}</span></div>
                 <div className="mt-3"><Label htmlFor="cc-note">Nota (opcional)</Label><input id="cc-note" aria-label="Nota del arqueo, opcional" className={inputCls} value={ccNote} onChange={e=>setCcNote(e.target.value)} placeholder="Ej. Arqueo de cierre de mes" /></div>
                 {ccError && <p className="text-sm text-[var(--red)] mt-2" role="alert">{ccError}</p>}
                 <div className="flex gap-2 mt-3"><button type="button" className={btnPrimary} disabled={saveCc.isPending} onClick={()=>saveCc.mutate()}>{saveCc.isPending?"Guardando…":"Guardar arqueo"}</button><button type="button" className={btnGhost} onClick={()=>{ setCcOpen(false); setCcError(""); }}>Cancelar</button></div>
               </div>); })()}
               <div className="mt-3">
-                <h3 className="font-display font-bold">Historial de arqueos</h3>
+                <h3 className="font-display font-bold text-lg">Historial de arqueos</h3>
                 {ccQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando arqueos…</p>
                 : ccQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar los arqueos.</p>
                 : !ccQuery.data || ccQuery.data.counts.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin arqueos guardados todavía.</p>
                 : <div className="space-y-2 mt-2">
                   {ccQuery.data.counts.map(c=>(
-                    <div key={c.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
+                    <div key={c.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                       <div className="flex justify-between gap-2 items-start"><div><p className="font-display font-bold text-sm">Arqueo · {fmtDate(c.createdAt.slice(0,10))}</p><p className="text-xs text-[var(--dim)]">{c.createdByName}{c.note?` · ${c.note}`:""}</p><p className="text-xs text-[var(--dim)] mt-1">En la app {money2(c.totalApp)} · Contado {money2(c.totalCounted)}</p></div><p className={`font-display font-extrabold shrink-0 ${c.totalDiff===0?"text-[var(--green)]":c.totalDiff<0?"text-[var(--red)]":"text-[var(--green)]"}`}>{c.totalDiff===0?"Sin diferencia":c.totalDiff<0?`Falta ${money2(-c.totalDiff)}`:`Sobra ${money2(c.totalDiff)}`}</p></div>
                       <button type="button" aria-label={`Ver detalle del arqueo del ${fmtDate(c.createdAt.slice(0,10))}`} className="text-xs underline mt-2" onClick={()=>setCcExpanded(ccExpanded===c.id?null:c.id)}>{ccExpanded===c.id?"Ocultar detalle":"Ver detalle"}</button>
-                      {ccExpanded===c.id && <div className="divide-y divide-[var(--border)] mt-2">{c.lines.map(l=>(<div key={l.accountId??"cash"} className="py-2 flex flex-wrap justify-between gap-2 text-sm"><span>{l.accountName}</span><span className="text-[var(--dim)]">App {money2(l.appBalance)} · Contado {money2(l.countedAmount)} · {l.difference===0?<b className="text-[var(--green)]">Sin diferencia</b>:l.difference<0?<b className="text-[var(--red)]">Falta {money2(-l.difference)}</b>:<b className="text-[var(--green)]">Sobra {money2(l.difference)}</b>}</span></div>))}</div>}
+                      {ccExpanded===c.id && <div className="divide-y divide-[var(--border)] mt-2">{c.lines.map(l=>(<div key={l.accountId??"cash"} className="py-2 flex flex-wrap justify-between gap-2 text-sm"><span>{l.accountName}</span><span className="text-[var(--dim)]">App {money2(l.appBalance)} · Contado {money2(l.countedAmount)} · {l.difference===0?<b className="text-[var(--green)]">Sin diferencia</b>:l.difference<0?<b className="whitespace-nowrap text-[var(--red)]">Falta {money2(-l.difference)}</b>:<b className="whitespace-nowrap text-[var(--green)]">Sobra {money2(l.difference)}</b>}</span></div>))}</div>}
                     </div>
                   ))}
                 </div>}
@@ -1826,7 +1828,7 @@ export function App(){
 
         {effTab==="presupuestos" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveBud.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveBud.mutate();}}>
               <div><Label htmlFor="bud-cat">Categoría de gasto</Label><select id="bud-cat" aria-label="Categoría del presupuesto" required className={inputCls} value={budCat} onChange={e=>setBudCat(e.target.value)}><option value="">Seleccione…</option>{data.categories.filter(c=>c.kind==="expense").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
               <div><Label htmlFor="bud-month">Mes</Label><input id="bud-month" aria-label="Mes del presupuesto" type="month" required className={inputCls} value={budMonth} onChange={e=>setBudMonth(e.target.value)} /></div>
               <div><Label htmlFor="bud-amount">Presupuestado ($)</Label><input id="bud-amount" aria-label="Monto presupuestado" type="number" min="0" required className={inputCls} value={budAmount} onChange={e=>setBudAmount(e.target.value)} /></div>
@@ -1834,8 +1836,8 @@ export function App(){
               <button className={btnPrimary} disabled={saveBud.isPending}>Crear presupuesto</button>
             </form>
             <Help>Los gastos de la categoría en el mes se descuentan solos del presupuesto.</Help>
-            <div className="grid sm:grid-cols-2 gap-2 mt-3">
-              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado {money(b.amount)} · Gastado {money(b.spent)} · {b.remaining<0?<b className="text-[var(--red)]">Sobrepasado por {money(-b.remaining)}</b>:<b>Restan {money(b.remaining)}</b>}</p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-xs mt-1 font-bold text-[var(--red)]">Presupuesto excedido · {b.pct}% usado</p>:<p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado</p>}<button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
+            <div className="grid sm:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
+              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado <span className="whitespace-nowrap">{money(b.amount)}</span> · Gastado <span className="whitespace-nowrap">{money(b.spent)}</span> · {b.remaining<0?<b className="text-[var(--red)] whitespace-nowrap">Sobrepasado por {money(-b.remaining)}</b>:<b className="whitespace-nowrap">Restan {money(b.remaining)}</b>}</p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-xs mt-1 font-bold text-[var(--red)]">Presupuesto excedido · {b.pct}% usado</p>:<p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado</p>}<button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
               {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Uno por categoría y mes." action={{label:"+ Agregar presupuesto",onClick:()=>focusField("bud-amount")}} />}
             </div>
           </section>
@@ -1843,14 +1845,14 @@ export function App(){
 
         {effTab==="fondos" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex flex-wrap gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveFund.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 flex flex-wrap gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveFund.mutate();}}>
               <div className="flex-1 min-w-[180px]"><Label htmlFor="fund-name">Nombre del fondo</Label><input id="fund-name" aria-label="Nombre del fondo" required className={inputCls} value={fundName} onChange={e=>setFundName(e.target.value)} placeholder="Ej. Fondo de emergencia" /></div>
               <div><Label htmlFor="fund-target">Meta ($, opcional)</Label><input id="fund-target" aria-label="Meta del fondo" type="number" min="0" className={inputCls} value={fundTarget} onChange={e=>setFundTarget(e.target.value)} /></div>
               <button className={btnPrimary}>Crear fondo</button>
             </form>
             <div className="mt-3"><Help>El dinero sigue en su cuenta; no cuenta como disponible.</Help></div>
-            <div className="grid sm:grid-cols-2 gap-2 mt-3">
-              {data.funds.map(f=><div key={f.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">{f.name}</p><p className="font-display text-xl font-extrabold mt-1">{money2(f.balance)}</p>{f.targetAmount && <p className="text-xs text-[var(--dim)]">Meta {money(f.targetAmount)} · {Math.min(100,Math.round(f.balance/f.targetAmount*100))}%</p>}<div className="flex gap-2 mt-3"><input aria-label={`Monto para ${f.name}`} type="number" min="0" placeholder="$ Monto" className={inputCls} value={fundAmt[f.id]||""} onChange={e=>setFundAmt({...fundAmt,[f.id]:e.target.value})} /><button aria-label={`Aportar a ${f.name}`} className={btnPrimary} onClick={()=>fundMove.mutate({fundId:f.id,type:"contribution",amount:Number(fundAmt[f.id])||0})}>Aportar</button><button aria-label={`Retirar de ${f.name}`} className={btnGhost} onClick={()=>fundMove.mutate({fundId:f.id,type:"withdrawal",amount:Number(fundAmt[f.id])||0})}>Retirar</button></div><button aria-label={`Eliminar fondo ${f.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>delFund.mutate(f.id)}>Eliminar fondo</button></div>)}
+            <div className="grid sm:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
+              {data.funds.map(f=><div key={f.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">{f.name}</p><p className="font-display text-xl font-extrabold mt-1 whitespace-nowrap">{money2(f.balance)}</p>{f.targetAmount && <p className="text-xs text-[var(--dim)]">Meta {money(f.targetAmount)} · {Math.min(100,Math.round(f.balance/f.targetAmount*100))}%</p>}<div className="flex gap-2 mt-3"><input aria-label={`Monto para ${f.name}`} type="number" min="0" placeholder="$ Monto" className={inputCls} value={fundAmt[f.id]||""} onChange={e=>setFundAmt({...fundAmt,[f.id]:e.target.value})} /><button aria-label={`Aportar a ${f.name}`} className={btnPrimary} onClick={()=>fundMove.mutate({fundId:f.id,type:"contribution",amount:Number(fundAmt[f.id])||0})}>Aportar</button><button aria-label={`Retirar de ${f.name}`} className={btnGhost} onClick={()=>fundMove.mutate({fundId:f.id,type:"withdrawal",amount:Number(fundAmt[f.id])||0})}>Retirar</button></div><button aria-label={`Eliminar fondo ${f.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>delFund.mutate(f.id)}>Eliminar fondo</button></div>)}
               {data.funds.length===0 && <Empty title="Sin fondos" body="Cree el fondo de emergencia." />}
             </div>
           </section>
@@ -1858,12 +1860,12 @@ export function App(){
 
         {effTab==="aportaciones" && (
           <section className="max-w-2xl">
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
-              <h2 className="font-display font-bold text-base">Reparto del gasto — {s.currentMonth}</h2>
-              <p className="text-sm text-[var(--dim)] mt-1">Base del reparto: <b className="text-[var(--text)]">{money2(s.sharedExpenseMonth)}</b> · Regla: {hh.contributionRule==="equal"?"Partes iguales":"Proporcional al ingreso"}</p>
-              <div className="bg-[var(--surface2)] rounded-2xl p-3 mt-3 text-sm">{s.contributionsNote}</div>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+              <h2 className="font-display font-bold text-lg">Reparto del gasto — {s.currentMonth}</h2>
+              <p className="text-sm text-[var(--dim)] mt-1">Base del reparto: <b className="whitespace-nowrap text-[var(--text)]">{money2(s.sharedExpenseMonth)}</b> · Regla: {hh.contributionRule==="equal"?"Partes iguales":"Proporcional al ingreso"}</p>
+              <div className="bg-[var(--surface2)] rounded-2xl p-4 sm:p-5 mt-3 text-sm">{s.contributionsNote}</div>
               <div className="divide-y divide-[var(--border)] mt-3">
-                {s.contributions.map(c=><div key={c.profileId} className="py-2 flex justify-between gap-2"><div><p className="font-semibold">{c.name}</p><p className="text-xs text-[var(--dim)]">Ingreso {money(c.income)} · Capacidad {money(c.capacity)}{hh.contributionRule==="proportional"?` · ${c.pctShare}% del ingreso conjunto`:""}</p>{c.shouldPay>c.capacity && c.capacity>=0 && <p className="text-xs text-[var(--red)]">Supera su capacidad de pago.</p>}</div><p className="font-display font-extrabold text-base">{money2(c.shouldPay)}</p></div>)}
+                {s.contributions.map(c=><div key={c.profileId} className="py-2 flex justify-between gap-2"><div><p className="font-semibold">{c.name}</p><p className="text-xs text-[var(--dim)]">Ingreso {money(c.income)} · Capacidad {money(c.capacity)}{hh.contributionRule==="proportional"?` · ${c.pctShare}% del ingreso conjunto`:""}</p>{c.shouldPay>c.capacity && c.capacity>=0 && <p className="text-xs text-[var(--red)]">Supera su capacidad de pago.</p>}</div><p className="font-display font-extrabold text-base whitespace-nowrap shrink-0">{money2(c.shouldPay)}</p></div>)}
               </div>
               {s.contributions.length===0 && <Empty title="Sin adultos para repartir" body="Agregue adultos en Perfiles." />}
               <Help><b>Capacidad</b> = ingreso − compromisos.</Help>
@@ -1873,7 +1875,7 @@ export function App(){
 
         {effTab==="metas" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveGoal.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveGoal.mutate();}}>
               <div><Label htmlFor="goal-name">Nombre de la meta</Label><input id="goal-name" aria-label="Nombre de la meta" required className={inputCls} value={goalName} onChange={e=>setGoalName(e.target.value)} placeholder="Ej. Vacaciones" /></div>
               <div><Label htmlFor="goal-target">Monto objetivo ($)</Label><input id="goal-target" aria-label="Monto objetivo de la meta" type="number" min="1" required className={inputCls} value={goalTarget} onChange={e=>setGoalTarget(e.target.value)} /></div>
               <div><Label htmlFor="goal-saved">Ya ahorrado ($)</Label><input id="goal-saved" aria-label="Ya ahorrado en la meta" type="number" min="0" className={inputCls} value={goalSaved} onChange={e=>setGoalSaved(e.target.value)} /></div>
@@ -1883,9 +1885,9 @@ export function App(){
             {analyzePlan.isPending && <p className="text-sm text-[var(--dim)] mt-3">Calculando el plan…</p>}
             {planError && <p className="text-sm text-[var(--red)] mt-3">{planError}</p>}
             {planResult && planGoalId!==null && (()=>{ const g=data.goals.find(x=>x.id===planGoalId); if(!g) return null; const r=planResult; return (
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5 mt-3">
-              <h2 className="font-display font-bold">Plan de ahorro · {g.name}</h2>
-              <p className="text-sm mt-1">Aporte mensual: <b>{money(r.monthlyAmount)}</b> durante <b>{r.months} meses</b> · día {r.dueDay} de cada mes.</p>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-3">
+              <h2 className="font-display font-bold text-lg">Plan de ahorro · {g.name}</h2>
+              <p className="text-sm mt-1">Aporte mensual: <b className="whitespace-nowrap">{money(r.monthlyAmount)}</b> durante <b>{r.months} meses</b> · día {r.dueDay} de cada mes.</p>
               <p className="text-sm text-[var(--dim)] mt-1">Ingreso mensual {money(r.income)} · Compromisos fijos {money(r.fixedCommitments)} · Gasto promedio {money(r.avgMonthlyExpense)} · Sobrante {money(r.surplus)}.</p>
               {r.feasible
                 ? <p className="text-sm mt-2 text-[var(--green)] font-semibold">Sí le alcanza. Después del aporte sobran {money(r.surplus - r.monthlyAmount)} al mes.</p>
@@ -1903,10 +1905,10 @@ export function App(){
             </div>); })()}
             {adjError && <p className="text-sm text-[var(--red)] mt-3">{adjError}</p>}
             {adjAnalysis && adjGoalId!==null && (()=>{ const g=data.goals.find(x=>x.id===adjGoalId); if(!g) return null; const a=adjAnalysis; return (
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5 mt-3">
-              <h2 className="font-display font-bold">Ajuste de gastos · {g.name} · {fmtMonth(a.month)}</h2>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-3">
+              <h2 className="font-display font-bold text-lg">Ajuste de gastos · {g.name} · {fmtMonth(a.month)}</h2>
               {a.totalOver>0 ? <>
-                <p className="text-sm mt-1"><b>{a.overruns[0]?.name}</b> se pasó <b className="text-[var(--red)]">{money(a.totalOver)}</b> de su presupuesto.</p>
+                <p className="text-sm mt-1"><b>{a.overruns[0]?.name}</b> se pasó <b className="whitespace-nowrap text-[var(--red)]">{money(a.totalOver)}</b> de su presupuesto.</p>
                 <p className="text-sm mt-2 font-semibold">De dónde se recorta:</p>
                 {a.cuts.map(c=><div key={c.budgetId} className="flex items-center gap-2 mt-1"><p className="text-sm flex-1">· {c.name}: margen {money(c.slack)}.</p><input aria-label={`Recortar de ${c.name}`} type="number" min="0" max={c.slack} className={inputCls+" w-28"} value={adjCuts[c.budgetId]??String(c.cut)} onChange={e=>setAdjCuts({...adjCuts,[c.budgetId]:e.target.value})} /><span className="text-xs text-[var(--dim)]">queda en {money(Math.max(0, c.newBudget + c.cut - (Number(adjCuts[c.budgetId]??c.cut)||0)))}</span></div>)}
                 {a.uncovered>0 && <p className="text-sm mt-1 text-[var(--red)]">Faltan {money(a.uncovered)} aun con los recortes.</p>}
@@ -1921,13 +1923,13 @@ export function App(){
               </div>
               <p className="text-xs text-[var(--dim)] mt-2">Al proponer, se envía un aviso con la campanita antes de mover nada. Nada se aplica sin que usted lo acepte.</p>
             </div>); })()}
-            <div className="grid sm:grid-cols-2 gap-2 mt-3">
-              {data.goals.map(g=>{ const plan=data.goalPlans.find(p=>p.goalId===g.id); const monthsLeft=g.targetDate?Math.max(1,Math.round((new Date(g.targetDate).getTime()-Date.now())/(1000*60*60*24*30))):null; const need=monthsLeft?Math.ceil((g.targetAmount-g.savedAmount)/monthsLeft):null; return <div key={g.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">{g.name} <span className="text-xs font-normal text-[var(--dim)]">{g.visibility==="shared"?"Compartida":"Privada"}</span></p><p className="font-display text-xl font-extrabold mt-1">{money(g.savedAmount)} <span className="text-sm font-semibold text-[var(--dim)]">de {money(g.targetAmount)} · {g.pct}%</span></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div>{g.targetDate && <p className="text-xs text-[var(--dim)] mt-1">Meta {fmtDate(g.targetDate)}{need!==null && need>0?` · faltan ${money(need)}/mes`:""}</p>}<div className="flex gap-2 mt-3"><input aria-label={`Abonar a ${g.name}`} type="number" placeholder="$ Abonar" className={inputCls} value={goalAdd[g.id]||""} onChange={e=>setGoalAdd({...goalAdd,[g.id]:e.target.value})} /><button aria-label={`Abonar a la meta ${g.name}`} className={btnPrimary} onClick={()=>addGoal.mutate({id:g.id,amount:Number(goalAdd[g.id])||0})}>Abonar</button></div>{plan ? <div className="mt-3 rounded-2xl bg-[var(--surface2)] p-3"><p className="font-display font-bold text-sm">Plan de ahorro · {money(plan.monthlyAmount)}/mes · día {plan.dueDay}</p><p className="text-xs text-[var(--dim)] mt-1">Este mes: {money(plan.contributedThisMonth)} de {money(plan.monthlyAmount)} · Esperado hasta hoy: {money(plan.expectedByNow)}</p><div className="h-2 bg-[var(--surface)] rounded-full mt-2"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${Math.min(100, plan.monthlyAmount>0? Math.round(plan.contributedThisMonth/plan.monthlyAmount*100):0)}%`}} /></div><p className="text-xs mt-1">{plan.status==="cumplido" ? "Meta cumplida." : plan.atRisk ? <span className="text-[var(--red)] font-semibold">En riesgo: con el ritmo actual se cumpliría después de la fecha.</span> : plan.onTrack ? `Al corriente. Se cumple en ${fmtMonth(plan.projectedDate)}.` : `Atrasado. Se cumple en ${fmtMonth(plan.projectedDate)}.`}</p><button type="button" aria-label={`Quitar el plan de ${g.name}`} className="text-xs underline text-[var(--dim)] mt-2" onClick={()=>cancelPlan.mutate(g.id)}>Quitar plan</button><button type="button" aria-label={`Revisar ajuste de gastos de ${g.name}`} className={btnGhost+" mt-2 ml-2"} onClick={()=>analyzeAdj.mutate(g.id)}>Revisar ajuste</button>
+            <div className="grid sm:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
+              {data.goals.map(g=>{ const plan=data.goalPlans.find(p=>p.goalId===g.id); const monthsLeft=g.targetDate?Math.max(1,Math.round((new Date(g.targetDate).getTime()-Date.now())/(1000*60*60*24*30))):null; const need=monthsLeft?Math.ceil((g.targetAmount-g.savedAmount)/monthsLeft):null; return <div key={g.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">{g.name} <span className="text-xs font-normal text-[var(--dim)]">{g.visibility==="shared"?"Compartida":"Privada"}</span></p><p className="font-display text-xl font-extrabold mt-1"><span className="whitespace-nowrap">{money(g.savedAmount)}</span> <span className="text-sm font-semibold text-[var(--dim)]">de <span className="whitespace-nowrap">{money(g.targetAmount)}</span> · {g.pct}%</span></p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div>{g.targetDate && <p className="text-xs text-[var(--dim)] mt-1">Meta {fmtDate(g.targetDate)}{need!==null && need>0?` · faltan ${money(need)}/mes`:""}</p>}<div className="flex gap-2 mt-3"><input aria-label={`Abonar a ${g.name}`} type="number" placeholder="$ Abonar" className={inputCls} value={goalAdd[g.id]||""} onChange={e=>setGoalAdd({...goalAdd,[g.id]:e.target.value})} /><button aria-label={`Abonar a la meta ${g.name}`} className={btnPrimary} onClick={()=>addGoal.mutate({id:g.id,amount:Number(goalAdd[g.id])||0})}>Abonar</button></div>{plan ? <div className="mt-3 rounded-2xl bg-[var(--surface2)] p-3"><p className="font-display font-bold text-sm">Plan de ahorro · {money(plan.monthlyAmount)}/mes · día {plan.dueDay}</p><p className="text-xs text-[var(--dim)] mt-1">Este mes: {money(plan.contributedThisMonth)} de {money(plan.monthlyAmount)} · Esperado hasta hoy: {money(plan.expectedByNow)}</p><div className="h-2 bg-[var(--surface)] rounded-full mt-2"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${Math.min(100, plan.monthlyAmount>0? Math.round(plan.contributedThisMonth/plan.monthlyAmount*100):0)}%`}} /></div><p className="text-xs mt-1">{plan.status==="cumplido" ? "Meta cumplida." : plan.atRisk ? <span className="text-[var(--red)] font-semibold">En riesgo: con el ritmo actual se cumpliría después de la fecha.</span> : plan.onTrack ? `Al corriente. Se cumple en ${fmtMonth(plan.projectedDate)}.` : `Atrasado. Se cumple en ${fmtMonth(plan.projectedDate)}.`}</p><button type="button" aria-label={`Quitar el plan de ${g.name}`} className="text-xs underline text-[var(--dim)] mt-2" onClick={()=>cancelPlan.mutate(g.id)}>Quitar plan</button><button type="button" aria-label={`Revisar ajuste de gastos de ${g.name}`} className={btnGhost+" mt-2 ml-2"} onClick={()=>analyzeAdj.mutate(g.id)}>Revisar ajuste</button>
 {data.spendingAdjustments.filter(a=>a.goalId===g.id && a.status==="propuesto").map(a=>(
 <div key={a.id} className="mt-3 rounded-2xl border border-[var(--gold)] bg-[var(--surface2)] p-3">
 <p className="font-display font-bold text-sm">{a.kind==="recorte" ? "Ajuste de gastos propuesto" : "Sobrante para su meta"} · {fmtMonth(a.month)}</p>
 {a.kind==="recorte" ? <>
-<p className="text-xs mt-1"><b>{a.overCategoryName}</b> se pasó <b className="text-[var(--red)]">{money(a.overAmount)}</b> de su presupuesto.</p>
+<p className="text-xs mt-1"><b>{a.overCategoryName}</b> se pasó <b className="whitespace-nowrap text-[var(--red)]">{money(a.overAmount)}</b> de su presupuesto.</p>
 {a.cuts.map(c=>(
 <div key={c.budgetId??c.name} className="flex items-center gap-2 mt-1"><p className="text-xs flex-1">· {c.name}</p><input aria-label={`Recortar de ${c.name}`} type="number" min="0" className={inputCls+" w-24"} value={adjPropCuts[a.id]?.[c.budgetId??0]??String(c.amount)} onChange={e=>setAdjPropCuts({...adjPropCuts,[a.id]:{...(adjPropCuts[a.id]||{}),[c.budgetId??0]:e.target.value}})} /></div>
 ))}
@@ -1935,7 +1937,7 @@ export function App(){
 <p className="text-xs mt-1">{a.coversAll ? "Con este ajuste, sus gastos fijos, sus presupuestos y su aportación quedan cubiertos." : "Aun con este ajuste no alcanza para cubrir todo: se propone alargar el plazo de la meta."}</p>
 <p className="text-xs mt-1 text-[var(--dim)]">Si no lo acepta, la meta se atrasará. {a.note}</p>
 </> : <>
-<p className="text-xs mt-1">Este mes gastó menos de lo planeado: sobran <b>{money(a.overAmount)}</b> ({a.cuts.map(c=>`${c.name} ${money(c.amount)}`).join(", ")}).</p>
+<p className="text-xs mt-1">Este mes gastó menos de lo planeado: sobran <b className="whitespace-nowrap">{money(a.overAmount)}</b> ({a.cuts.map(c=>`${c.name} ${money(c.amount)}`).join(", ")}).</p>
 <p className="text-xs mt-1">Puede mover ese sobrante al fondo de la meta para llegar antes. Nada se mueve sin que usted lo acepte.</p>
 </>}
 <div className="flex gap-2 mt-2">
@@ -1951,15 +1953,15 @@ export function App(){
         )}
 
         {effTab==="acuerdos" && (
-          <section className="grid md:grid-cols-[320px_1fr] gap-3 items-start">
+          <section className="grid md:grid-cols-[320px_1fr] gap-4 md:gap-6 items-start">
             <div className="space-y-2">
-              <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAg.mutate();}}>
-                <h2 className="font-display font-bold">Nueva propuesta</h2>
+              <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAg.mutate();}}>
+                <h2 className="font-display font-bold text-lg">Nueva propuesta</h2>
                 <div><Label htmlFor="ag-title">Título del acuerdo</Label><input id="ag-title" aria-label="Título del acuerdo" required className={inputCls} value={agTitle} onChange={e=>setAgTitle(e.target.value)} placeholder="Ej. Toda deuda nueva requiere aviso previo" /></div>
                 <div><Label htmlFor="ag-desc">Descripción</Label><textarea id="ag-desc" aria-label="Descripción del acuerdo" className={inputCls} rows={3} value={agDesc} onChange={e=>setAgDesc(e.target.value)} /></div>
                 <button className={btnPrimary+" w-full"}>Proponer acuerdo</button>
               </form>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <Label htmlFor="vote-profile">Voto como</Label>
                 <select id="vote-profile" aria-label="Votar como perfil" className={inputCls} value={voteProfile} onChange={e=>setVoteProfile(e.target.value)}><option value="">Seleccione su perfil…</option>{data.profiles.filter(p=>p.kind==="adult").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
                 <p className="text-xs text-[var(--dim)] mt-2">Regla del hogar: <b>{hh.approvalRule==="unanimous"?"Unánime":"Mayoría"}</b>.</p>
@@ -1971,7 +1973,7 @@ export function App(){
               </div>
             </div>
             <div className="space-y-2">
-              {data.agreements.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><div className="flex justify-between gap-2"><b className="font-display">{a.title}</b><span className={`text-xs rounded-full px-2.5 py-1 font-bold shrink-0 ${a.status==="approved"?"bg-green-100 text-green-800":a.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</span></div>{a.description && <p className="text-sm text-[var(--dim)] mt-1">{a.description}</p>}<p className="text-xs text-[var(--dim)] mt-2">Votos: {a.votes.length===0?"sin votos":a.votes.map(v=>`${data.profiles.find(p=>p.id===v.profileId)?.name||"Perfil"}: ${v.vote==="approve"?"Sí":"No"}`).join(" · ")}</p><div className="flex gap-2 mt-3"><button aria-label={`Aprobar acuerdo ${a.title}`} className={btnPrimary} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"approve"})}>Votar Sí</button><button aria-label={`Rechazar acuerdo ${a.title}`} className={btnGhost} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"reject"})}>Votar No</button><button aria-label={`Eliminar acuerdo ${a.title}`} className="text-xs underline text-[var(--red)] ml-auto" onClick={()=>delAg.mutate(a.id)}>Eliminar</button></div>{!voteProfile && <p className="text-xs text-[var(--dim)] mt-1">Seleccione su perfil para votar.</p>}</div>)}
+              {data.agreements.map(a=><div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><div className="flex justify-between gap-2"><b className="font-display">{a.title}</b><span className={`text-xs rounded-full px-2.5 py-1 font-bold shrink-0 ${a.status==="approved"?"bg-green-100 text-green-800":a.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</span></div>{a.description && <p className="text-sm text-[var(--dim)] mt-1">{a.description}</p>}<p className="text-xs text-[var(--dim)] mt-2">Votos: {a.votes.length===0?"sin votos":a.votes.map(v=>`${data.profiles.find(p=>p.id===v.profileId)?.name||"Perfil"}: ${v.vote==="approve"?"Sí":"No"}`).join(" · ")}</p><div className="flex gap-2 mt-3"><button aria-label={`Aprobar acuerdo ${a.title}`} className={btnPrimary} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"approve"})}>Votar Sí</button><button aria-label={`Rechazar acuerdo ${a.title}`} className={btnGhost} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"reject"})}>Votar No</button><button aria-label={`Eliminar acuerdo ${a.title}`} className="text-xs underline text-[var(--red)] ml-auto" onClick={()=>delAg.mutate(a.id)}>Eliminar</button></div>{!voteProfile && <p className="text-xs text-[var(--dim)] mt-1">Seleccione su perfil para votar.</p>}</div>)}
               {data.agreements.length===0 && <Empty title="Sin acuerdos registrados" body="Proponga la primera regla del hogar." />}
             </div>
           </section>
@@ -1979,12 +1981,12 @@ export function App(){
 
         {effTab==="patrimonio" && (
           <section>
-            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3.5 flex flex-wrap gap-6">
-              <div><p className="text-sm opacity-80">Patrimonio neto</p><p className="font-display text-2xl font-extrabold">{money2(s.netWorth)}</p></div>
-              <div><p className="text-sm opacity-80">Activos ({data.patrimony.filter(p=>p.kind==="asset").length})</p><p className="font-display text-xl font-bold">{money2(s.totalAssets)}</p></div>
-              <div><p className="text-sm opacity-80">Pasivos ({data.patrimony.filter(p=>p.kind==="liability").length})</p><p className="font-display text-xl font-bold">{money2(s.totalLiabilities)}</p></div>
+            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-4 sm:p-5 flex flex-wrap gap-6">
+              <div><p className="text-sm opacity-80">Patrimonio neto</p><p className="font-display text-2xl font-extrabold whitespace-nowrap">{money2(s.netWorth)}</p></div>
+              <div><p className="text-sm opacity-80">Activos ({data.patrimony.filter(p=>p.kind==="asset").length})</p><p className="font-display text-xl font-bold whitespace-nowrap">{money2(s.totalAssets)}</p></div>
+              <div><p className="text-sm opacity-80">Pasivos ({data.patrimony.filter(p=>p.kind==="liability").length})</p><p className="font-display text-xl font-bold whitespace-nowrap">{money2(s.totalLiabilities)}</p></div>
                           </div>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-6 gap-2 items-end mt-3" onSubmit={(e:FormEvent)=>{e.preventDefault();savePat.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-6 gap-2 items-end mt-3" onSubmit={(e:FormEvent)=>{e.preventDefault();savePat.mutate();}}>
               <div><Label htmlFor="pat-name">Nombre</Label><input id="pat-name" aria-label="Nombre de la partida de patrimonio" required className={inputCls} value={patName} onChange={e=>setPatName(e.target.value)} placeholder="Ej. Casa, Auto, Hipoteca" /></div>
               <div><Label htmlFor="pat-kind">Tipo</Label><select id="pat-kind" aria-label="Tipo de partida" className={inputCls} value={patKind} onChange={e=>setPatKind(e.target.value as "asset"|"liability")}><option value="asset">Activo</option><option value="liability">Pasivo</option></select></div>
               <div><Label htmlFor="pat-cat">Categoría</Label><input id="pat-cat" aria-label="Categoría de la partida" className={inputCls} value={patCat} onChange={e=>setPatCat(e.target.value)} placeholder="Inmueble, Vehículo…" /></div>
@@ -1992,12 +1994,12 @@ export function App(){
               <div><Label htmlFor="pat-owner">Propietario</Label><input id="pat-owner" aria-label="Propietario de la partida" className={inputCls} value={patOwner} onChange={e=>setPatOwner(e.target.value)} placeholder="Compartido / nombre" /></div>
               <button className={btnPrimary}>Agregar</button>
             </form>
-            <div className="grid md:grid-cols-2 gap-3 mt-3">
+            <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
               {(["asset","liability"] as const).map(k=>(
-                <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><h3 className="font-display font-bold">{k==="asset"?"Activos":"Pasivos"}</h3>
-                  {data.patrimony.filter(p=>p.kind===k).map(p=><div key={p.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{p.name}<span className="block text-xs text-[var(--dim)]">{p.category}{p.owner?` · ${p.owner}`:""}</span></span><span className="text-right"><b>{money2(p.value)}</b><br/><button aria-label={`Eliminar ${p.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delPat.mutate(p.id)}>Eliminar</button></span></div>)}
+                <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><h3 className="font-display font-bold text-lg">{k==="asset"?"Activos":"Pasivos"}</h3>
+                  {data.patrimony.filter(p=>p.kind===k).map(p=><div key={p.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{p.name}<span className="block text-xs text-[var(--dim)]">{p.category}{p.owner?` · ${p.owner}`:""}</span></span><span className="text-right"><b className="whitespace-nowrap">{money2(p.value)}</b><br/><button aria-label={`Eliminar ${p.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delPat.mutate(p.id)}>Eliminar</button></span></div>)}
                   {data.patrimony.filter(p=>p.kind===k).length===0 && <><p className="text-sm text-[var(--dim)] mt-2">Sin {k==="asset"?"activos":"pasivos"} registrados.</p><button type="button" aria-label="Agregar patrimonio" className={btnPrimary+" mt-2"} onClick={()=>focusField("pat-value")}>+ Agregar patrimonio</button></>}
-                  <p className="font-display font-bold mt-2 text-right">Total: {money2(k==="asset"?s.totalAssets:s.totalLiabilities)}</p>
+                  <p className="font-display font-bold mt-2 text-right">Total: <span className="whitespace-nowrap">{money2(k==="asset"?s.totalAssets:s.totalLiabilities)}</span></p>
                 </div>
               ))}
             </div>
@@ -2006,17 +2008,17 @@ export function App(){
 
         {effTab==="categorias" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-4 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveCat.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-4 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveCat.mutate();}}>
               <div><Label htmlFor="cat-name">Nueva categoría</Label><input id="cat-name" aria-label="Nombre de la nueva categoría" required className={inputCls} value={catFormName} onChange={e=>setCatFormName(e.target.value)} /></div>
               <div><Label htmlFor="cat-kind">Tipo</Label><select id="cat-kind" aria-label="Tipo de categoría" className={inputCls} value={catKind} onChange={e=>setCatKind(e.target.value as "income"|"expense")}><option value="expense">Gasto</option><option value="income">Ingreso</option></select></div>
               <div><Label htmlFor="cat-subs">Subcategorías (coma)</Label><input id="cat-subs" aria-label="Subcategorías separadas por coma" className={inputCls} value={catSubs} onChange={e=>setCatSubs(e.target.value)} placeholder="Súper, Mercado, Tienda" /></div>
               <button className={btnPrimary}>Crear categoría</button>
             </form>
-            <div className="mt-3"><Help>Toque la × para quitar una subcategoría.</Help></div>
-            <div className="grid md:grid-cols-2 gap-3 mt-3">
+            <div className="mt-3"><Help>La × quita una subcategoría.</Help></div>
+            <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
               {(["income","expense"] as const).map(k=>(
-                <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><h3 className="font-display font-bold">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>
-                  {data.categories.filter(c=>c.kind===k).map(c=><div key={c.id} className="py-2.5 border-b border-[var(--border)] last:border-0"><p className="text-sm font-semibold">{c.name} {c.isSystem===1 && <span className="text-[11px] text-[var(--dim)] font-normal">· del sistema</span>}</p>
+                <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><h3 className="font-display font-bold text-lg">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>
+                  {data.categories.filter(c=>c.kind===k).map(c=><div key={c.id} className="py-2.5 border-b border-[var(--border)] last:border-0"><p className="text-sm font-semibold">{c.name} {c.isSystem===1 && <span className="text-xs text-[var(--dim)] font-normal">· del sistema</span>}</p>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
                       {c.subcategories.map(sb=><span key={sb} className="inline-flex items-center gap-1 bg-[var(--surface2)] rounded-full pl-2.5 pr-1 py-1 text-xs font-semibold">{sb}<button type="button" aria-label={`Eliminar subcategoría ${sb} de ${c.name}`} className="w-5 h-5 rounded-full bg-[var(--surface)] border border-[var(--border)] leading-none" onClick={()=>removeSub.mutate({categoryId:c.id,name:sb})}>×</button></span>)}
                       {c.subcategories.length===0 && <span className="text-xs text-[var(--dim)]">Sin subcategorías</span>}
@@ -2027,8 +2029,8 @@ export function App(){
               ))}
             </div>
             {(addSub.error || removeSub.error) && <p className="text-sm text-[var(--red)] mt-2">{String(addSub.error || removeSub.error)}</p>}
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 mt-3">
-              <h3 className="font-display font-bold">Reglas de auto-categorización</h3>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-3">
+              <h3 className="font-display font-bold text-lg">Reglas de auto-categorización</h3>
               <p className="text-sm text-[var(--dim)] mt-1">Si el concepto contiene una palabra, la app pone sola esa categoría. Ejemplo: «OXXO» → Alimentación.</p>
               {rulesQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando reglas…</p>
               : rulesQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar las reglas. Si es la primera vez, ejecute supabase/category-rules.sql en Supabase.</p>
@@ -2047,18 +2049,18 @@ export function App(){
         )}
 
         {effTab==="perfiles" && (
-          <section className="grid md:grid-cols-[320px_1fr] gap-3 items-start">
-            <div style={{gridColumn:"1 / -1"}} className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3 flex flex-wrap items-center gap-2">
-              <div className="flex-1 min-w-[200px]"><p className="font-display font-bold">Perfil en uso</p><p className="text-xs opacity-80">Lo que ve en este dispositivo.</p></div>
+          <section className="grid md:grid-cols-[320px_1fr] gap-4 md:gap-6 items-start">
+            <div style={{gridColumn:"1 / -1"}} className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-4 sm:p-5 flex flex-wrap items-center gap-2">
+              <div className="flex-1 min-w-[200px]"><p className="font-display font-bold text-lg">Perfil en uso</p><p className="text-xs opacity-80">Lo que ve en este dispositivo.</p></div>
               <select aria-label="Perfil actual en este dispositivo" className="rounded-xl bg-[var(--surface)] text-[var(--text)] px-3 py-2.5 font-semibold" value={me?me.id:""} onChange={e=>pickProfile(Number(e.target.value))}>
                 {data.profiles.map(x=><option key={x.id} value={x.id}>{fullName(x)} — {x.role==="admin"?"Administrador":"Integrante"}</option>)}
               </select>
               <span className="text-sm font-bold">{isAdmin?"Ve todo lo compartido.":"Ve lo compartido y sus privados."}</span>
             </div>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveProf.mutate();}}>
-              <h2 className="font-display font-bold text-base">Agregar persona</h2>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveProf.mutate();}}>
+              <h2 className="font-display font-bold text-lg">Agregar persona</h2>
               <div className="grid grid-cols-2 gap-2"><div><Label htmlFor="prof-name">Nombre</Label><input id="prof-name" aria-label="Nombre de la persona" required className={inputCls} value={profName} onChange={e=>setProfName(e.target.value)} /></div><div><Label htmlFor="prof-last">Apellido</Label><input id="prof-last" aria-label="Apellido de la persona" className={inputCls} value={profLast} onChange={e=>setProfLast(e.target.value)} /></div></div>
-              <p className="text-[11px] text-[var(--dim)]">El nombre no se toma del correo.</p>
+              <p className="text-xs text-[var(--dim)]">El nombre no se toma del correo.</p>
               <div><Label htmlFor="prof-kind">Tipo de perfil</Label><select id="prof-kind" aria-label="Tipo de perfil" className={inputCls} value={profKind} onChange={e=>setProfKind(e.target.value as "adult"|"dependent")}><option value="adult">Adulto</option><option value="dependent">Dependiente</option></select></div>
               {profKind==="dependent" && <div><Label htmlFor="prof-type">Relación</Label><select id="prof-type" aria-label="Relación del dependiente" className={inputCls} value={profType} onChange={e=>setProfType(e.target.value)}><option>Hijo/a menor</option><option>Hijo/a adulto</option><option>Padre/Madre</option><option>Otro dependiente</option></select></div>}
               {profKind==="adult" && <>
@@ -2073,9 +2075,9 @@ export function App(){
             </form>
             <div className="space-y-2">
               {data.profiles.map(p=>(
-                <div key={p.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex justify-between gap-2">
-                  <div className="flex-1"><p className="font-display font-bold">{fullName(p)} <span className="text-xs font-normal bg-[var(--surface2)] rounded-full px-2 py-0.5">{p.kind==="adult"?"Adulto":`Dependiente · ${p.dependentType||""}`}</span> <span className={`text-xs font-bold rounded-full px-2 py-0.5 ${p.role==="admin"?"bg-[var(--gold)] text-white":"bg-[var(--surface2)]"}`}>{p.role==="admin"?"Administrador del hogar":"Integrante"}</span></p>
-                  {p.kind==="adult" ? <p className="text-sm text-[var(--dim)]">Ingreso {money(p.monthlyIncome)} · Compromisos {money(p.fixedCommitments)} · <b className="text-[var(--text)]">Capacidad {money(p.capacity)}</b>{p.email?` · ${p.email}`:""}</p> : <p className="text-sm text-[var(--dim)]">No aporta ni vota.</p>}</div>
+                <div key={p.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 flex justify-between gap-2">
+                  <div className="flex-1"><p className="font-display font-bold text-lg">{fullName(p)} <span className="text-xs font-normal bg-[var(--surface2)] rounded-full px-2 py-0.5">{p.kind==="adult"?"Adulto":`Dependiente · ${p.dependentType||""}`}</span> <span className={`text-xs font-bold rounded-full px-2 py-0.5 ${p.role==="admin"?"bg-[var(--gold)] text-[#13262E]":"bg-[var(--surface2)]"}`}>{p.role==="admin"?"Administrador del hogar":"Integrante"}</span></p>
+                  {p.kind==="adult" ? <p className="text-sm text-[var(--dim)]">Ingreso {money(p.monthlyIncome)} · Compromisos {money(p.fixedCommitments)} · <b className="text-[var(--text)] whitespace-nowrap">Capacidad {money(p.capacity)}</b>{p.email?` · ${p.email}`:""}</p> : <p className="text-sm text-[var(--dim)]">No aporta ni vota.</p>}</div>
                   <div className="shrink-0 text-right space-y-1">
                     <button aria-label={`Editar nombre de ${fullName(p)}`} className="text-xs underline block" onClick={()=>{setEditProfId(p.id);setEditProfName(p.name);setEditProfLast(p.lastName||"");}}>Editar nombre</button>
                     {isAdmin && <button aria-label={`Eliminar perfil de ${fullName(p)}`} className="text-xs underline text-[var(--red)] block" onClick={()=>delProf.mutate(p.id)}>Eliminar</button>}
@@ -2084,13 +2086,13 @@ export function App(){
                 </div>
               ))}
               {data.profiles.length===0 && <Empty title="Sin perfiles" body="Agregue a los adultos del hogar." />}
-              <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3">
-                <h3 className="font-display font-bold">Invitaciones al hogar</h3>
+              <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5">
+                <h3 className="font-display font-bold text-lg">Invitaciones al hogar</h3>
                 <p className="text-sm text-[var(--dim)] mt-1">Enlace directo, un solo uso, 7 días.</p>
                 {isAdmin ? <div className="flex flex-wrap gap-2 mt-3"><input aria-label="Correo del invitado" type="email" placeholder="correo@ejemplo.com" className={inputCls+" flex-1 min-w-[180px]"} value={invEmail2} onChange={e=>setInvEmail2(e.target.value)} /><input aria-label="Nombre del invitado opcional" placeholder="Nombre (opcional, lo confirma él/ella)" className={inputCls+" flex-1 min-w-[160px]"} value={invName2} onChange={e=>setInvName2(e.target.value)} /><button aria-label="Enviar invitación al hogar" className={btnPrimary} onClick={()=>createInv.mutate()} disabled={!invEmail2 || createInv.isPending}>Invitar</button></div> : <p className="text-sm mt-2">Solo el administrador envía invitaciones.</p>}
                 {createInv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">{(createInv.data as {reused?:boolean})?.reused?"Se reutilizó la invitación pendiente.":"Invitación pendiente."}</p>}
                 {hhInvResult && (
-                  <div className="text-sm space-y-2 mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+                  <div className="text-sm space-y-2 mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)]">
                     <p className="font-bold">Enlace de invitación listo{hhInvResult.emailSent?" · también se envió el correo.":""}</p>
                     <p className="break-all bg-[var(--surface)] border border-[var(--border)] rounded-xl p-2 text-xs">{hhInvResult.inviteUrl}</p>
                     <div className="flex gap-2 flex-wrap">
@@ -2111,34 +2113,34 @@ export function App(){
                   {data.invitations.length===0 && <p className="text-sm text-[var(--dim)] py-2">Sin invitaciones registradas.</p>}
                 </div>
               </div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><h3 className="font-display font-bold">Fecha de corte del hogar: día {hh.cutoffDay}</h3><p className="text-sm text-[var(--dim)] mt-1">El mes se consulta por calendario; la fecha de corte está en Hogar.</p></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><h3 className="font-display font-bold text-lg">Fecha de corte del hogar: día {hh.cutoffDay}</h3><p className="text-sm text-[var(--dim)] mt-1">El mes se consulta por calendario; la fecha de corte está en Hogar.</p></div>
             </div>
           </section>
         )}
 
         
         {effTab==="personal" && (
-          <section className="space-y-3">
-            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-3.5">
+          <section className="space-y-4 md:space-y-6">
+            <div className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-4 sm:p-5">
               <p className="text-sm opacity-80">Restante de su sueldo · {s.currentMonth}</p>
-              <p className="font-display text-3xl font-extrabold mt-1">{money2(data.personal.remaining)}</p>
+              <p className="font-display text-4xl font-extrabold mt-1 whitespace-nowrap">{money2(data.personal.remaining)}</p>
               <p className="text-sm opacity-80 mt-1">Sueldo {money2(data.personal.salary)} − gastado {money2(data.personal.monthSpent)}.</p>
               <div className="grid grid-cols-3 gap-2 mt-3 text-center">
-                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Sueldo mensual</p><p className="font-display font-bold">{money(data.personal.salary)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Total gastado</p><p className="font-display font-bold">{money(data.personal.monthSpent)}</p></div>
-                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Gastos de hoy</p><p className="font-display font-bold">{money(data.personal.todaySpent)}</p></div>
+                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Sueldo mensual</p><p className="font-display font-bold whitespace-nowrap">{money(data.personal.salary)}</p></div>
+                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Total gastado</p><p className="font-display font-bold whitespace-nowrap">{money(data.personal.monthSpent)}</p></div>
+                <div className="bg-white/10 rounded-2xl py-2"><p className="text-xs opacity-80">Gastos de hoy</p><p className="font-display font-bold whitespace-nowrap">{money(data.personal.todaySpent)}</p></div>
               </div>
             </div>
-            <div className="grid md:grid-cols-2 gap-3 items-start">
+            <div className="grid md:grid-cols-2 gap-4 md:gap-6 items-start">
               <div className="space-y-3">
-                <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveSalary.mutate();}}>
-                  <h2 className="font-display font-bold">Su sueldo mensual</h2>
+                <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveSalary.mutate();}}>
+                  <h2 className="font-display font-bold text-lg">Su sueldo mensual</h2>
                   <div><Label htmlFor="salary">Sueldo mensual ($)</Label><input id="salary" aria-label="Sueldo mensual personal" type="number" min="0" className={inputCls} placeholder={String(data.personal.salary||"")} value={salaryInput} onChange={e=>setSalaryInput(e.target.value)} /></div>
                   <button className={btnPrimary+" w-full"} disabled={saveSalary.isPending || !salaryInput}>Guardar sueldo</button>
                   {data.personal.salary===0 && <Help>Registre su sueldo para ver su saldo restante.</Help>}
                 </form>
-                <form id="pers-exp-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(persStep<3){ if(persStep===1 && !persAmt) return; setPersStep(persStep+1); scrollFormTop("pers-exp-form"); } else savePersExp.mutate();}}>
-                  <h2 className="font-display font-bold">Gasto del día</h2>
+                <form id="pers-exp-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(persStep<3){ if(persStep===1 && !persAmt) return; setPersStep(persStep+1); scrollFormTop("pers-exp-form"); } else savePersExp.mutate();}}>
+                  <h2 className="font-display font-bold text-lg">Gasto del día</h2>
                   <p className="text-xs text-[var(--dim)]">Paso {persStep} de 3</p>
                   <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${persStep*33.33}%`}} /></div>
                   {persStep===1 && <>
@@ -2159,13 +2161,13 @@ export function App(){
                   <div>
                     <button type="button" aria-expanded={persMore} aria-label={persMore?"Ocultar más opciones del gasto del día":"Mostrar más opciones del gasto del día"} onClick={()=>setPersMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{persMore?"▾ Ocultar más opciones":"▸ Más opciones: comprobante"}</button>
                     {persMore && (<div className="space-y-2 mt-3">
-                  <div><Label htmlFor="pers-receipt">Foto del comprobante (opcional)</Label><input id="pers-receipt" aria-label="Adjuntar foto del comprobante del gasto del día" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setPersReceipt); }} />{persReceipt && <img src={persReceipt.preview} alt="Vista previa del comprobante del gasto del día" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)] mt-2" />}<p className="text-[11px] text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
+                  <div><Label htmlFor="pers-receipt">Foto del comprobante (opcional)</Label><input id="pers-receipt" aria-label="Adjuntar foto del comprobante del gasto del día" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setPersReceipt); }} />{persReceipt && <img src={persReceipt.preview} alt="Vista previa del comprobante del gasto del día" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)] mt-2" />}<p className="text-xs text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
                   {persReceipt && <div className="mt-2">
                     <button type="button" aria-label="Leer el comprobante y llenar el gasto del día" className={btnPrimary+" w-full"} disabled={ocrBusyPers} onClick={()=>void runOcr("pers")}>{ocrBusyPers?"Leyendo el comprobante…":"Leer el comprobante"}</button>
                     {ocrProgressPers && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressPers}</p>}
                     {ocrErrorPers && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorPers}</p>}
                     {ocrNoticePers && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticePers}</p>}
-                    <p className="text-[11px] text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
+                    <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
                   </div>}</div>
                     </div>)}
                   </div>
@@ -2175,24 +2177,23 @@ export function App(){
                 </form>
               </div>
               <div className="space-y-3">
-                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-                  <h2 className="font-display font-bold">Gasto por categoría</h2>
-                                    <CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
-                  <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b>{money2(data.personal.monthSpent)}</b> · Restante: <b>{money2(data.personal.remaining)}</b></p>
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                  <h2 className="font-display font-bold text-lg">Gasto por categoría · {fmtMonth(s.currentMonth)}</h2>
+                                    <CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={10} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
+                  <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b className="whitespace-nowrap">{money2(data.personal.monthSpent)}</b> · Restante: <b className="whitespace-nowrap">{money2(data.personal.remaining)}</b></p>
                 </div>
-                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-                  <h2 className="font-display font-bold">Ingresos vs gastos</h2>
-                  <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
-                  <p className="text-xs text-[var(--dim)]">Últimos 6 meses. Toque una barra de Ingresos o de Gastos para ver el detalle por cuenta.</p>
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                  <h2 className="font-display font-bold text-lg">Ingresos vs gastos · últimos 6 meses</h2>
+                  <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} inicio onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
                 </div>
-                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-                  <h2 className="font-display font-bold">Mis tandas</h2>
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                  <h2 className="font-display font-bold text-lg">Mis tandas</h2>
                                     {data.tandas.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Aún no tiene tandas.</p>}
                   {data.tandas.map(td=>{
                     const next = td.calendar.find(c=>c.date>=todayISO()) || td.calendar[td.calendar.length-1];
                     const myPend = td.payments.filter(p=>p.status!=="paid").length;
                     const unverified = td.payments.filter(p=>p.status==="paid" && p.verified!==1).length;
-                    return <div key={td.id} className="border border-[var(--border)] rounded-2xl p-3 mt-3">
+                    return <div key={td.id} className="border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-3">
                       <p className="font-display font-bold text-sm">{td.name}</p>
                       <p className="text-xs text-[var(--dim)]">Organiza {td.organizerName||"—"} {td.organizerRating.count>0 && <span>· <Stars value={td.organizerRating.avg} size="text-xs" /> {td.organizerRating.avg} ({td.organizerRating.count})</span>} · {money(td.amountPerQuincena)} cada {td.cadenceDays} días · {td.participants.length}/{td.participantCount} participantes</p>
                       {next && <p className="text-sm mt-1">Siguiente: <b>{next.receiverName?`recibe ${next.receiverName}`:"pendiente de sorteo"}</b> · {fmtDate(next.date)} · {money(next.amount)}</p>}
@@ -2201,13 +2202,13 @@ export function App(){
                   })}
                   <button type="button" aria-label="Ir a la pestaña Tandas desde Personal" className={btnPrimary+" mt-3"} onClick={()=>goTab("tandas")}>Ir a Tandas</button>
                 </div>
-                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-                  <h2 className="font-display font-bold">Gastos del día ({data.personal.todayCount})</h2>
+                <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                  <h2 className="font-display font-bold text-lg">Gastos del día ({data.personal.todayCount})</h2>
                   {data.personal.todayMovements.map(m=>{ const full=data.movements.find(x=>x.id===m.id); return (
-                    <div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="block text-xs text-[var(--dim)]">{getCatName(m.categoryId)}{full?` · ${getAccName(full.accountId)}`:""}</span>{full?.receiptUrl && <button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>setReceiptView(full.receiptUrl)}>Ver comprobante</button>}<button aria-label={`Reversar el gasto ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>{setConfirmReverseId(m.id);setMvFilter("all");setMvSearch("");setMvSubFilter("all");goTab("movimientos");}}>Reversar</button></span><span className="flex items-center gap-2">{full?.receiptUrl && <img src={full.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-8 h-8 object-cover rounded-lg border border-[var(--border)]" />}<b>−{money2(m.amount)}</b></span></div>
+                    <div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="block text-xs text-[var(--dim)]">{getCatName(m.categoryId)}{full?` · ${getAccName(full.accountId)}`:""}</span>{full?.receiptUrl && <button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>setReceiptView(full.receiptUrl)}>Ver comprobante</button>}<button aria-label={`Reversar el gasto ${m.concept}`} className="text-xs underline font-bold block" onClick={()=>{setConfirmReverseId(m.id);setMvFilter("all");setMvSearch("");setMvSubFilter("all");goTab("movimientos");}}>Reversar</button></span><span className="flex items-center gap-2">{full?.receiptUrl && <img src={full.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-8 h-8 object-cover rounded-lg border border-[var(--border)]" />}<b className="whitespace-nowrap shrink-0">−{money2(m.amount)}</b></span></div>
                   ); })}
                   {data.personal.todayMovements.length===0 && <p className="text-sm text-[var(--dim)] mt-2">Hoy no se han registrado gastos.</p>}
-                  <p className="text-sm mt-2">Total de hoy: <b>{money2(data.personal.todaySpent)}</b></p>
+                  <p className="text-sm mt-2">Total de hoy: <b className="whitespace-nowrap">{money2(data.personal.todaySpent)}</b></p>
                 </div>
               </div>
             </div>
@@ -2215,12 +2216,12 @@ export function App(){
         )}
 
         {effTab==="tandas" && (
-          <section className="space-y-3">
-            <div className="bg-amber-50 border-2 border-[var(--gold)] rounded-2xl p-3 text-amber-900">
-              <p className="font-display font-bold">Tandas con pagos verificados</p>
+          <section className="space-y-4 md:space-y-6">
+            <div className="bg-amber-50 border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 text-amber-900">
+              <p className="font-display font-bold text-lg">Tandas con pagos verificados</p>
               <p className="text-sm mt-1">Cada participante sube su comprobante; el organizador lo verifica.</p>
             </div>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 grid md:grid-cols-3 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveTanda.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-3 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveTanda.mutate();}}>
               <div><Label htmlFor="tanda-name">Nombre de la tanda</Label><input id="tanda-name" aria-label="Nombre de la tanda" required className={inputCls} value={tandaName} onChange={e=>setTandaName(e.target.value)} placeholder="Ej. Tanda de la oficina" /></div>
               <div><Label htmlFor="tanda-count">Participantes</Label><input id="tanda-count" aria-label="Número de participantes de la tanda" type="number" min="2" max="30" required className={inputCls} value={tandaCount} onChange={e=>setTandaCount(e.target.value)} /></div>
               <div><Label htmlFor="tanda-amount">Monto por periodo ($)</Label><input id="tanda-amount" aria-label="Monto por periodo de la tanda" type="number" min="1" required className={inputCls} value={tandaAmount} onChange={e=>setTandaAmount(e.target.value)} /></div>
@@ -2236,12 +2237,12 @@ export function App(){
               <button className={btnPrimary} disabled={saveTanda.isPending}>Crear tanda</button>
             </form>
             {data.tandas.map(td=>{ const p = tandaPerms(td); return (
-              <div key={td.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 space-y-3">
+              <div key={td.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-3">
                 <div className="flex justify-between flex-wrap gap-2">
                   <div>
-                    <h3 className="font-display font-bold text-base">{td.name}</h3>
-                    <p className="text-xs text-[var(--dim)]">{td.participantCount} participantes · {money(td.amountPerQuincena)} por {td.frequency==="semanal"?"semana":td.frequency==="mensual"?"mes":"quincena"} · recaudación cada {td.cadenceDays} días · inicio {fmtDate(td.startDate)} · en cada periodo se entrega el monto total de <b>{money(td.potPerQuincena)}</b></p>
-                    <p className="text-sm mt-1.5">Organiza <b>{td.organizerName||"—"}</b>{td.treasurerName?<> · Tesorero: <b>{td.treasurerName}</b></>:""}{td.substituteName?<> · Suplente: <b>{td.substituteName}</b></>:""} {td.organizerRating.count>0 ? <span><Stars value={td.organizerRating.avg} /> <b>{td.organizerRating.avg} de 5</b> · {td.organizerRating.count} calificación(es) otorgadas por los participantes{td.organizerRating.avg>=4.5 && td.organizerRating.count>=2 ? <> · <span className="bg-[var(--gold)] text-white text-[11px] font-bold rounded-full px-2 py-0.5">RECOMENDADO POR LOS PARTICIPANTES</span></> : ""}</span> : <span className="text-[var(--dim)]">· Aún sin calificaciones.</span>}</p>
+                    <h3 className="font-display font-bold text-lg">{td.name}</h3>
+                    <p className="text-xs text-[var(--dim)]">{td.participantCount} participantes · {money(td.amountPerQuincena)} por {td.frequency==="semanal"?"semana":td.frequency==="mensual"?"mes":"quincena"} · recaudación cada {td.cadenceDays} días · inicio {fmtDate(td.startDate)} · en cada periodo se entrega el monto total de <b className="whitespace-nowrap">{money(td.potPerQuincena)}</b></p>
+                    <p className="text-sm mt-1.5">Organiza <b>{td.organizerName||"—"}</b>{td.treasurerName?<> · Tesorero: <b>{td.treasurerName}</b></>:""}{td.substituteName?<> · Suplente: <b>{td.substituteName}</b></>:""} {td.organizerRating.count>0 ? <span><Stars value={td.organizerRating.avg} /> <b>{td.organizerRating.avg} de 5</b> · {td.organizerRating.count} calificación(es) otorgadas por los participantes{td.organizerRating.avg>=4.5 && td.organizerRating.count>=2 ? <> · <span className="bg-[var(--gold)] text-[#13262E] text-[11px] font-bold rounded-full px-2 py-0.5">RECOMENDADO POR LOS PARTICIPANTES</span></> : ""}</span> : <span className="text-[var(--dim)]">· Aún sin calificaciones.</span>}</p>
                     <p className="text-xs text-[var(--dim)] mt-1">Si alguien no paga: <b>{td.coverageRule==="fondo"?"Fondo solidario":td.coverageRule==="prorroga"?"Prórroga":"Reparto entre los demás"}</b>{td.fineAmount>0?<> · Multa {money(td.fineAmount)} por retardo o falta</>:" · Sin multa"}{td.meetingDay?<> · Reunión los <b>{td.meetingDay}</b></>:""}{td.turnsLocked===1?<> · <b>Turnos fijados</b></>:""}</p>
                   </div>
                   <div className="flex gap-2 items-start">
@@ -2249,7 +2250,7 @@ export function App(){
                     {delTanda.error && <p className="text-sm text-[var(--red)]">{String(delTanda.error)}</p>}
                   </div>
                 </div>
-                <div className="bg-[var(--surface2)] rounded-2xl p-3">
+                <div className="bg-[var(--surface2)] rounded-2xl p-4 sm:p-5">
                   <h4 className="font-display font-bold text-sm">Sorteo</h4>
                   {p.canManage && <div className="flex flex-wrap gap-2 items-center mt-2">
                     <select aria-label={`Modo de sorteo de ${td.name}`} className={inputCls+" w-auto"} value={drawSel[td.id]||td.drawMode} onChange={e=>setDrawSel({...drawSel,[td.id]:e.target.value as "random"|"weighted"})}><option value="random">Al azar</option><option value="weighted">Por cumplimiento</option></select>
@@ -2259,7 +2260,7 @@ export function App(){
                   <p className="text-xs text-[var(--dim)] mt-2"><b>Al azar:</b> igual para todos. <b>Por cumplimiento:</b> premia la puntualidad.</p>
                   {drawTanda.error && <p className="text-sm text-[var(--red)] mt-1">{String(drawTanda.error)}</p>}
                 </div>
-                <div className="bg-[var(--surface2)] rounded-2xl p-3 space-y-3">
+                <div className="bg-[var(--surface2)] rounded-2xl p-4 sm:p-5 space-y-3">
                   <div>
                     <h4 className="font-display font-bold text-sm">Reunión del grupo · Ronda {td.attendance.index+1} de {td.participantCount}</h4>
                     <p className="text-xs text-[var(--dim)] mt-0.5">Ficha: <b>TANDA-{td.id}-R{td.attendance.index+1}</b> · Monto {money(td.amountPerQuincena)} por persona · Fecha límite {fmtDate(td.attendance.date)} · Se entrega {money(td.attendance.amount)}{td.attendance.receiverName?` a ${td.attendance.receiverName}`:""}</p>
@@ -2284,9 +2285,9 @@ export function App(){
                   <div>
                     <h4 className="font-display font-bold text-sm">Saldos separados</h4>
                     <div className="grid grid-cols-3 gap-2 mt-2 text-center">
-                      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-[11px] text-[var(--dim)]">Aportación</p><p className="font-display font-bold text-sm">{money(td.balances.aportacion)}</p></div>
-                      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-[11px] text-[var(--dim)]">Fondo solidario</p><p className="font-display font-bold text-sm">{money(td.balances.fondo)}</p></div>
-                      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-[11px] text-[var(--dim)]">Multas pendientes</p><p className="font-display font-bold text-sm">{money(td.balances.multasPendientes)}</p>{td.balances.multasCobradas>0 && <p className="text-[11px] text-[var(--dim)]">Cobradas {money(td.balances.multasCobradas)}</p>}</div>
+                      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-xs text-[var(--dim)]">Aportación</p><p className="font-display font-bold text-sm whitespace-nowrap">{money(td.balances.aportacion)}</p></div>
+                      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-xs text-[var(--dim)]">Fondo solidario</p><p className="font-display font-bold text-sm whitespace-nowrap">{money(td.balances.fondo)}</p></div>
+                      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-xs text-[var(--dim)]">Multas pendientes</p><p className="font-display font-bold text-sm whitespace-nowrap">{money(td.balances.multasPendientes)}</p>{td.balances.multasCobradas>0 && <p className="text-xs text-[var(--dim)]">Cobradas {money(td.balances.multasCobradas)}</p>}</div>
                     </div>
                     {p.canTreasury && <div className="flex flex-wrap gap-2 mt-2 items-end">
                       <div><Label htmlFor={`fund-kind-${td.id}`}>Tipo</Label><select id={`fund-kind-${td.id}`} aria-label={`Tipo de movimiento de fondos de ${td.name}`} className={inputCls+" w-auto"} value={fundKind[td.id]||"fondo"} onChange={e=>setFundKind({...fundKind,[td.id]:e.target.value})}><option value="fondo">Fondo solidario</option><option value="aportacion">Aportación</option><option value="multa">Pago de multa</option></select></div>
@@ -2332,7 +2333,7 @@ export function App(){
                     <button aria-label={`Agregar participante a ${td.name}`} className={btnGhost} onClick={()=>addPart.mutate({tandaId:td.id,name:partName[td.id]||"",cardLast4:partCard[td.id]||undefined})} disabled={!partName[td.id]}>Agregar participante</button>
                   </div>}
                   {addPart.error && <p className="text-sm text-[var(--red)] mt-1">{String(addPart.error)}</p>}
-                  <div className="border border-dashed border-[var(--gold)] rounded-2xl p-3 mt-3">
+                  <div className="border border-dashed border-[var(--gold)] rounded-2xl p-4 sm:p-5 mt-3">
                     <p className="text-sm font-bold">Invitar por correo</p>
                     <p className="text-xs text-[var(--dim)] mt-0.5">Enlace directo, un solo uso, 7 días.</p>
                     {p.canManage && <div className="flex flex-wrap gap-2 mt-2">
@@ -2342,7 +2343,7 @@ export function App(){
                     </div>}
                     {createTandaInv.error && <p className="text-sm text-[var(--red)] mt-1">{String(createTandaInv.error)}</p>}
                     {(() => { const tRes = tInvResult[td.id]; if (!tRes) return null; return (
-                      <div className="text-sm space-y-2 mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+                      <div className="text-sm space-y-2 mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)]">
                         <p className="font-bold">Enlace de invitación listo{tRes.emailSent?" · también se envió el correo.":""}</p>
                         <p className="break-all bg-[var(--surface)] border border-[var(--border)] rounded-xl p-2 text-xs">{tRes.inviteUrl}</p>
                         <div className="flex gap-2 flex-wrap">
@@ -2353,7 +2354,7 @@ export function App(){
                       </div>
                     ); })()}
                     {td.invitations.filter(iv=>iv.status==="pending").map(iv=>(
-                      <div key={iv.id} className="border border-[var(--border)] rounded-2xl p-3 mt-2 space-y-2 bg-[var(--surface)]">
+                      <div key={iv.id} className="border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-2 space-y-2 bg-[var(--surface)]">
                         <p className="text-sm"><b>Invitación pendiente</b> para {iv.email}{iv.invitedName?` (${iv.invitedName})`:""}.</p>
                         <input aria-label={`Nombre con el que acepta la invitación de ${iv.email}`} placeholder="Nombre con el que participará" className={inputCls} value={tJoinName[iv.id]||iv.invitedName||""} onChange={e=>setTJoinName({...tJoinName,[iv.id]:e.target.value})} />
                         <div className="flex gap-2 flex-wrap">
@@ -2370,12 +2371,12 @@ export function App(){
                 <TandaMonthCalendar td={td} />
                 <div>
                   <h4 className="font-display font-bold text-sm">Calendario de entregas</h4>
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mt-4">
                     {td.calendar.map(c=>(
                       <div key={c.index} className={`rounded-2xl border p-3 ${c.receiverName?"border-[var(--gold)] bg-[var(--surface2)]":"border-dashed border-[var(--border)]"}`}>
                         <p className="text-xs text-[var(--dim)]">Periodo {c.index+1} · {fmtDate(c.date)}</p>
-                        <p className="font-display font-bold">{c.receiverName?`Recibe ${c.receiverName}`:"Pendiente de sorteo"}</p>
-                        <p className="text-sm">{money(c.amount)}</p>
+                        <p className="font-display font-bold text-lg">{c.receiverName?`Recibe ${c.receiverName}`:"Pendiente de sorteo"}</p>
+                        <p className="text-sm whitespace-nowrap">{money(c.amount)}</p>
                         {c.receiverName && (()=>{ const dv = td.deliveries.find(x=>x.quincenaIndex===c.index); return (
                           <span className="block mt-1.5 space-y-1">
                             <span className="block text-xs">Entrega: {dv?.organizerConfirmed===1 ? <b className="text-[var(--green)]">Confirmada por el organizador</b> : "Sin confirmar por el organizador"} · Recepción: {dv?.receiverConfirmed===1 ? <b className="text-[var(--green)]">Confirmada por quien recibe</b> : "Sin confirmar por quien recibe"}</span>
@@ -2398,7 +2399,7 @@ export function App(){
                       const pendCount = td.participants.filter(pt=> (td.payments.find(pay=>pay.participantId===pt.id&&pay.quincenaIndex===c.index)?.status||"pending")!=="paid").length;
                       const unverified = td.participants.filter(pt=>{ const pay=td.payments.find(pay=>pay.participantId===pt.id&&pay.quincenaIndex===c.index); return pay?.status==="paid" && pay.verified!==1; }).length;
                       return (
-                      <div key={c.index} className="border border-[var(--border)] rounded-2xl p-3">
+                      <div key={c.index} className="border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                         <p className="text-sm font-bold">Periodo {c.index+1} · {fmtDate(c.date)} {c.receiverName?`· recibe ${c.receiverName}`:""} · {pendCount===0 && td.participants.length>0 ? (unverified>0 ? `Todos pagaron · ${unverified} pendiente(s) de verificación` : "Todos los pagos están verificados") : `${pendCount} pago(s) pendiente(s)`}</p>
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {td.participants.map(pt=>{
@@ -2445,14 +2446,14 @@ export function App(){
         )}
 
         {effTab==="guia" && (
-          <section className="space-y-3">
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex items-center gap-2">
-              <h2 className="font-display font-bold text-base flex-1 min-w-0">Instalación en el celular</h2>
+          <section className="space-y-4 md:space-y-6">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 flex items-center gap-2">
+              <h2 className="font-display font-bold text-lg flex-1 min-w-0">Instalación en el celular</h2>
               <button type="button" className={btnPrimary+" shrink-0"} onClick={handleInstallClick}>Cómo instalar</button>
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex items-center gap-2">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 flex items-center gap-2">
               <div className="flex-1 min-w-0">
-                <h2 className="font-display font-bold text-base">Datos de demostración</h2>
+                <h2 className="font-display font-bold text-lg">Datos de demostración</h2>
                 <p className="text-sm text-[var(--dim)] mt-0.5">Cargue datos de ejemplo para probar la app. Solo funciona sin movimientos.</p>
                 {demo.error && <p className="text-xs text-[var(--red)] mt-1">{String(demo.error)}</p>}
                 {demo.isSuccess && <p className="text-xs text-[var(--green)] mt-1">Demo cargada: datos con “(demo)”.</p>}
@@ -2460,12 +2461,12 @@ export function App(){
               <button type="button" className={btnPrimary+" shrink-0"} aria-label="Cargar datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>{demo.isPending?"Cargando…":"Cargar demo"}</button>
             </div>
             <div className="grid sm:grid-cols-3 gap-2">
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto y pulse Leer el comprobante: la app lee el total en su dispositivo y llena el gasto.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gráficas ingresos vs gastos</p><p className="text-sm text-[var(--dim)] mt-1">Por mes y por categoría.</p><button type="button" aria-label="Ir a Inicio para ver las gráficas" className={btnGhost+" mt-2"} onClick={()=>goTab("inicio")}>Ver gráficas</button></div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Tandas</p><p className="text-sm text-[var(--dim)] mt-1">Cree su tanda e invite por correo.</p><button type="button" aria-label="Ir a Tandas desde la guía" className={btnGhost+" mt-2"} onClick={()=>goTab("tandas")}>Ir a Tandas</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto y pulse Leer el comprobante: la app lee el total en su dispositivo y llena el gasto.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">Gráficas ingresos vs gastos</p><p className="text-sm text-[var(--dim)] mt-1">Por mes y por categoría.</p><button type="button" aria-label="Ir a Inicio para ver las gráficas" className={btnGhost+" mt-2"} onClick={()=>goTab("inicio")}>Ver gráficas</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">Tandas</p><p className="text-sm text-[var(--dim)] mt-1">Cree su tanda e invite por correo.</p><button type="button" aria-label="Ir a Tandas desde la guía" className={btnGhost+" mt-2"} onClick={()=>goTab("tandas")}>Ir a Tandas</button></div>
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-              <h2 className="font-display font-bold text-base">Guías por segmento</h2>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+              <h2 className="font-display font-bold text-lg">Guías por segmento</h2>
               <p className="text-sm text-[var(--dim)] mt-1">Una guía por segmento.</p>
               <div className="space-y-3 mt-3">
                 {MODULE_GROUPS.map(g=>(
@@ -2485,9 +2486,9 @@ export function App(){
         )}
 
 {effTab==="hogar" && (
-          <section className="max-w-2xl space-y-3">
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveHh.mutate();}}>
-              <h2 className="font-display font-bold text-base">Hogar y ajustes</h2>
+          <section className="max-w-2xl space-y-4 md:space-y-6">
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();saveHh.mutate();}}>
+              <h2 className="font-display font-bold text-lg">Hogar y ajustes</h2>
               <p className="text-sm text-[var(--dim)]">Cambie las reglas cuando quiera.</p>
               <div><Label htmlFor="edit-name">Nombre del hogar</Label><input id="edit-name" aria-label="Nombre del hogar editable" className={inputCls} defaultValue={hh.name} value={editName||undefined} placeholder={hh.name} onChange={e=>setEditName(e.target.value)} /></div>
               <div className="grid grid-cols-2 gap-2">
@@ -2504,13 +2505,13 @@ export function App(){
               <button className={btnPrimary} disabled={saveHh.isPending || !isAdmin} onClick={()=>{ if(!editName) setEditName(hh.name); }}>{saveHh.isPending?"Guardando…":"Guardar reglas"}</button>
               {saveHh.isSuccess && <p className="text-sm text-[var(--green)]">Reglas guardadas.</p>}
             </form>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
-              <h3 className="font-display font-bold">Miembros del hogar ({data.profiles.length})</h3>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+              <h3 className="font-display font-bold text-lg">Miembros del hogar ({data.profiles.length})</h3>
               {data.profiles.map(p=><p key={p.id} className="text-sm py-1.5 border-b border-[var(--border)] last:border-0">{fullName(p)} · {p.role==="admin"?"Administrador del hogar":"Integrante"} · {p.kind==="adult"?"Adulto":"Dependiente"}{p.email?` · ${p.email}`:""}</p>)}
               <p className="text-xs text-[var(--dim)] mt-2">Invite en Perfiles → Invitaciones.</p>
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
-              <h3 className="font-display font-bold">Seguridad de su información</h3>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+              <h3 className="font-display font-bold text-lg">Seguridad de su información</h3>
               <ul className="list-disc ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
                 <li>Contraseña de 12 caracteres; bloqueo 15 min tras 5 intentos.</li>
                 <li>Cada registro se valida en el servidor.</li>
@@ -2522,8 +2523,8 @@ export function App(){
                 <li><button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-3 py-2 text-sm font-bold" onClick={()=>{ void signOut().then(()=>window.location.reload()); }}>Cerrar sesión en este dispositivo</button></li>
               </ul>
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
-              <h3 className="font-display font-bold">Bloqueo con PIN en este dispositivo</h3>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+              <h3 className="font-display font-bold text-lg">Bloqueo con PIN en este dispositivo</h3>
               <p className="text-sm text-[var(--dim)] mt-1">Pide un PIN de 4 dígitos al reabrir la app en este dispositivo. Es un bloqueo local: no cifra sus datos y no impide entrar desde otro dispositivo con su cuenta.</p>
               {pinSetState ? (
                 <div className="mt-3 space-y-2">
@@ -2550,9 +2551,9 @@ export function App(){
               )}
               {pinMsg && <p className="text-sm text-[var(--green)] mt-2">{pinMsg}</p>}
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
               <button type="button" aria-expanded={activityOpen} aria-label={activityOpen?"Ocultar el registro de actividad reciente":"Ver el registro de actividad reciente"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setActivityOpen(v=>!v)}>
-                <span><span className="font-display font-bold">Registro de actividad reciente</span><span className="block text-xs text-[var(--dim)] mt-0.5">Últimas 30 · {data.activity.length} registrada{data.activity.length===1?"":"s"}</span></span>
+                <span><span className="font-display font-bold text-lg">Registro de actividad reciente</span><span className="block text-xs text-[var(--dim)] mt-0.5">Últimas 30 · {data.activity.length} registrada{data.activity.length===1?"":"s"}</span></span>
                 <span className="text-sm font-bold underline shrink-0">{activityOpen?"Ocultar":"Ver"}</span>
               </button>
               {activityOpen && (<>
@@ -2561,9 +2562,9 @@ export function App(){
               </div>}
               </>)}
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
               <button type="button" aria-expanded={quickGuideOpen} aria-label={quickGuideOpen?"Ocultar la guía rápida":"Ver la guía rápida"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setQuickGuideOpen(v=>!v)}>
-                <span className="font-display font-bold">Guía rápida</span>
+                <span className="font-display font-bold text-lg">Guía rápida</span>
                 <span className="text-sm font-bold underline shrink-0">{quickGuideOpen?"Ocultar":"Ver"}</span>
               </button>
               {quickGuideOpen && (
@@ -2576,9 +2577,9 @@ export function App(){
               </ol>
               )}
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
               <button type="button" aria-expanded={updatesOpen} aria-label={updatesOpen?"Ocultar las actualizaciones de la aplicación":"Ver las actualizaciones de la aplicación"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setUpdatesOpen(v=>!v)}>
-                <span><span className="font-display font-bold">Actualizaciones de la aplicación</span><span className="block text-xs text-[var(--dim)] mt-0.5">Versión: {APP_VERSION}</span></span>
+                <span><span className="font-display font-bold text-lg">Actualizaciones de la aplicación</span><span className="block text-xs text-[var(--dim)] mt-0.5">Versión: {APP_VERSION}</span></span>
                 <span className="text-sm font-bold underline shrink-0">{updatesOpen?"Ocultar":"Ver"}</span>
               </button>
               {updatesOpen && (<>
@@ -2590,7 +2591,7 @@ export function App(){
             <div className="pt-1">
               <button type="button" aria-label="Reiniciar la aplicación y borrar todos los datos" onClick={()=>{ setResetStep(1); setResetWord(""); }} className="text-xs text-[var(--dim)] underline">Reiniciar la aplicación</button>
               {resetStep>0 && (
-                <div className="mt-2 bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5 space-y-3" role="dialog" aria-label="Confirmación para reiniciar la aplicación">
+                <div className="mt-2 bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-3" role="dialog" aria-label="Confirmación para reiniciar la aplicación">
                   <p className="text-xs font-bold text-[var(--dim)]">Pregunta {resetStep} de 3</p>
                   {resetStep===1 && (
                     <>
@@ -2630,12 +2631,12 @@ export function App(){
           </section>
         )}
         {effTab==="desarrollador" && isAppOwner && (
-          <section className="max-w-2xl space-y-3">
-            <h2 className="font-display font-bold text-base">Desarrollador</h2>
+          <section className="max-w-2xl space-y-4 md:space-y-6">
+            <h2 className="font-display font-bold text-lg">Desarrollador</h2>
             <p className="text-sm text-[var(--dim)]">Herramientas del dueño de la app: opiniones de los testers y registro de usuarios.</p>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
               <button type="button" aria-expanded={devFeedbackOpen} aria-label={devFeedbackOpen?"Ocultar las opiniones de los testers":"Ver las opiniones de los testers"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setDevFeedbackOpen(v=>!v)}>
-                <span><span className="font-display font-bold">Opiniones de testers</span><span className="block text-xs text-[var(--dim)] mt-0.5">{fbQuery.data ? `${fbQuery.data.feedback.length} opinion${fbQuery.data.feedback.length===1?"":"es"}` : "Opiniones enviadas desde el formulario público."}</span></span>
+                <span><span className="font-display font-bold text-lg">Opiniones de testers</span><span className="block text-xs text-[var(--dim)] mt-0.5">{fbQuery.data ? `${fbQuery.data.feedback.length} opinion${fbQuery.data.feedback.length===1?"":"es"}` : "Opiniones enviadas desde el formulario público."}</span></span>
                 <span className="text-sm font-bold underline shrink-0">{devFeedbackOpen?"Ocultar":"Ver"}</span>
               </button>
               {devFeedbackOpen && (<>
@@ -2657,9 +2658,9 @@ export function App(){
                 </div>}
               </>)}
             </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3.5">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
               <button type="button" aria-expanded={devUsersOpen} aria-label={devUsersOpen?"Ocultar los usuarios de la app":"Ver los usuarios de la app"} className="w-full flex items-center justify-between gap-2 text-left" onClick={()=>setDevUsersOpen(v=>!v)}>
-                <span><span className="font-display font-bold">Usuarios de la app</span><span className="block text-xs text-[var(--dim)] mt-0.5">{appUsersQuery.data ? `${appUsersQuery.data.total} usuario${appUsersQuery.data.total===1?"":"s"} han entrado` : "Quiénes han entrado a la app."}</span></span>
+                <span><span className="font-display font-bold text-lg">Usuarios de la app</span><span className="block text-xs text-[var(--dim)] mt-0.5">{appUsersQuery.data ? `${appUsersQuery.data.total} usuario${appUsersQuery.data.total===1?"":"s"} han entrado` : "Quiénes han entrado a la app."}</span></span>
                 <span className="text-sm font-bold underline shrink-0">{devUsersOpen?"Ocultar":"Ver"}</span>
               </button>
               {devUsersOpen && (<>
@@ -2708,13 +2709,13 @@ export function App(){
             </div>
             <button type="button" aria-label="Cerrar el detalle de ingresos y gastos" onClick={()=>setIncExpDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
           </div>
-          <p className="font-display text-2xl font-extrabold mt-2">{incExpDetail.kind==="income"?"+":"−"}{money2(incExpBase.reduce((a,m)=>a+m.amount,0))}</p>
+          <p className="font-display text-2xl font-extrabold mt-2 whitespace-nowrap">{incExpDetail.kind==="income"?"+":"−"}{money2(incExpBase.reduce((a,m)=>a+m.amount,0))}</p>
           {incExpHiddenCount>0 && <p className="text-xs text-[var(--dim)] mt-1">No se muestran {incExpHiddenCount} movimiento(s) privado(s) de otros integrantes del hogar.</p>}
           <div className="mt-2">
             {incExpBase.length===0 && <p className="text-sm text-[var(--dim)]">{incExpDetail.kind==="income"?"Sin ingresos registrados este mes.":"Sin gastos registrados este mes."}</p>}
             {incExpByAcc.map(g=><div key={g.key} className="mt-3">
-              <div className="flex justify-between gap-2 text-sm"><span className="font-bold">{g.name}</span><b>{money2(g.total)}</b></div>
-              {g.movs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0">{incExpDetail.kind==="income"?"+":"−"}{money(m.amount)}</b></div>)}
+              <div className="flex justify-between gap-2 text-sm"><span className="font-bold">{g.name}</span><b className="whitespace-nowrap">{money2(g.total)}</b></div>
+              {g.movs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0 whitespace-nowrap">{incExpDetail.kind==="income"?"+":"−"}{money(m.amount)}</b></div>)}
             </div>)}
           </div>
           <div className="flex gap-2 mt-4">
@@ -2733,11 +2734,11 @@ export function App(){
             </div>
             <button type="button" aria-label="Cerrar los gastos del rubro" onClick={()=>setCatDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
           </div>
-          <p className="font-display text-2xl font-extrabold mt-2">−{money2(catDetail.total)}</p>
+          <p className="font-display text-2xl font-extrabold mt-2 whitespace-nowrap">−{money2(catDetail.total)}</p>
           {catDetailHiddenCount>0 && <p className="text-xs text-[var(--dim)] mt-1">No se muestran {catDetailHiddenCount} gasto(s) privado(s) de otros integrantes del hogar.</p>}
           <div className="mt-2">
             {catDetailBase.length===0 && <p className="text-sm text-[var(--dim)]">Sin gastos registrados en este rubro.</p>}
-            {catDetailMovs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0">−{money(m.amount)}</b></div>)}
+            {catDetailMovs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0 whitespace-nowrap">−{money(m.amount)}</b></div>)}
           </div>
           <div className="flex gap-2 mt-4">
             <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setCatDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
@@ -2760,17 +2761,17 @@ export function App(){
           <button type="button" aria-expanded={showBalanceBreakdown} onClick={()=>setShowBalanceBreakdown(v=>!v)} className="text-sm font-bold underline underline-offset-2 mt-1">Ver cómo se forma {showBalanceBreakdown?"‹":"›"}</button>
           {showBalanceBreakdown && (
             <div className="mt-2 text-sm space-y-1">
-              {s.openingBalance!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Saldo inicial</span><b>{money(s.openingBalance)}</b></div>}
-              {s.priorMonthsNet!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Meses anteriores</span><b>{money(s.priorMonthsNet)}</b></div>}
-              {s.monthNet!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Neto del mes</span><b>{money(s.monthNet)}</b></div>}
-              {s.fundsFromAccounts!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">{s.fundsFromAccounts>0?"Salidas a fondos":"Entradas desde fondos"}</span><b>{s.fundsFromAccounts>0?`−${money(s.fundsFromAccounts)}`:`+${money(-s.fundsFromAccounts)}`}</b></div>}
-              <div className="flex justify-between gap-2 border-t border-[var(--border)] pt-1"><span className="text-[var(--dim)]">Total</span><b>{money2(s.totalBalance)}</b></div>
+              {s.openingBalance!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Saldo inicial</span><b className="whitespace-nowrap">{money(s.openingBalance)}</b></div>}
+              {s.priorMonthsNet!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Meses anteriores</span><b className="whitespace-nowrap">{money(s.priorMonthsNet)}</b></div>}
+              {s.monthNet!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Neto del mes</span><b className="whitespace-nowrap">{money(s.monthNet)}</b></div>}
+              {s.fundsFromAccounts!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">{s.fundsFromAccounts>0?"Salidas a fondos":"Entradas desde fondos"}</span><b className="whitespace-nowrap">{s.fundsFromAccounts>0?`−${money(s.fundsFromAccounts)}`:`+${money(-s.fundsFromAccounts)}`}</b></div>}
+              <div className="flex justify-between gap-2 border-t border-[var(--border)] pt-1"><span className="text-[var(--dim)]">Total</span><b className="whitespace-nowrap">{money2(s.totalBalance)}</b></div>
             </div>
           )}
           <div className="grid grid-cols-3 gap-2 mt-3 text-center">
-            <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Entradas</p><p className="font-display font-bold">{money(s.monthIncome)}</p></div>
-            <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Salidas</p><p className="font-display font-bold">{money(s.monthExpense)}</p></div>
-            <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Neto</p><p className="font-display font-bold">{money(s.monthNet)}</p></div>
+            <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Entradas</p><p className="font-display font-bold text-lg">{money(s.monthIncome)}</p></div>
+            <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Salidas</p><p className="font-display font-bold text-lg">{money(s.monthExpense)}</p></div>
+            <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Neto</p><p className="font-display font-bold text-lg">{money(s.monthNet)}</p></div>
           </div>
           <div className="flex gap-2 mt-4">
             <button type="button" className={btnGhost+" flex-1"} onClick={()=>{setShowSummary(false); setShowBalanceBreakdown(false);}}>Cerrar</button>
@@ -2792,7 +2793,7 @@ export function App(){
             <button className={btnPrimary+" w-full"} disabled={pinBusy || pinInput.length!==4}>{pinBusy?"Comprobando…":"Desbloquear"}</button>
           </form>
           <button type="button" className="text-xs underline mt-4" onClick={async()=>{ pinRemove(); setPinSetState(false); setPinLocked(false); await signOut(); window.location.reload(); }}>Olvidé mi PIN · Cerrar sesión y quitar el PIN</button>
-          <p className="text-[11px] text-[var(--dim)] mt-4 text-center max-w-xs">Bloqueo local en este dispositivo: no cifra sus datos.</p>
+          <p className="text-xs text-[var(--dim)] mt-4 text-center max-w-xs">Bloqueo local en este dispositivo: no cifra sus datos.</p>
         </div>
       )}
     </div>
