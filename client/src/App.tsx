@@ -95,6 +95,10 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 }
 
 const DONUT_COLORS=["#C5962C","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
+// Gama propia de la dona de Inicio (propuesta Unslop): sin verde ni rojo,
+// que ya son los colores del flujo de dinero. Los seis primeros son los de
+// la propuesta; el resto son valores ya usados en el proyecto.
+const DONUT_PALETTE_INICIO=["#C5962C","#2E86AB","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#9C6B30","#3E7CB1"];
 type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
 // Símbolo de línea (SVG blanco, sin emojis) dentro de cada segmento de la
 // dona de gasto por categoría, por nombre de categoría. Reutiliza los
@@ -122,10 +126,12 @@ const CAT_DONUT_ICON_DEFAULT: ReactNode = (<><path d="M20.59 13.41l-7.17 7.17a2 
 // su segmento. Los símbolos son discretos (cerca de la mitad del grosor del
 // anillo) y se achican más en los rubros pequeños para no invadir a los
 // vecinos.
-function renderDonutIcon(p: any){
+function renderDonutIcon(p: any, minPct = 0){
   const datum = (p.payload ?? {}) as Partial<CatSlice>;
   const name = datum.name ?? p.name ?? "";
   const pct = typeof datum.pct === "number" ? datum.pct : (typeof p.percent === "number" ? p.percent * 100 : 0);
+  // En Inicio los símbolos solo van en segmentos grandes (≥10%).
+  if (pct < minPct) return null;
   const size = pct >= 10 ? 10 : pct >= 5 ? 8 : 6;
   const RADIAN = Math.PI / 180;
   const radius = (Number(p.innerRadius) + Number(p.outerRadius)) / 2;
@@ -148,7 +154,14 @@ function renderDonutIcon(p: any){
 // (isAnimationActive={false}): Recharts reinicia la animación cada vez que
 // cambia la selección y mientras corre esconde las etiquetas, por eso el
 // símbolo del rubro desaparecía al tocar un segmento.
-function CategoryChart({data, onSelect, detailOpen}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void; detailOpen:boolean}){
+// Variantes de Inicio (propuesta Unslop, solo esa instancia; Personal
+// conserva el comportamiento anterior): palette con gama propia sin verde
+// ni rojo, large (dona de 220 px en móvil y 240 px en escritorio, centro
+// en 24 px), reserveLine (la línea del rubro tiene altura reservada y no
+// hay texto de ayuda, para que la tarjeta no cambie de alto) y minIconPct
+// (símbolos solo en segmentos grandes).
+function CategoryChart({data, onSelect, detailOpen, palette, large, reserveLine, minIconPct}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void; detailOpen:boolean; palette?:string[]; large?:boolean; reserveLine?:boolean; minIconPct?:number}){
+  const colors = palette ?? DONUT_COLORS;
   const [selName, setSelName] = useState<string|null>(null);
   // Al cerrar la ventana de detalle, la dona vuelve completa.
   useEffect(()=>{ if(!detailOpen) setSelName(null); },[detailOpen]);
@@ -164,23 +177,32 @@ function CategoryChart({data, onSelect, detailOpen}:{data:CatSlice[]; onSelect:(
     setSelName(d.name); onSelect(d);
   };
   return <div className="mt-2">
-    <div className="relative mx-auto w-44 h-44" role="img" aria-label="Gráfica de gasto por categoría.">
+    <div className={`relative mx-auto ${large ? "w-[220px] h-[220px] md:w-60 md:h-60" : "w-44 h-44"}`} role="img" aria-label="Gráfica de gasto por categoría.">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" isAnimationActive={false} onClick={(d)=>{ handleSelect(d as unknown as CatSlice); }} style={{cursor:"pointer"}} label={renderDonutIcon} labelLine={false} activeIndex={activeIdx < 0 ? undefined : activeIdx} activeShape={(props: any)=><Sector {...props} outerRadius={Number(props.outerRadius) + 6} />}>
-            {data.map((d,i)=><Cell key={d.name} fill={DONUT_COLORS[i%DONUT_COLORS.length]} fillOpacity={sel && d.name!==sel.name ? 0.4 : 1} />)}
+          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="none" isAnimationActive={false} onClick={(d)=>{ handleSelect(d as unknown as CatSlice); }} style={{cursor:"pointer"}} label={(p:any)=>renderDonutIcon(p, minIconPct ?? 0)} labelLine={false} activeIndex={activeIdx < 0 ? undefined : activeIdx} activeShape={(props: any)=><Sector {...props} outerRadius={Number(props.outerRadius) + 6} />}>
+            {data.map((d,i)=><Cell key={d.name} fill={colors[i%colors.length]} fillOpacity={sel && d.name!==sel.name ? 0.4 : 1} />)}
           </Pie>
         </PieChart>
       </ResponsiveContainer>
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <span className="text-xs text-[var(--dim)]">Total</span>
-        <b className="font-display text-lg leading-tight">{money2(total)}</b>
+        <span className="text-xs text-[var(--dim)]">{large ? "Total del mes" : "Total"}</span>
+        <b className={`font-display leading-tight ${large ? "text-2xl" : "text-lg"}`}>{money2(total)}</b>
       </div>
     </div>
-    {sel ? (
+    {reserveLine ? (
+      <div className="mt-2 flex h-[30px] items-center justify-center" aria-live="polite">
+        {sel && (
+          <span className="inline-flex items-center gap-2 rounded-full bg-[var(--surface2)] border border-[var(--border)] px-3 py-1 text-sm">
+            <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{background:colors[data.indexOf(sel)%colors.length]}} aria-hidden="true" />
+            <span>{sel.name} · {money2(sel.total)} · {sel.pct}%</span>
+          </span>
+        )}
+      </div>
+    ) : sel ? (
       <div className="mt-2 flex justify-center" aria-live="polite">
         <span className="inline-flex items-center gap-2 rounded-full bg-[var(--surface2)] border border-[var(--border)] px-3 py-1 text-sm">
-          <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{background:DONUT_COLORS[data.indexOf(sel)%DONUT_COLORS.length]}} aria-hidden="true" />
+          <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{background:colors[data.indexOf(sel)%colors.length]}} aria-hidden="true" />
           <span>{sel.name} · {money2(sel.total)} · {sel.pct}%</span>
         </span>
       </div>
@@ -189,20 +211,29 @@ function CategoryChart({data, onSelect, detailOpen}:{data:CatSlice[]; onSelect:(
     )}
   </div>;
 }
-function MonthlyChart({series,currentMonth,onSelect}:{series:{month:string;label:string;income:number;expense:number}[];currentMonth:string;onSelect:(kind:"income"|"expense",month:string,label:string)=>void}){
+// Variante de Inicio (propuesta Unslop, solo esa instancia; Personal
+// conserva el comportamiento anterior): leyenda como texto con punto de
+// color (las barras siguen siendo táctiles), meses sin datos atenuados al
+// 40%, mes actual con etiqueta «nov · actual» y eje ajustado al máximo real.
+function MonthlyChart({series,currentMonth,onSelect,inicio}:{series:{month:string;label:string;income:number;expense:number}[];currentMonth:string;onSelect:(kind:"income"|"expense",month:string,label:string)=>void;inicio?:boolean}){
   const data=series.map(x=>({label:x.label, month:x.month, Ingresos:x.income, Gastos:x.expense}));
   const curMonth=data.find(d=>d.month===currentMonth) ?? data[data.length-1];
   const allZero=data.every(d=>d.Ingresos===0&&d.Gastos===0);
+  const isEmptyMonth=(d:{Ingresos:number;Gastos:number})=>d.Ingresos===0&&d.Gastos===0;
   if(allZero) return <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>;
-  return <div className="mt-2" role="img" aria-label="Gráfica de ingresos contra gastos por mes. Toque una barra de Ingresos o de Gastos para ver el detalle por cuenta.">
+  return <div className="mt-2" role="img" aria-label={inicio?"Gráfica de ingresos contra gastos por mes.":"Gráfica de ingresos contra gastos por mes. Toque una barra de Ingresos o de Gastos para ver el detalle por cuenta."}>
     <ResponsiveContainer width="100%" height={170}>
       <BarChart data={data} margin={{left:0,right:8,top:10,bottom:4}} barCategoryGap="30%" barGap={6}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-        <XAxis dataKey="label" tick={{fontSize:12, fill:"var(--text)"}} axisLine={{stroke:"var(--border)"}} tickLine={false} />
-        <YAxis tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize:11, fill:"var(--dim)"}} width={56} axisLine={false} tickLine={false} />
-        <Legend content={()=>(<div className="flex justify-center gap-4 text-xs mt-1"><button type="button" aria-label={`Ver de dónde vienen los ingresos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("income",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1B7A4D]" />Ingresos</button><button type="button" aria-label={`Ver de dónde salieron los gastos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("expense",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#B42318]" />Gastos</button></div>)} />
-        <Bar dataKey="Ingresos" fill="#1B7A4D" radius={[6,6,0,0]} maxBarSize={26} style={{cursor:"pointer"}} onClick={(d:any)=>{ const p=d?.payload ?? d; if(p?.month) onSelect("income",p.month,p.label); }} />
-        <Bar dataKey="Gastos" fill="#B42318" radius={[6,6,0,0]} maxBarSize={26} style={{cursor:"pointer"}} onClick={(d:any)=>{ const p=d?.payload ?? d; if(p?.month) onSelect("expense",p.month,p.label); }} />
+        <XAxis dataKey="label" tick={{fontSize:12, fill:"var(--text)"}} tickFormatter={(v:string)=> inicio && curMonth && v===curMonth.label ? `${v} · actual` : v} axisLine={{stroke:"var(--border)"}} tickLine={false} />
+        <YAxis domain={inicio ? [0, "dataMax"] : undefined} tickFormatter={(v:number)=>`$${v.toLocaleString("es-MX")}`} tick={{fontSize: inicio?12:11, fill:"var(--dim)"}} width={56} axisLine={false} tickLine={false} />
+        <Legend content={()=> inicio ? (<div className="flex justify-center gap-4 text-xs mt-1"><span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1B7A4D]" />Ingresos</span><span className="inline-flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#B42318]" />Gastos</span></div>) : (<div className="flex justify-center gap-4 text-xs mt-1"><button type="button" aria-label={`Ver de dónde vienen los ingresos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("income",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#1B7A4D]" />Ingresos</button><button type="button" aria-label={`Ver de dónde salieron los gastos de ${curMonth?curMonth.label:"el mes"}`} className="inline-flex items-center gap-1 underline" onClick={()=>{ if(curMonth) onSelect("expense",curMonth.month,curMonth.label); }}><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#B42318]" />Gastos</button></div>)} />
+        <Bar dataKey="Ingresos" fill="#1B7A4D" radius={[6,6,0,0]} maxBarSize={26} style={{cursor:"pointer"}} onClick={(d:any)=>{ const p=d?.payload ?? d; if(p?.month) onSelect("income",p.month,p.label); }}>
+          {inicio && data.map((d,i)=><Cell key={i} fill="#1B7A4D" fillOpacity={isEmptyMonth(d)?0.4:1} />)}
+        </Bar>
+        <Bar dataKey="Gastos" fill="#B42318" radius={[6,6,0,0]} maxBarSize={26} style={{cursor:"pointer"}} onClick={(d:any)=>{ const p=d?.payload ?? d; if(p?.month) onSelect("expense",p.month,p.label); }}>
+          {inicio && data.map((d,i)=><Cell key={i} fill="#B42318" fillOpacity={isEmptyMonth(d)?0.4:1} />)}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   </div>;
@@ -439,7 +470,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["sobrante", "sobr", "gasto menos", "gasto menos de lo planeado"], q: "¿Qué pasa con el sobrante de una categoría?", a: "Si un mes gastó menos de lo planeado en una categoría, la app le propone mover ese sobrante al fondo de su meta para llegar antes. También le avisa antes con la campanita y nada se mueve sin que usted lo acepte en Metas.", go: "metas", goLabel: "Ir a Metas" },
   { keys: ["acuerdo", "vot", "aprobaci", "aprueb", "gasto mayor", "gast"], q: "¿Cómo se aprueba un gasto mayor?", a: "En Acuerdos se votan los gastos mayores al umbral de su hogar.", go: "acuerdos", goLabel: "Ir a Acuerdos" },
   { keys: ["patrimonio", "activo", "pasivo", "neto", "mi patrimonio"], q: "¿Cómo registro mi patrimonio?", a: "En Patrimonio registre sus activos y pasivos para ver su patrimonio neto.", go: "patrimonio", goLabel: "Ir a Patrimonio" },
-  { keys: ["demo", "demostraci", "ejemplo", "probar"], q: "¿Cómo pruebo con datos de ejemplo?", a: "Pulse Demo, arriba a la derecha, para cargar datos de ejemplo. Solo funciona sin movimientos." },
+  { keys: ["demo", "demostraci", "ejemplo", "probar"], q: "¿Cómo pruebo con datos de ejemplo?", a: "En la Guía de uso, pulse «Cargar demo». Solo funciona sin movimientos." },
   { keys: ["aportaci", "reparto", "compartido"], q: "¿Dónde veo las aportaciones?", a: "Las aportaciones se calculan solas desde Movimientos y se ven en Aportaciones.", go: "aportaciones", goLabel: "Ir a Aportaciones" },
 ];
 function normHelp(s: string){ return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
@@ -489,8 +520,16 @@ function predictHelp(input: string, max = 5): HelpFaq[] {
   }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
   return scored.slice(0, max).map(s => s.f);
 }
-function HelpAssistant({ onGo }: { onGo?: (tab: Tab) => void }) {
-  const [open, setOpen] = useState(false);
+// Ayudante de uso. Sin `open`/`onOpenChange` se maneja solo y muestra el
+// botón flotante (así lo usa el asistente de creación de espacio). Con
+// `open`/`onOpenChange` lo controla la app: el botón pasa a ser un control
+// pequeño en el encabezado y una entrada en el cajón (propuesta Unslop:
+// el flotante dorado tapaba contenido y su «?» blanco sobre dorado no
+// pasaba contraste AA).
+function HelpAssistant({ onGo, open: controlledOpen, onOpenChange }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void }) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Bienvenido al Ayudante de uso. Escriba cualquier duda sobre la app y le ayudaré." }]);
   const suggestions = useMemo(()=>predictHelp(input), [input]);
@@ -505,7 +544,9 @@ function HelpAssistant({ onGo }: { onGo?: (tab: Tab) => void }) {
   };
   return (
     <>
-      <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full bg-[var(--gold)] text-white font-display font-extrabold text-2xl shadow-lg flex items-center justify-center">?</button>
+      {controlledOpen === undefined && (
+        <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full bg-[var(--gold)] text-white font-display font-extrabold text-2xl shadow-lg flex items-center justify-center">?</button>
+      )}
       {open && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Ayudante de uso" onClick={()=>setOpen(false)}>
           <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[82vh] flex flex-col overflow-hidden" onClick={e=>e.stopPropagation()}>
@@ -516,7 +557,7 @@ function HelpAssistant({ onGo }: { onGo?: (tab: Tab) => void }) {
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {msgs.map((m,i)=>(
                 <div key={i} className={`flex ${m.from==="user"?"justify-end":"justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.from==="user"?"bg-[var(--gold)] text-white":"bg-[var(--surface2)]"}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.from==="user"?"bg-[var(--accent)] text-[var(--accent-text)]":"bg-[var(--surface2)]"}`}>
                     <p>{m.text}</p>
                     {m.from==="bot" && m.go && onGo && <button type="button" className={btnGhost+" mt-2"} onClick={()=>{ setOpen(false); onGo(m.go!); }}>{m.goLabel || "Ir"}</button>}
                   </div>
@@ -888,6 +929,7 @@ export function App(){
   const [catDetail,setCatDetail]=useState<{categoryId:number|null;name:string;total:number;month:string}|null>(null);
   const [showBalanceBreakdown,setShowBalanceBreakdown]=useState(false);
   const [showSummary,setShowSummary]=useState(false);
+  const [helpOpen,setHelpOpen]=useState(false);
   const [showHomeMovs,setShowHomeMovs]=useState(false);
   const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
@@ -1379,8 +1421,10 @@ export function App(){
   const catDetailBase = catDetail ? data.movements.filter(m=> (m.categoryId??null)===catDetail.categoryId && m.date.startsWith(catDetail.month) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && m.reversalOfId==null).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
   const catDetailMovs = catDetailBase.filter(canSeeMov);
   const catDetailHiddenCount = catDetailBase.length - catDetailMovs.length;
-  // Texto de la banda movible del resumen: la banda lo repite dos veces para un ciclo continuo sin cortes.
-  const bannerText = `Disponible ${money(s.availableFree)} · Entradas ${money(s.monthIncome)} · Salidas ${money(s.monthExpense)} · Neto ${money(s.monthNet)} · `;
+  // Variación del neto contra el mes anterior, calculada de monthlySeries
+  // (datos reales, nunca inventada). Si no hay mes anterior en la serie,
+  // no se muestra la línea.
+  const netVar = (()=>{ const idx=s.monthlySeries.findIndex(x=>x.month===s.currentMonth); if(idx<=0) return null; const cur=s.monthlySeries[idx]; const prev=s.monthlySeries[idx-1]; if(!cur||!prev) return null; const diff=(cur.income-cur.expense)-(prev.income-prev.expense); const prevName=fmtMonth(prev.month).replace(/\s+(de\s+)?\d{4}$/,""); return {diff, prevName}; })();
   const getCatName=(id:number|null)=>data.categories.find(c=>c.id===id)?.name||"—";
   const getAccName=(id:number|null)=>data.accounts.find(a=>a.id===id)?.name||"Efectivo";
   const incExpByAcc: {key:string;name:string;total:number;movs:typeof incExpMovs}[] = (()=>{ const groups=new Map<string,{name:string;total:number;movs:typeof incExpMovs}>(); for(const m of incExpMovs){ const key=m.accountId==null?"efectivo":`cta-${m.accountId}`; const g=groups.get(key) ?? {name:getAccName(m.accountId),total:0,movs:[]}; g.total+=m.amount; g.movs.push(m); groups.set(key,g); } return [...groups.entries()].map(([key,g])=>({key,...g})).sort((a,b)=>b.total-a.total); })();
@@ -1419,16 +1463,27 @@ export function App(){
             </div>
           ))}
         </nav>
+        <div className="px-3 pb-4 pt-2 border-t border-[var(--border)]">
+          <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>{ setMenuOpen(false); setHelpOpen(true); }} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold">
+            <span aria-hidden="true" className="w-6 h-6 rounded-full border border-[var(--border)] flex items-center justify-center text-sm font-bold shrink-0">?</span>
+            <span className="flex-1">Ayudante de uso</span>
+          </button>
+        </div>
       </div>
       {/* Header */}
       <header className={`sticky top-0 ${menuOpen?"z-40":"z-20"} bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)] pt-safe`}>
-        <div className="max-w-5xl mx-auto px-3 pt-3 pb-2">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-x-2 gap-y-1 text-[17px] sm:text-xl"><span className="min-w-0">{hh.name}</span><span className="shrink-0 text-[11px] bg-[var(--gold)] text-white rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
-              <p className="text-[11px] text-[var(--dim)] mt-1.5">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}{me?` · ${fullName(me)} · ${me.role==="admin"?"Administrador":"Integrante"}`:""}</p>
+        <div className="max-w-5xl mx-auto px-3 py-3">
+          <div className="flex items-center gap-3">
+            <button type="button" aria-label={menuOpen?"Cerrar menú de módulos":"Abrir menú de módulos"} aria-expanded={menuOpen} aria-controls="menu-modulos" onClick={()=>setMenuOpen(o=>!o)} className="shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex flex-col items-center justify-center gap-[5px]">
+              <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"translate-y-[7.5px] rotate-45":""}`} />
+              <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-opacity ${menuOpen?"opacity-0":""}`} />
+              <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"-translate-y-[7.5px] -rotate-45":""}`} />
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-x-2 gap-y-1 text-[17px] sm:text-xl"><span className="min-w-0 truncate">{hh.name}</span><span className="shrink-0 text-[11px] bg-[#E8B84A] text-[#13262E] rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
+              <p className="text-xs text-[var(--dim)] mt-1">Corte día {hh.cutoffDay} · Umbral {money(hh.approvalThreshold)}</p>
             </div>
-            <div className="flex gap-2 shrink-0 pt-0.5">
+            <div className="flex gap-2 shrink-0">
               <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={darkMode?"Cambiar a modo claro":"Cambiar a modo oscuro"} title={darkMode?"Modo claro":"Modo oscuro"} onClick={toggleTheme}>
                 {darkMode ? (
                   <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
@@ -1440,29 +1495,11 @@ export function App(){
                 <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
                 {bellCount>0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-[var(--red)] text-white text-[11px] font-bold flex items-center justify-center">{bellCount>99?"99+":bellCount}</span>}
               </button>
+              <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setHelpOpen(true)} className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-lg font-bold">?</button>
               {!appInstalled && <button type="button" className={btnGhost + " max-sm:px-2.5 max-sm:text-xs"} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
-              <button className={btnGhost + " max-sm:px-2.5 max-sm:text-xs"} aria-label="Ver con datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>Demo</button>
             </div>
           </div>
         </div>
-        <div className="max-w-5xl mx-auto px-3 pt-2 pb-3 flex items-center gap-3 border-t border-[var(--border)]">
-          <button type="button" aria-label={menuOpen?"Cerrar menú de módulos":"Abrir menú de módulos"} aria-expanded={menuOpen} aria-controls="menu-modulos" onClick={()=>setMenuOpen(o=>!o)} className="shrink-0 w-10 h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex flex-col items-center justify-center gap-[5px]">
-            <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"translate-y-[7.5px] rotate-45":""}`} />
-            <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-opacity ${menuOpen?"opacity-0":""}`} />
-            <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"-translate-y-[7.5px] -rotate-45":""}`} />
-          </button>
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">MÓDULO ACTUAL</p>
-            <p className="font-display font-bold leading-tight truncate">{TABS.find(t=>t.id===effTab)?.label}</p>
-          </div>
-          <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{setMenuOpen(false);goTab("inicio"); window.scrollTo({top:0,behavior:"smooth"});}} className={`ml-auto shrink-0 h-10 rounded-full px-3.5 flex items-center gap-1.5 text-sm font-bold border ${effTab==="inicio"?"bg-[var(--accent)] text-[var(--accent-text)] border-transparent":"bg-[var(--surface)] border-[var(--border)]"}`}>
-            <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-            Inicio
-          </button>
-          <p className="text-xs text-[var(--dim)] hidden sm:block">Toque el menú para ver los módulos</p>
-        </div>
-        {demo.error && <p className="max-w-5xl mx-auto px-3 pb-2 text-xs text-[var(--red)]">{String(demo.error)}</p>}
-        {demo.isSuccess && <p className="max-w-5xl mx-auto px-3 pb-2 text-xs text-[var(--green)]">Demo cargada: datos con “(demo)”.</p>}
         {notifOpen && (
           <div className="absolute right-3 top-full mt-1 z-40 w-[min(22rem,calc(100vw-1.5rem))] max-h-[70vh] overflow-y-auto bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-xl p-3" role="dialog" aria-label="Notificaciones">
             <div className="flex items-center justify-between gap-2">
@@ -1499,7 +1536,7 @@ export function App(){
       <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
         {updateAvailable && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 flex items-center gap-2" role="status"><p className="text-sm flex-1"><b>Hay una nueva versión de SyncFinanzas.</b> Su cuenta y sus datos no cambian.</p><button type="button" className={btnPrimary} disabled={updateApplying} onClick={()=>{ setUpdateApplying(true); applyAppUpdate(); }}>{updateApplying?"Actualizando…":"Actualizar"}</button><button type="button" aria-label="Cerrar el aviso de actualización" onClick={()=>setUpdateAvailable(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-3 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
-        {savedNotice && <div ref={savedNoticeRef} className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 flex flex-wrap items-center gap-2" role="status"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--green)] text-white font-bold flex items-center justify-center text-sm">✓</span><p className="text-sm font-bold flex-1 min-w-40">{savedNotice}</p><button type="button" aria-label="Ir a Inicio" className="w-full sm:w-auto rounded-full bg-[var(--gold)] text-white font-bold px-6 py-3 text-base flex items-center justify-center gap-2 shrink-0" onClick={()=>{setSavedNotice(null);goTab("inicio");}}>↑ Ir a Inicio</button><button type="button" aria-label="Cerrar el aviso" onClick={()=>setSavedNotice(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
+        {savedNotice && <div ref={savedNoticeRef} className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 flex flex-wrap items-center gap-2" role="status"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--green)] text-white font-bold flex items-center justify-center text-sm">✓</span><p className="text-sm font-bold flex-1 min-w-40">{savedNotice}</p><button type="button" aria-label="Ir a Inicio" className="w-full sm:w-auto rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-6 py-3 text-base flex items-center justify-center gap-2 shrink-0" onClick={()=>{setSavedNotice(null);goTab("inicio");}}>↑ Ir a Inicio</button><button type="button" aria-label="Cerrar el aviso" onClick={()=>setSavedNotice(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
           <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-3 sm:p-3.5" role="status">
             <div className="flex items-start justify-between gap-2">
@@ -1510,9 +1547,9 @@ export function App(){
               <button type="button" aria-label="Cerrar la guía de inicio" onClick={dismissFirstGuide} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
             </div>
             <ol className="mt-3 space-y-2">
-              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep1?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep1?"✓":"1"}</span><div className="flex-1"><p className="text-sm font-bold">{hh.mode==="personal"?"Registre su sueldo":"Abra su cuenta inicial"}</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Escriba su sueldo en Personal.":"Pulse Nueva cuenta en Cuentas."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"cuentas")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Cuentas"}</button></li>
-              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep2?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep2?"✓":"2"}</span><div className="flex-1"><p className="text-sm font-bold">Registre su primer gasto</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Registre su gasto del día en Personal.":"Escriba el importe en Movimientos."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>{ if(hh.mode==="personal"){ setPersStep(1); goToForm("personal","pers-amt"); } else { openNewMovement("expense"); } }}>{hh.mode==="personal"?"Ir a Personal":"Ir a Movimientos"}</button></li>
-              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep3?"bg-[var(--green)]":"bg-[var(--gold)]"} text-white font-bold flex items-center justify-center text-sm`}>{guideStep3?"✓":"3"}</span><div className="flex-1"><p className="text-sm font-bold">Revise sus gráficas</p><p className="text-sm text-[var(--dim)]">Vea su gasto por categoría en Inicio.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("inicio")}>Ir a Inicio</button></li>
+              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep1?"bg-[var(--green)] text-white":"bg-[#E8B84A] text-[#13262E]"} font-bold flex items-center justify-center text-sm`}>{guideStep1?"✓":"1"}</span><div className="flex-1"><p className="text-sm font-bold">{hh.mode==="personal"?"Registre su sueldo":"Abra su cuenta inicial"}</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Escriba su sueldo en Personal.":"Pulse Nueva cuenta en Cuentas."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"cuentas")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Cuentas"}</button></li>
+              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep2?"bg-[var(--green)] text-white":"bg-[#E8B84A] text-[#13262E]"} font-bold flex items-center justify-center text-sm`}>{guideStep2?"✓":"2"}</span><div className="flex-1"><p className="text-sm font-bold">Registre su primer gasto</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Registre su gasto del día en Personal.":"Escriba el importe en Movimientos."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>{ if(hh.mode==="personal"){ setPersStep(1); goToForm("personal","pers-amt"); } else { openNewMovement("expense"); } }}>{hh.mode==="personal"?"Ir a Personal":"Ir a Movimientos"}</button></li>
+              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep3?"bg-[var(--green)] text-white":"bg-[#E8B84A] text-[#13262E]"} font-bold flex items-center justify-center text-sm`}>{guideStep3?"✓":"3"}</span><div className="flex-1"><p className="text-sm font-bold">Revise sus gráficas</p><p className="text-sm text-[var(--dim)]">Vea su gasto por categoría en Inicio.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("inicio")}>Ir a Inicio</button></li>
             </ol>
             <button type="button" className={btnPrimary+" mt-3"} onClick={dismissFirstGuide}>Entendido</button>
           </div>
@@ -1520,65 +1557,69 @@ export function App(){
         {!appInstalled && !installDismissed && <div className="mb-3"><InstallCard installed={appInstalled} onInstall={handleInstallClick} onDismiss={dismissInstall} /></div>}
         {effTab==="inicio" && (
           <section>
-            {/* Banda movible del resumen del mes (opción 1): franja dorada
-                delgada con los importes pasando en ciclo continuo. Al
-                tocarla se abre la ventana con la tarjeta completa del
-                resumen. La banda se ve igual en modo claro y oscuro
-                (dorado fijo, texto oscuro fijo). */}
-            <button type="button" aria-label="Ver el resumen completo del mes" onClick={()=>setShowSummary(true)} className="block w-full overflow-hidden rounded-full bg-[#E8B84A] text-[#13262E] py-2 text-sm font-bold">
-              <span className="sf-banner-track">
-                <span>{bannerText}</span>
-                <span className="sf-banner-dup" aria-hidden="true">{bannerText}</span>
+            {/* Tarjeta principal quieta (propuesta Unslop): Disponible en
+                36 px, flujo del mes y variación contra el mes anterior,
+                calculada de monthlySeries. Al tocarla se abre la ventana
+                «Resumen del mes», como antes hacía la banda. */}
+            <button type="button" aria-label="Ver el resumen completo del mes" onClick={()=>setShowSummary(true)} className="relative block w-full overflow-hidden text-left bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
+              <span aria-hidden="true" className="absolute left-0 right-0 top-0 h-[3px] bg-[var(--gold)]" />
+              <span className="block text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]">Disponible · {fmtMonth(s.currentMonth).toUpperCase()}</span>
+              <span className="block font-display text-4xl font-extrabold leading-tight mt-1">{money2(s.availableFree)}</span>
+              <span className="block text-sm text-[var(--dim)] mt-1">Total {money2(s.totalBalance)} − fondos apartados {money2(s.fundsReserved)}.</span>
+              <span className="mt-4 grid grid-cols-3 gap-2 text-center">
+                <span className="block"><span className="block text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]">Entradas</span><span className="block font-display text-base font-bold text-[var(--green)]">{money(s.monthIncome)}</span></span>
+                <span className="block"><span className="block text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]">Salidas</span><span className="block font-display text-base font-bold text-[var(--red)]">{money(s.monthExpense)}</span></span>
+                <span className="block"><span className="block text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]">Neto</span><span className="block font-display text-base font-bold">{money(s.monthNet)}</span></span>
               </span>
+              {netVar && <span className="block text-[13px] text-[var(--dim)] mt-3">{netVar.diff>0?`Neto ${money(netVar.diff)} más que en ${netVar.prevName}`:netVar.diff<0?`Neto ${money(-netVar.diff)} menos que en ${netVar.prevName}`:`Neto igual que en ${netVar.prevName}`}</span>}
             </button>
 
             {data.movements.length>0 && (
-            <div className="grid md:grid-cols-2 gap-3 mt-3">
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-                <h2 className="font-display font-bold">Gasto por categoría · {s.currentMonth}</h2>
-                                <CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
+            <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                <h2 className="font-display font-bold text-lg">Gasto por categoría · {fmtMonth(s.currentMonth)}</h2>
+                                <CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={10} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} />
               </div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-                <h2 className="font-display font-bold">Ingresos vs gastos</h2>
-                <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
-                <p className="text-xs text-[var(--dim)]">Últimos 6 meses. Toque una barra de Ingresos o de Gastos para ver el detalle por cuenta.</p>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                <h2 className="font-display font-bold text-lg">Ingresos vs gastos · últimos 6 meses</h2>
+                <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} inicio onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
               </div>
             </div>
             )}
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 mt-3">
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-4 md:mt-6">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="font-display font-bold">Movimientos</h2>
-                {data.movements.length>0 && <button type="button" aria-expanded={showHomeMovs} aria-label={showHomeMovs?"Ocultar la lista de movimientos":"Ver la lista de movimientos"} className="text-sm font-bold underline shrink-0" onClick={()=>setShowHomeMovs(v=>!v)}>{showHomeMovs?"Ocultar movimientos":"Ver movimientos"}</button>}
+                <h2 className="font-display font-bold text-lg">Movimientos · {fmtMonth(s.currentMonth)}</h2>
+                {data.movements.length>0 && <button type="button" aria-expanded={showHomeMovs} aria-label={showHomeMovs?"Ocultar la lista de movimientos":"Ver la lista de movimientos"} className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-[13px] font-semibold" onClick={()=>setShowHomeMovs(v=>!v)}>{showHomeMovs?"Ocultar movimientos":"Ver movimientos"}</button>}
               </div>
               {data.movements.length===0 ? (
                 <><p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p><div className="flex gap-2 mt-3">
-                    <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
+                    <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
                     <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
                   </div></>
               ) : (
                 <>
-                  {showHomeMovs && visibleMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
+                  {showHomeMovs && visibleMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-[13px]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`text-base ${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
                   <div className="flex gap-2 mt-3">
-                    <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
+                    <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
                     <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
                   </div>
                 </>
               )}
             </div>
-            <div className="grid md:grid-cols-2 gap-3 mt-3">
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-                <h2 className="font-display font-bold">Presupuestos</h2>
+            <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                <h2 className="font-display font-bold text-lg">Presupuestos</h2>
                 {data.budgets.filter(b=>b.month===s.currentMonth).length===0 ? <><p className="text-sm text-[var(--dim)] mt-2">Sin presupuestos este mes.</p><button type="button" aria-label="Agregar presupuesto" className={btnPrimary+" mt-2"} onClick={()=>goToForm("presupuestos","bud-amount")}>+ Agregar presupuesto</button></> : data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
-                  <div key={b.id} className="mt-3"><button type="button" aria-label={`Pagar del presupuesto de ${getCatName(b.categoryId)}`} className="w-full text-left" onClick={()=>{setQuickBud(quickBud===b.id?null:b.id);setQuickBudAmt("");setQuickBudAcc("");}}><div className="flex justify-between text-sm"><span>{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><b>{money(b.spent)} / {money(b.amount)}</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--gold)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-xs font-bold text-[var(--red)]">Sobrepasado por {money(-b.remaining)} · {b.pct}% usado</p>:<p className="text-xs text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado · Toque para pagar</p>}</button>{quickBud===b.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickBudAmt||Number(quickBudAmt)<=0) return; payBudget.mutate({categoryId:b.categoryId,categoryName:getCatName(b.categoryId),visibility:b.visibility,amount:Number(quickBudAmt),accountId:quickBudAcc?Number(quickBudAcc):null});}}><p className="font-display font-bold text-sm">Pagar · {getCatName(b.categoryId)}</p><div><Label htmlFor={`qb-amt-${b.id}`}>Importe ($)</Label><input id={`qb-amt-${b.id}`} autoFocus aria-label={`Importe a pagar del presupuesto de ${getCatName(b.categoryId)}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickBudAmt} onChange={e=>setQuickBudAmt(e.target.value)} /></div><div><Label htmlFor={`qb-acc-${b.id}`}>¿De dónde se descuenta?</Label><select id={`qb-acc-${b.id}`} aria-label="Cuenta de donde se descuenta el pago del presupuesto" className={inputCls} value={quickBudAcc} onChange={e=>setQuickBudAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{payBudget.error && <p className="text-sm text-[var(--red)]">{String(payBudget.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={payBudget.isPending||!quickBudAmt}>{payBudget.isPending?"Guardando…":"Guardar pago"}</button><button type="button" className={btnGhost} onClick={()=>setQuickBud(null)}>Cancelar</button></div></form>)}
+                  <div key={b.id} className="mt-3"><button type="button" aria-label={`Pagar del presupuesto de ${getCatName(b.categoryId)}`} className="w-full text-left" onClick={()=>{setQuickBud(quickBud===b.id?null:b.id);setQuickBudAmt("");setQuickBudAcc("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><span className="flex items-center gap-1 shrink-0"><b className="text-base">{money(b.spent)} / {money(b.amount)}</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--accent)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-[13px] font-bold text-[var(--red)]">Sobrepasado por {money(-b.remaining)} · {b.pct}% usado</p>:<p className="text-[13px] text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p>}</button>{quickBud===b.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickBudAmt||Number(quickBudAmt)<=0) return; payBudget.mutate({categoryId:b.categoryId,categoryName:getCatName(b.categoryId),visibility:b.visibility,amount:Number(quickBudAmt),accountId:quickBudAcc?Number(quickBudAcc):null});}}><p className="font-display font-bold text-sm">Pagar · {getCatName(b.categoryId)}</p><div><Label htmlFor={`qb-amt-${b.id}`}>Importe ($)</Label><input id={`qb-amt-${b.id}`} autoFocus aria-label={`Importe a pagar del presupuesto de ${getCatName(b.categoryId)}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickBudAmt} onChange={e=>setQuickBudAmt(e.target.value)} /></div><div><Label htmlFor={`qb-acc-${b.id}`}>¿De dónde se descuenta?</Label><select id={`qb-acc-${b.id}`} aria-label="Cuenta de donde se descuenta el pago del presupuesto" className={inputCls} value={quickBudAcc} onChange={e=>setQuickBudAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{payBudget.error && <p className="text-sm text-[var(--red)]">{String(payBudget.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={payBudget.isPending||!quickBudAmt}>{payBudget.isPending?"Guardando…":"Guardar pago"}</button><button type="button" className={btnGhost} onClick={()=>setQuickBud(null)}>Cancelar</button></div></form>)}
                   </div>
                 ))}
               </div>
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3">
-                <h2 className="font-display font-bold">Metas y patrimonio</h2>
-                {data.goals.slice(0,3).map(g=><div key={g.id} className="mt-3"><button type="button" aria-label={`Aportar a la meta ${g.name}`} className="w-full text-left" onClick={()=>{setQuickGoal(quickGoal===g.id?null:g.id);setQuickGoalAmt("");setQuickGoalAcc("");}}><div className="flex justify-between text-sm"><span>{g.name}</span><b>{g.pct}%</b></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div><p className="text-xs text-[var(--dim)]">{money(g.savedAmount)} de {money(g.targetAmount)}{g.targetDate?` · meta ${fmtDate(g.targetDate)}`:""} · Toque para aportar</p></button>{quickGoal===g.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickGoalAmt||Number(quickGoalAmt)<=0) return; contributeGoal.mutate({id:g.id,amount:Number(quickGoalAmt),accountId:quickGoalAcc?Number(quickGoalAcc):null});}}><p className="font-display font-bold text-sm">Aportar a {g.name}</p><div><Label htmlFor={`qg-amt-${g.id}`}>Importe ($)</Label><input id={`qg-amt-${g.id}`} autoFocus aria-label={`Importe a aportar a la meta ${g.name}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickGoalAmt} onChange={e=>setQuickGoalAmt(e.target.value)} /></div><div><Label htmlFor={`qg-acc-${g.id}`}>¿De dónde se descuenta?</Label><select id={`qg-acc-${g.id}`} aria-label="Cuenta de donde se descuenta el aporte a la meta" className={inputCls} value={quickGoalAcc} onChange={e=>setQuickGoalAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{contributeGoal.error && <p className="text-sm text-[var(--red)]">{String(contributeGoal.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={contributeGoal.isPending||!quickGoalAmt}>{contributeGoal.isPending?"Guardando…":"Guardar aporte"}</button><button type="button" className={btnGhost} onClick={()=>setQuickGoal(null)}>Cancelar</button></div></form>)}
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                <h2 className="font-display font-bold text-lg">Metas y patrimonio</h2>
+                {data.goals.slice(0,3).map(g=><div key={g.id} className="mt-3"><button type="button" aria-label={`Aportar a la meta ${g.name}`} className="w-full text-left" onClick={()=>{setQuickGoal(quickGoal===g.id?null:g.id);setQuickGoalAmt("");setQuickGoalAcc("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{g.name}</span><span className="flex items-center gap-1 shrink-0"><b>{g.pct}%</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${g.pct}%`}} /></div><p className="text-[13px] text-[var(--dim)]">{money(g.savedAmount)} de {money(g.targetAmount)}{g.targetDate?` · meta ${fmtDate(g.targetDate)}`:""} · {g.targetAmount-g.savedAmount>0?`Restan ${money(g.targetAmount-g.savedAmount)} para la meta`:"Meta alcanzada"}</p></button>{quickGoal===g.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickGoalAmt||Number(quickGoalAmt)<=0) return; contributeGoal.mutate({id:g.id,amount:Number(quickGoalAmt),accountId:quickGoalAcc?Number(quickGoalAcc):null});}}><p className="font-display font-bold text-sm">Aportar a {g.name}</p><div><Label htmlFor={`qg-amt-${g.id}`}>Importe ($)</Label><input id={`qg-amt-${g.id}`} autoFocus aria-label={`Importe a aportar a la meta ${g.name}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickGoalAmt} onChange={e=>setQuickGoalAmt(e.target.value)} /></div><div><Label htmlFor={`qg-acc-${g.id}`}>¿De dónde se descuenta?</Label><select id={`qg-acc-${g.id}`} aria-label="Cuenta de donde se descuenta el aporte a la meta" className={inputCls} value={quickGoalAcc} onChange={e=>setQuickGoalAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{contributeGoal.error && <p className="text-sm text-[var(--red)]">{String(contributeGoal.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={contributeGoal.isPending||!quickGoalAmt}>{contributeGoal.isPending?"Guardando…":"Guardar aporte"}</button><button type="button" className={btnGhost} onClick={()=>setQuickGoal(null)}>Cancelar</button></div></form>)}
                 </div>)}
                 {data.goals.length===0 && <><p className="text-sm text-[var(--dim)] mt-2">Sin metas registradas.</p><button type="button" aria-label="Agregar meta" className={btnPrimary+" mt-2"} onClick={()=>goToForm("metas","goal-target")}>+ Agregar meta</button></>}
-                <div className="border-t border-[var(--border)] mt-3 pt-3 flex justify-between"><span className="text-sm">Patrimonio neto</span><b className="font-display">{money2(s.netWorth)}</b></div>
+                <div className="border-t border-[var(--border)] mt-3 pt-3 flex justify-between"><span className="text-sm">Patrimonio neto</span><b className="font-display text-lg">{money2(s.netWorth)}</b></div>
                 <p className="text-xs text-[var(--dim)]">Activos {money(s.totalAssets)} − Pasivos {money(s.totalLiabilities)}.</p>
                 {data.patrimony.slice(0,3).map(p=><div key={p.id} className="mt-2"><button type="button" aria-label={`Actualizar el valor de ${p.name}`} className="w-full text-left flex justify-between gap-2 text-sm" onClick={()=>{setQuickPat(quickPat===p.id?null:p.id);setQuickPatVal(String(p.value));}}><span className="min-w-0">{p.name} · {p.kind==="asset"?"Activo":"Pasivo"}</span><b className="shrink-0">{money(p.value)}</b></button>{quickPat===p.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); updatePat.mutate({id:p.id,name:p.name,kind:p.kind,category:p.category,value:Number(quickPatVal)||0,owner:p.owner});}}><p className="font-display font-bold text-sm">Actualizar · {p.name}</p><div><Label htmlFor={`qp-val-${p.id}`}>Valor ($)</Label><input id={`qp-val-${p.id}`} autoFocus aria-label={`Nuevo valor de ${p.name}`} type="number" min="0" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickPatVal} onChange={e=>setQuickPatVal(e.target.value)} /></div>{updatePat.error && <p className="text-sm text-[var(--red)]">{String(updatePat.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={updatePat.isPending}>{updatePat.isPending?"Guardando…":"Guardar valor"}</button><button type="button" className={btnGhost} onClick={()=>setQuickPat(null)}>Cancelar</button></div></form>)}
                 </div>)}
@@ -2409,6 +2450,15 @@ export function App(){
               <h2 className="font-display font-bold text-base flex-1 min-w-0">Instalación en el celular</h2>
               <button type="button" className={btnPrimary+" shrink-0"} onClick={handleInstallClick}>Cómo instalar</button>
             </div>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3 flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <h2 className="font-display font-bold text-base">Datos de demostración</h2>
+                <p className="text-sm text-[var(--dim)] mt-0.5">Cargue datos de ejemplo para probar la app. Solo funciona sin movimientos.</p>
+                {demo.error && <p className="text-xs text-[var(--red)] mt-1">{String(demo.error)}</p>}
+                {demo.isSuccess && <p className="text-xs text-[var(--green)] mt-1">Demo cargada: datos con “(demo)”.</p>}
+              </div>
+              <button type="button" className={btnPrimary+" shrink-0"} aria-label="Cargar datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>{demo.isPending?"Cargando…":"Cargar demo"}</button>
+            </div>
             <div className="grid sm:grid-cols-3 gap-2">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto y pulse Leer el comprobante: la app lee el total en su dispositivo y llena el gasto.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-3"><p className="font-display font-bold">Gráficas ingresos vs gastos</p><p className="text-sm text-[var(--dim)] mt-1">Por mes y por categoría.</p><button type="button" aria-label="Ir a Inicio para ver las gráficas" className={btnGhost+" mt-2"} onClick={()=>goTab("inicio")}>Ver gráficas</button></div>
@@ -2635,7 +2685,7 @@ export function App(){
         )}
       </main>
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
-      <HelpAssistant onGo={goTab} />
+      <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} />
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">

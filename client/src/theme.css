@@ -24,7 +24,7 @@
   color-scheme: light;
   --bg: #F5F1E8; --surface: #FDFBF5; --surface2: #EDE6D3;
   --text: #13262E; --dim: #5B6E73; --border: #DCD2BC;
-  --accent: #0E2F3D; --accent-text: #FFFFFF; --gold: #C5962C; --green: #1B7A4D; --red: #B42318;
+  --accent: #0E2F3D; --accent-text: #FFFFFF; --gold: #C5962C; --gold-text: #7A5C14; --green: #1B7A4D; --red: #B42318;
   --radius: 16px;
   --space-surface: var(--surface); --space-surface-alt: var(--surface2); --space-muted: var(--dim); --space-border: var(--border); --space-accent: var(--accent);
 }
@@ -34,7 +34,7 @@
 :root.dark {
   color-scheme: dark;
   --bg:#0C1A20; --surface:#13262E; --surface2:#1A323E; --text:#EFF6F4; --dim:#9AB0B5; --border:#23404C;
-  --accent:#E8B84A; --accent-text:#13262E; --gold:#D9A93F; --green:#4CAF7D; --red:#F26D5F;
+  --accent:#E8B84A; --accent-text:#13262E; --gold:#D9A93F; --gold-text:#D9A93F; --green:#4CAF7D; --red:#F26D5F;
 }
 @layer base {
   button, [role="button"], select, summary, input:not([type="checkbox"],[type="radio"]) { min-height: 2.25rem; }
@@ -46,15 +46,5 @@
    se evita el rebote de desplazamiento propio del navegador. */
 @media (display-mode: standalone) {
   body { overscroll-behavior-y: none; }
-}
-/* Banda movible del resumen de Inicio: los importes pasan en ciclo
-   continuo (contenido duplicado en el HTML para un ciclo sin cortes).
-   Con movimiento reducido, la banda no se anima: muestra una sola
-   copia de los importes, que puede partirse en dos renglones. */
-.sf-banner-track { display: inline-flex; white-space: nowrap; animation: sf-banner-scroll 22s linear infinite; will-change: transform; }
-@keyframes sf-banner-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-@media (prefers-reduced-motion: reduce) {
-  .sf-banner-track { animation: none; white-space: normal; }
-  .sf-banner-dup { display: none; }
 }
 input,select,textarea { font-size:16px; }
