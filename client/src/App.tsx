@@ -38,10 +38,12 @@ const MODULE_GROUPS: {title:string; tabs:Tab[]}[] = [
 // Cajón lateral del menú (opción elegida por Heriberto): lista de una columna,
 // sin subtítulos, con icono y nombre corto. Se mantienen todos los módulos.
 // Los grupos son plegables (solo queda abierto el del módulo actual) para
-// que el menú se vea corto. Todo el menú va en orden alfabético (español,
-// sin distinguir acentos): los grupos y, dentro de cada grupo, los módulos;
-// el orden se aplica al pintar (ver drawerSections). Hogar va en Mi dinero;
-// Guía de uso va en Configuración, junto a Vista.
+// que el menú se vea corto. Orden fijo de los grupos: Mi dinero, Planes y
+// tandas, Ajustes, Desarrollador (solo dueño) y Configuración al final,
+// arriba de Ayudante. Dentro de cada grupo los módulos sí van en orden
+// alfabético (español, sin distinguir acentos); el orden se aplica al
+// pintar (ver drawerSections). Hogar va en Mi dinero; Guía de uso va en
+// Configuración, junto a Vista.
 const DRAWER_GROUPS: {title:string; tabs:Tab[]}[] = [
   {title:"Mi dinero", tabs:["inicio","personal","movimientos","cuentas","hogar"]},
   {title:"Planes y tandas", tabs:["presupuestos","metas","fondos","aportaciones","tandas"]},
@@ -1417,14 +1419,15 @@ export function App(){
   const s=data.summary; const hh=data.household; const effTab:Tab = tab; const goTab=(x:Tab)=>{setTab(x); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
   // Módulo Desarrollador: solo aparece en el menú para el dueño de la app.
   const drawerGroups: {title:string; tabs:Tab[]}[] = isAppOwner ? [...DRAWER_GROUPS, {title:"Desarrollador", tabs:["desarrollador"]}] : DRAWER_GROUPS;
-  // Orden alfabético del menú (español, sin distinguir acentos): los grupos
-  // y, dentro de cada grupo, los módulos. Configuración participa como un
-  // grupo más (Guía de uso y Vista); el Ayudante de uso no es un grupo y
-  // sigue al pie del cajón.
+  // Orden del menú: los grupos van en orden fijo (Mi dinero, Planes y
+  // tandas, Ajustes, Desarrollador y Configuración al final); dentro de
+  // cada grupo los módulos sí van en orden alfabético (español, sin
+  // distinguir acentos). Configuración participa como un grupo más (Guía
+  // de uso y Vista); Ayudante no es un grupo y sigue al pie del cajón.
   const tabLabel = (tid:Tab)=> TABS.find(x=>x.id===tid)?.label ?? tid;
   const byLabelEs = (a:string,b:string)=> a.localeCompare(b,"es",{sensitivity:"base"});
   type DrawerSection = {title:string; tabs:Tab[]; config?:boolean};
-  const drawerSections: DrawerSection[] = [...drawerGroups.map(g=>({...g, tabs:[...g.tabs].sort((a,b)=>byLabelEs(tabLabel(a),tabLabel(b)))})), {title:"Configuración", tabs:[], config:true}].sort((a,b)=>byLabelEs(a.title,b.title));
+  const drawerSections: DrawerSection[] = [...drawerGroups.map(g=>({...g, tabs:[...g.tabs].sort((a,b)=>byLabelEs(tabLabel(a),tabLabel(b)))})), {title:"Configuración", tabs:[], config:true}];
   // Ir a un módulo y dejar el campo del importe a la vista con el cursor listo:
   // cambia de pestaña y, cuando el formulario ya se pintó, lo desplaza al centro
   // (así el encabezado fijo no lo tapa) y le da el foco para escribir.
@@ -1519,10 +1522,9 @@ export function App(){
         </div>
         <nav id="menu-modulos" aria-label="Módulos" className="flex-1 overflow-y-auto px-3 py-3">
           {drawerSections.map(sec=>{ if(sec.config){ return (
-            <div key="Configuración" className="mt-2">
-              <button type="button" aria-expanded={configOpen} onClick={()=>setConfigOpen(o=>!o)} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold">
-                {tabIcon(<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>)}
-                <span className="flex-1">Configuración</span>
+            <div key="Configuración" className="mt-2 first:mt-0">
+              <button type="button" aria-expanded={configOpen} onClick={()=>setConfigOpen(o=>!o)} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
+                <span className="flex-1 text-[11px] font-bold tracking-widest text-[var(--dim)]">CONFIGURACIÓN</span>
                 <svg aria-hidden="true" className={`w-4 h-4 shrink-0 text-[var(--dim)] transition-transform ${configOpen?"rotate-180":""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
               {configOpen && (
@@ -1571,9 +1573,8 @@ export function App(){
           ); })}
         </nav>
         <div className="px-3 pb-4 pt-2 border-t border-[var(--border)]">
-          <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>{ setMenuOpen(false); setHelpOpen(true); }} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold">
-            <span aria-hidden="true" className="w-6 h-6 rounded-full border border-[var(--border)] flex items-center justify-center text-sm font-bold shrink-0">?</span>
-            <span className="flex-1">Ayudante de uso</span>
+          <button type="button" aria-label="Abrir el ayudante" onClick={()=>{ setMenuOpen(false); setHelpOpen(true); }} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
+            <span className="flex-1 text-[11px] font-bold tracking-widest text-[var(--dim)]">AYUDANTE</span>
           </button>
         </div>
       </div>
