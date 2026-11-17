@@ -65,13 +65,13 @@ try {
 
 // Modo claro / oscuro: se aplica antes de pintar para que la app no
 // parpadee al abrir. La elección guardada del usuario (localStorage
-// "sf-theme") manda; la primera vez se usa lo que prefiere el navegador.
+// "sf-theme") manda; la primera vez se usa el modo oscuro.
 try {
   const stored = localStorage.getItem("sf-theme");
-  const dark = stored ? stored === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const dark = stored ? stored === "dark" : true;
   document.documentElement.classList.toggle("dark", dark);
 } catch {
-  // Sin almacenamiento disponible: queda el modo claro.
+  // Sin almacenamiento disponible: queda el modo oscuro.
 }
 
 // Service worker (solo en producción): guarda la cáscara de la aplicación

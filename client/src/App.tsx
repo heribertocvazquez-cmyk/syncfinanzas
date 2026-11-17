@@ -37,10 +37,11 @@ const MODULE_GROUPS: {title:string; tabs:Tab[]}[] = [
 ];
 // Cajón lateral del menú (opción elegida por Heriberto): lista de una columna,
 // sin subtítulos, con icono y nombre corto. Se mantienen todos los módulos.
+// Los grupos son plegables (solo queda abierto el del módulo actual) para
+// que el menú se vea corto; Tandas va dentro de Planes y tandas.
 const DRAWER_GROUPS: {title:string; tabs:Tab[]}[] = [
   {title:"Mi dinero", tabs:["inicio","personal","movimientos","cuentas"]},
-  {title:"Mis planes", tabs:["presupuestos","metas","fondos","aportaciones"]},
-  {title:"Tandas", tabs:["tandas"]},
+  {title:"Planes y tandas", tabs:["presupuestos","metas","fondos","aportaciones","tandas"]},
   {title:"Ajustes", tabs:["patrimonio","acuerdos","categorias","perfiles","hogar","guia"]},
 ];
 const tabIcon = (children: ReactNode) => (
@@ -501,7 +502,7 @@ const HELP_FAQS: HelpFaq[] = [
   { keys: ["perfil", "pareja", "familiar", "a mi pareja"], q: "¿Cómo agrego a mi pareja?", a: "En Perfiles puede ver a las personas del hogar y agregar a su pareja o familiares.", go: "perfiles", goLabel: "Ir a Perfiles" },
   { keys: ["saldo", "disponible", "cuanto me queda", "restante", "queda"], q: "¿Cuánto me queda?", a: "Su saldo disponible está en Inicio, en la tarjeta de arriba.", go: "inicio", goLabel: "Ir a Inicio" },
   { keys: ["grafic", "ingresos vs gastos"], q: "¿Dónde veo las gráficas?", a: "Las gráficas están en Inicio y aparecen cuando hay movimientos. La dona de gasto por categoría lleva el símbolo de cada rubro dentro de su color: al tocar un segmento queda marcado, aparece su monto y porcentaje debajo, y se abre la ventana con sus gastos registrados.", go: "inicio", goLabel: "Ir a Inicio" },
-  { keys: ["modo oscuro", "modo claro", "oscuro", "claro", "noche", "tema oscuro", "tema claro"], q: "¿Cómo cambio a modo oscuro o claro?", a: "Arriba, junto a la campanita, pulse el botón de la luna o del sol para cambiar entre modo oscuro y modo claro. Su elección se guarda para la próxima vez.", go: "inicio", goLabel: "Ir a Inicio" },
+  { keys: ["modo oscuro", "modo claro", "oscuro", "claro", "noche", "tema oscuro", "tema claro"], q: "¿Cómo cambio a modo oscuro o claro?", a: "Abra el menú y entre a Configuración; ahí elija Claro u Oscuro. Su elección se guarda para la próxima vez.", go: "inicio", goLabel: "Ir a Inicio" },
   { keys: ["modo", "cambi", "personal"], q: "¿Cómo cambio el modo?", a: "El modo se elige al crear el espacio y se cambia en Hogar.", go: "hogar", goLabel: "Ir a Hogar" },
   { keys: ["contrase", "clave", "correo", "mi cuenta"], q: "¿Cómo es mi cuenta?", a: "Su cuenta se crea con su correo y una contraseña de al menos 12 caracteres." },
   { keys: ["fondo", "apart"], q: "¿Cómo creo un fondo?", a: "En Fondos, cree un apartado con su meta y agregue dinero desde sus cuentas.", go: "fondos", goLabel: "Ir a Fondos" },
@@ -563,10 +564,8 @@ function predictHelp(input: string, max = 5): HelpFaq[] {
 }
 // Ayudante de uso. Sin `open`/`onOpenChange` se maneja solo y muestra el
 // botón flotante (así lo usa el asistente de creación de espacio). Con
-// `open`/`onOpenChange` lo controla la app: el botón pasa a ser un control
-// pequeño en el encabezado y una entrada en el cajón (propuesta Unslop:
-// el flotante dorado tapaba contenido y su «?» blanco sobre dorado no
-// pasaba contraste AA).
+// `open`/`onOpenChange` lo controla la app: se abre solo desde la entrada
+// del cajón, hasta abajo (el botón del encabezado se quitó para despejarlo).
 function HelpAssistant({ onGo, open: controlledOpen, onOpenChange }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -701,6 +700,12 @@ export function App(){
     document.documentElement.style.overflow="hidden";
     return ()=>{ document.body.style.overflow=prevBody; document.documentElement.style.overflow=prevHtml; };
   },[menuOpen]);
+  // Grupos del menú plegables: al abrir el cajón solo queda abierto el grupo
+  // del módulo actual y Configuración plegada, para que el menú se vea corto.
+  // Un grupo abierto por toque del usuario queda como lo dejó hasta reabrir.
+  const [openDrawerGroups, setOpenDrawerGroups] = useState<Record<string, boolean>>({});
+  const [configOpen, setConfigOpen] = useState(false);
+  useEffect(()=>{ if(menuOpen){ setOpenDrawerGroups({}); setConfigOpen(false); } },[menuOpen]);
   // Instalación en el celular: se captura el evento del navegador y se detecta si ya está instalada.
   const [installPrompt,setInstallPrompt]=useState<BeforeInstallPromptEvent|null>(null); const [appInstalled,setAppInstalled]=useState<boolean>(()=>detectStandalone()); const [installDismissed,setInstallDismissed]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-install-dismissed")==="1"; }catch{ return false; } });
   const [installStepsOpen,setInstallStepsOpen]=useState(false);
@@ -724,7 +729,9 @@ export function App(){
   // Inicio y entrada en la campanilla). Al actualizar solo cambia el código;
   // la sesión y los datos no se tocan.
   const [darkMode,setDarkMode]=useState(()=>{ try{ return document.documentElement.classList.contains("dark"); }catch{ return false; } });
-  const toggleTheme=()=>{ const next=!darkMode; setDarkMode(next); try{ localStorage.setItem("sf-theme", next?"dark":"light"); }catch{} try{ document.documentElement.classList.toggle("dark", next); }catch{} };
+  // Cambia el tema y guarda la elección ("sf-theme"); sin elección guardada
+  // la app arranca en modo oscuro (main.tsx). Se usa desde Configuración.
+  const setThemeMode=(next:boolean)=>{ setDarkMode(next); try{ localStorage.setItem("sf-theme", next?"dark":"light"); }catch{} try{ document.documentElement.classList.toggle("dark", next); }catch{} };
   const [updateAvailable,setUpdateAvailable]=useState(false); const [updateApplying,setUpdateApplying]=useState(false); const [updateChecking,setUpdateChecking]=useState(false); const [updateCheckMsg,setUpdateCheckMsg]=useState<string|null>(null);
   useEffect(()=>{
     const onUpdate=()=>setUpdateAvailable(true);
@@ -1498,9 +1505,13 @@ export function App(){
           <p className="font-display text-2xl font-extrabold">{money2(s.availableFree)}</p>
         </div>
         <nav id="menu-modulos" aria-label="Módulos" className="flex-1 overflow-y-auto px-3 py-3">
-          {drawerGroups.map(g=>(
-            <div key={g.title} className="mt-4 first:mt-0">
-              <p className="px-2 text-[11px] font-bold tracking-widest text-[var(--dim)]">{g.title.toUpperCase()}</p>
+          {drawerGroups.map(g=>{ const open = openDrawerGroups[g.title] ?? g.tabs.includes(effTab); return (
+            <div key={g.title} className="mt-2 first:mt-0">
+              <button type="button" aria-expanded={open} onClick={()=>setOpenDrawerGroups(prev=>({...prev,[g.title]:!open}))} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
+                <span className="flex-1 text-[11px] font-bold tracking-widest text-[var(--dim)]">{g.title.toUpperCase()}</span>
+                <svg aria-hidden="true" className={`w-4 h-4 shrink-0 text-[var(--dim)] transition-transform ${open?"rotate-180":""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              {open && (
               <ul className="mt-1 space-y-0.5">
                 {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const current=effTab===tid; return (
                   <li key={tid}>
@@ -1508,8 +1519,27 @@ export function App(){
                   </li>
                 ); })}
               </ul>
+              )}
             </div>
-          ))}
+          ); })}
+          {/* Configuración: por ahora solo el tema (claro / oscuro). */}
+          <div className="mt-2">
+            <button type="button" aria-expanded={configOpen} onClick={()=>setConfigOpen(o=>!o)} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold">
+              {tabIcon(<><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>)}
+              <span className="flex-1">Configuración</span>
+              <svg aria-hidden="true" className={`w-4 h-4 shrink-0 text-[var(--dim)] transition-transform ${configOpen?"rotate-180":""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            {configOpen && (
+              <ul className="mt-1 space-y-0.5">
+                <li>
+                  <button type="button" aria-pressed={!darkMode} onClick={()=>setThemeMode(false)} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${!darkMode?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{tabIcon(<><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></>)}<span className="flex-1">Claro</span>{!darkMode && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
+                </li>
+                <li>
+                  <button type="button" aria-pressed={darkMode} onClick={()=>setThemeMode(true)} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${darkMode?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{tabIcon(<><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></>)}<span className="flex-1">Oscuro</span>{darkMode && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
+                </li>
+              </ul>
+            )}
+          </div>
         </nav>
         <div className="px-3 pb-4 pt-2 border-t border-[var(--border)]">
           <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>{ setMenuOpen(false); setHelpOpen(true); }} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold">
@@ -1535,18 +1565,10 @@ export function App(){
               <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{goTab("inicio");setMenuOpen(false);window.setTimeout(()=>window.scrollTo({top:0,behavior:"smooth"}),60);}} className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--accent)] text-[var(--accent-text)] flex items-center justify-center">
                 <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
               </button>
-              <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={darkMode?"Cambiar a modo claro":"Cambiar a modo oscuro"} title={darkMode?"Modo claro":"Modo oscuro"} onClick={toggleTheme}>
-                {darkMode ? (
-                  <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-                ) : (
-                  <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-                )}
-              </button>
               <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={bellLabel} onClick={()=>setNotifOpen(o=>!o)}>
                 <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
                 {bellCount>0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-[var(--red)] text-white text-[11px] font-bold flex items-center justify-center">{bellCount>99?"99+":bellCount}</span>}
               </button>
-              <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setHelpOpen(true)} className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center text-lg font-bold">?</button>
               {!appInstalled && <button type="button" className={btnGhost + " max-sm:px-2.5 max-sm:text-xs"} aria-label="Instalar SyncFinanzas en el celular" onClick={handleInstallClick}>Instalar</button>}
             </div>
           </div>
