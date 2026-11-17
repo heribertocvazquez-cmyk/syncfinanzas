@@ -242,6 +242,12 @@ function MonthlyChart({series,currentMonth,todayMonth,onSelect,inicio}:{series:{
 // Selector de mes y año (tarjeta Movimientos): el mes elegido es el mes
 // que muestra el tablero. La ventanita se cierra al elegir un mes, con
 // Escape o al tocar fuera.
+// Anclaje: la ventanita se ancla a la cabecera de la tarjeta Movimientos
+// (alineada a su derecha, no al botón). El botón cambia de sitio según haya
+// movimientos o no —a la izquierda en la segunda fila con movimientos, a la
+// derecha del título sin ellos—, y anclada al botón se salía por un lado o
+// por el otro. Anclada a la cabecera, con ancho acotado al ancho de la
+// cabecera, cabe completa en los dos casos a 390 px.
 const MONTH_SHORT = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 function MonthPicker({value,onChange}:{value:string;onChange:(ym:string)=>void}){
   const [open,setOpen]=useState(false);
@@ -252,13 +258,13 @@ function MonthPicker({value,onChange}:{value:string;onChange:(ym:string)=>void})
   useEffect(()=>{ if(open) setYear(Number(value.slice(0,4))||new Date().getFullYear()); },[open,value]);
   const pick=(m:number)=>{ onChange(`${year}-${String(m+1).padStart(2,"0")}`); setOpen(false); };
   return (
-    <div className="relative shrink-0">
+    <div className="shrink-0">
       <button type="button" aria-label={`Cambiar el mes, actualmente ${fmtMonth(value)}`} aria-haspopup="dialog" aria-expanded={open} onClick={()=>{ setYear(Number(value.slice(0,4))); setOpen(o=>!o); }} className="rounded-full border border-[var(--gold)] text-[var(--gold-text)] px-3 py-1.5 text-[13px] font-bold whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
         {fmtMonth(value)} <svg aria-hidden="true" className="inline w-3.5 h-3.5 -mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       {open && (<>
         <div aria-hidden="true" className="fixed inset-0 z-40" onClick={()=>setOpen(false)} />
-        <div role="dialog" aria-label="Elegir mes y año" className="absolute left-0 top-full mt-2 z-50 w-[min(288px,calc(100vw-2rem))] rounded-2xl border border-[var(--gold)] bg-[var(--surface)] p-4 shadow-2xl">
+        <div role="dialog" aria-label="Elegir mes y año" className="absolute right-0 top-full mt-2 z-50 w-[min(288px,100%)] rounded-2xl border border-[var(--gold)] bg-[var(--surface)] p-4 shadow-2xl">
           <div className="flex items-center justify-between">
             <button type="button" aria-label={`Año anterior, ${year-1}`} onClick={()=>setYear(y=>y-1)} className="w-9 h-9 rounded-full border border-[var(--border)] font-bold text-lg leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">‹</button>
             <span className="font-display text-2xl font-extrabold text-[var(--gold-text)]">{year}</span>
@@ -1632,7 +1638,7 @@ export function App(){
             </div>
             )}
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-4 md:mt-6">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="relative flex items-center justify-between gap-2 flex-wrap">
                 <h2 className="font-display font-bold text-lg">Movimientos</h2>
                 <div className="flex items-center gap-2 shrink-0">
                   <MonthPicker value={s.currentMonth} onChange={setViewMonth} />
