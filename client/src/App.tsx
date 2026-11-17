@@ -553,7 +553,7 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
   const open = controlledOpen ?? internalOpen;
   const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
   const [input, setInput] = useState("");
-  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Bienvenido al Ayudante de uso. Escriba cualquier duda sobre la app y le ayudaré. Si quiere ahorrar más, pregúnteme «¿Cómo ahorro más?»." }]);
+  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Hola, ¿en qué le ayudo?" }]);
   const [freq, setFreq] = useState<Record<string, number>>(() => frequentQuestions(loadHelpLearning()));
   // Asistente de ahorro conversacional: recuerda el motivo, el monto y el
   // plazo en la memoria del chat y piensa con los datos reales.
@@ -628,11 +628,11 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
               </div>
             </div>
           )}
-          <button type="button" data-help-fab aria-label={hasIdea ? "Abrir el ayudante: tengo una idea para usted" : "Abrir el ayudante de uso"} onClick={()=>setOpen(true)} className={`relative w-16 h-16 rounded-full bg-[var(--gold)] text-[#13262E] shadow-xl flex items-center justify-center shrink-0 ${hasIdea ? "help-fab help-fab--idea" : "help-fab"}`}>
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="w-8 h-8" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+          <button type="button" data-help-fab aria-label={hasIdea ? "Abrir el ayudante: tengo una idea para usted" : "Abrir el ayudante de uso"} onClick={()=>setOpen(true)} className={`relative w-12 h-12 rounded-full bg-[var(--gold)] text-[#13262E] shadow-xl flex items-center justify-center shrink-0 ${hasIdea ? "help-fab help-fab--idea" : "help-fab"}`}>
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
             {hasIdea && (
-              <span data-help-badge="idea" aria-hidden="true" className="absolute -top-1.5 -right-1.5 w-7 h-7 rounded-full bg-[#13262E] text-[var(--gold)] border-2 border-[var(--surface)] shadow flex items-center justify-center">
-                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
+              <span data-help-badge="idea" aria-hidden="true" className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#13262E] text-[var(--gold)] border-2 border-[var(--surface)] shadow flex items-center justify-center">
+                <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
               </span>
             )}
           </button>
@@ -661,8 +661,8 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
               ))}
             </div>
             {suggestions.length > 0 && (
-              <div className="px-3 pb-2 flex flex-col gap-1.5">
-                {suggestions.map(s=><button key={s.q} type="button" className="text-left rounded-xl border border-[var(--border)] px-2.5 py-1.5 text-[13px] font-semibold" onClick={()=>ask(s.q)}>{s.q}</button>)}
+              <div className="px-3 pb-2 flex flex-wrap gap-1.5">
+                {suggestions.map(s=><button key={s.q} type="button" className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold" onClick={()=>ask(s.q)}>{s.q}</button>)}
               </div>
             )}
             <form className="flex gap-2 p-3 border-t border-[var(--border)]" onSubmit={(e:FormEvent)=>{ e.preventDefault(); ask(input); }}>
