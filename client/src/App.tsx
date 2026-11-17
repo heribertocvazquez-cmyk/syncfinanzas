@@ -8,7 +8,7 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, defaultHelpSuggestions, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
+import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, defaultHelpSuggestions, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, moneyTip, pickHelpNudge, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
@@ -42,7 +42,7 @@ const MODULE_GROUPS: {title:string; tabs:Tab[]}[] = [
 // Los grupos son plegables (solo queda abierto el del módulo actual) para
 // que el menú se vea corto. Orden fijo de los grupos: Mi dinero, Planes y
 // tandas, Ajustes, Desarrollador (solo dueño) y Configuración al final,
-// arriba de Ayudante. Dentro de cada grupo los módulos sí van en orden
+// arriba de Mike. Dentro de cada grupo los módulos sí van en orden
 // alfabético (español, sin distinguir acentos); el orden se aplica al
 // pintar (ver drawerSections). Hogar va en Mi dinero; Guía de uso va en
 // Configuración, junto a Vista.
@@ -516,21 +516,22 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
   );
 }
 
-// ---- Ayudante de uso (respuestas preparadas + respuestas dinámicas con datos reales) ----
+// ---- Mike (respuestas preparadas + respuestas dinámicas con datos reales) ----
 // Botón flotante con una estrella dorada, visible SIEMPRE en toda la app
 // mientras el chat está cerrado, en modo Personal y Familiar. (Antes el
 // botón solo aparecía junto al saludo o a un aviso: sin saludo ni aviso no
 // había botón y el chat solo se abría desde la entrada del cajón; ese era
-// el fallo que Heriberto reportó con su captura del 2026-11-17.) Cuando el
-// Ayudante tiene una idea, una pregunta o un aviso para el usuario (saludo
+// el fallo que Heriberto reportó con su captura del 2026-11-17.) Cuando
+// Mike tiene una idea, una pregunta o un aviso para el usuario (saludo
 // o aviso pendiente), la estrella lleva un foco encima y un pulso para que
 // se note. Al tocarlo abre una ventanita de chat que responde dudas de uso
 // con una base de respuestas preparadas por palabras clave (sin claves ni
 // servicios de pago) y preguntas dinámicas calculadas en el dispositivo con
 // los datos del hogar (en qué se gasta de más, dónde ahorrar, cómo va la
-// meta, cuánto queda). Al abrir, el chat muestra el saludo y las preguntas
-// sugeridas (con la caja vacía se muestran las dinámicas primero), nunca
-// solo la caja de texto vacía. Cada respuesta es corta, en tono formal de
+// meta, cuánto queda). Al abrir, el chat se presenta como Mike y muestra
+// las preguntas sugeridas (con la caja vacía se muestran las dinámicas
+// primero), nunca solo la caja de texto vacía, y un tip corto de dinero
+// con datos reales. Cada respuesta es corta, en tono formal de
 // usted, y trae un botón que lleva directo al lugar cuando la vista ya
 // tiene navegación (onGo). La lógica vive en ./lib/helpDynamic. Sin
 // `open`/`onOpenChange` se maneja solo (así lo usa el asistente de
@@ -538,8 +539,8 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
 // Con `greeting`, al entrar a la app aparece un saludo suave una vez por
 // sesión, que se puede descartar; nunca bloquea la pantalla. Con `hidden`
 // (menú abierto) el botón se oculta, porque el cajón ya tiene su entrada
-// al Ayudante.
-// Además el Ayudante es un asistente de ahorro conversacional: si el usuario
+// a Mike.
+// Además Mike es un asistente de ahorro conversacional: si el usuario
 // pregunta cómo ahorrar más, no contesta de una vez, pregunta el motivo (con
 // sus metas como opciones), el monto y el plazo, y piensa con sus datos
 // reales para darle los parámetros (aporte mensual, recortes por categoría,
@@ -551,9 +552,20 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
 export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, greeting, onDismissGreeting, overview, nudge, onDismissNudge, hidden }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void; dynamicFaqs?: HelpFaq[]; greeting?: { text: string; personal?: string | null } | null; onDismissGreeting?: () => void; overview?: OverviewData | null; nudge?: HelpNudge | null; onDismissNudge?: () => void; hidden?: boolean }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
-  const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
+  const tipAddedRef = useRef(false);
+  const setOpen = (v: boolean) => { if (!v) tipAddedRef.current = false; if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
   const [input, setInput] = useState("");
-  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Hola, ¿en qué le ayudo?" }]);
+  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Hola, soy Mike. Le ayudo con su dinero: le digo en qué gasta de más, cómo ahorrar más y le doy tips." }]);
+  // Al abrir el chat, después de la presentación, Mike da un tip corto de
+  // dinero con datos reales (una sola vez por apertura; al cerrar se
+  // reinicia para la próxima vez).
+  useEffect(() => {
+    if (!open || !overview || tipAddedRef.current) return;
+    const tip = moneyTip(overview);
+    if (!tip) return;
+    tipAddedRef.current = true;
+    setMsgs(m => [...m, { from: "bot", text: tip }]);
+  }, [open, overview]);
   const [freq, setFreq] = useState<Record<string, number>>(() => frequentQuestions(loadHelpLearning()));
   // Asistente de ahorro conversacional: recuerda el motivo, el monto y el
   // plazo en la memoria del chat y piensa con los datos reales.
@@ -600,7 +612,7 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
   };
   // El botón flotante se ve siempre que el chat está cerrado (antes solo
   // aparecía con saludo o aviso: sin saludo ni aviso no había botón). La
-  // estrella lleva un foco encima y un pulso cuando el Ayudante tiene una
+  // estrella lleva un foco encima y un pulso cuando Mike tiene una
   // idea, una pregunta o un aviso para el usuario.
   const hasIdea = Boolean(greeting || nudge);
   return (
@@ -609,29 +621,31 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
         <div className="fixed right-4 z-40 flex items-end gap-2" style={{ bottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
           {greeting && controlledOpen !== undefined && (
             <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
-              <p className="text-sm font-semibold">{greeting.text}</p>
+              <p className="text-[11px] font-bold tracking-widest text-[var(--gold-text)]">MIKE</p>
+              <p className="text-sm font-semibold mt-0.5">{greeting.text}</p>
               {greeting.personal && <p className="text-xs text-[var(--dim)] mt-1">{greeting.personal}</p>}
               <div className="flex gap-2 mt-2">
                 <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{ setOpen(true); ask("¿Me das un resumen del mes?"); }}>Resumen del mes</button>
-                <button type="button" aria-label="Descartar el saludo del ayudante" onClick={()=>onDismissGreeting?.()} className={btnGhost}>×</button>
+                <button type="button" aria-label="Descartar el saludo de Mike" onClick={()=>onDismissGreeting?.()} className={btnGhost}>×</button>
               </div>
             </div>
           )}
           {!greeting && nudge && controlledOpen !== undefined && (
             <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
-              <p className="text-sm font-semibold">{nudge.text}</p>
+              <p className="text-[11px] font-bold tracking-widest text-[var(--gold-text)]">MIKE</p>
+              <p className="text-sm font-semibold mt-0.5">{nudge.text}</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {nudge.actions.map(a=>(
                   <button key={a.label} type="button" className={a.ask ? btnPrimary : btnGhost} onClick={()=>{ if (a.ask) { setOpen(true); ask(a.ask); } else if (a.go && onGo) { setOpen(false); onGo(a.go); } onDismissNudge?.(); }}>{a.label}</button>
                 ))}
-                <button type="button" aria-label="Descartar el aviso del ayudante" onClick={()=>onDismissNudge?.()} className={btnGhost}>×</button>
+                <button type="button" aria-label="Descartar el aviso de Mike" onClick={()=>onDismissNudge?.()} className={btnGhost}>×</button>
               </div>
             </div>
           )}
-          <button type="button" data-help-fab aria-label={hasIdea ? "Abrir el ayudante: tengo una idea para usted" : "Abrir el ayudante de uso"} onClick={()=>setOpen(true)} className={`relative w-12 h-12 rounded-full bg-[var(--gold)] text-[#13262E] shadow-xl flex items-center justify-center shrink-0 ${hasIdea ? "help-fab help-fab--idea" : "help-fab"}`}>
+          <button type="button" data-help-fab aria-label={hasIdea ? "Abrir a Mike: tengo una idea para usted" : "Abrir a Mike"} onClick={()=>setOpen(true)} className={`relative w-12 h-12 rounded-full bg-[var(--gold)] text-[#13262E] shadow-xl flex items-center justify-center shrink-0 ${hasIdea ? "help-fab help-fab--idea" : "help-fab"}`}>
             <svg aria-hidden="true" viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
             {hasIdea && (
-              <span data-help-badge="idea" aria-hidden="true" className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#13262E] text-[var(--gold)] border-2 border-[var(--surface)] shadow flex items-center justify-center">
+              <span data-help-badge="idea" aria-hidden="true" className="help-fab-badge absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#13262E] text-[var(--gold)] border-2 border-[var(--surface)] shadow flex items-center justify-center">
                 <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
               </span>
             )}
@@ -639,11 +653,11 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
         </div>
       )}
       {open && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Ayudante de uso" onClick={()=>setOpen(false)}>
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Mike" onClick={()=>setOpen(false)}>
           <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[82vh] flex flex-col overflow-hidden" onClick={e=>e.stopPropagation()}>
             <div className="flex items-start justify-between gap-2 px-3 py-2.5 border-b border-[var(--border)]">
-              <div><h2 className="font-display font-bold text-lg">Ayudante de uso</h2><p className="text-xs text-[var(--dim)]">Pregunte cómo usar la app.</p></div>
-              <button type="button" aria-label="Cerrar el ayudante de uso" onClick={()=>setOpen(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+              <div><h2 className="font-display font-bold text-lg">Mike</h2><p className="text-xs text-[var(--dim)]">Su ayudante para su dinero.</p></div>
+              <button type="button" aria-label="Cerrar a Mike" onClick={()=>setOpen(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
             </div>
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {msgs.map((m,i)=>(
@@ -666,7 +680,7 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
               </div>
             )}
             <form className="flex gap-2 p-3 border-t border-[var(--border)]" onSubmit={(e:FormEvent)=>{ e.preventDefault(); ask(input); }}>
-              <input aria-label="Escriba su duda sobre el uso de la aplicación" className={inputCls+" flex-1 min-w-0"} placeholder="Escriba su duda…" value={input} onChange={e=>setInput(e.target.value)} />
+              <input aria-label="Escriba su duda para Mike" className={inputCls+" flex-1 min-w-0"} placeholder="Escriba su duda…" value={input} onChange={e=>setInput(e.target.value)} />
               <button type="submit" className={btnPrimary} disabled={!input.trim()}>Enviar</button>
             </form>
           </div>
@@ -1108,7 +1122,7 @@ export function App(){
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
   const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setAppliedRulePers(null);setPersStep(1);setOcrDetailPers(null);setOcrLabelPers("");setSavedNotice("Gasto del día guardado.");}});
-  // Ayudante dinámico: preguntas con cifras reales del mes que se está viendo,
+  // Mike dinámico: preguntas con cifras reales del mes que se está viendo,
   // calculadas en el dispositivo con los datos ya cargados (sin llamadas nuevas
   // ni servicios externos). Las respuestas usan solo los movimientos que el
   // usuario ya ve en pantalla (en Familiar, compartidos más sus privados).
@@ -1121,7 +1135,7 @@ export function App(){
     return buildGreeting(data, helpLearning);
   }, [data, helpLearning, greetingDismissed]);
   const dismissGreeting = () => { try { sessionStorage.setItem(HELP_GREETED_KEY, "1"); } catch {} setGreetingDismissed(true); };
-  // Avisos proactivos del Ayudante: al abrir Movimientos o Gasto del día
+  // Avisos proactivos de Mike: al abrir Movimientos o Gasto del día
   // pregunta qué quiere registrar; si un presupuesto está cerca de su
   // límite o un plan de ahorro está en riesgo, avisa. Cada aviso sale una
   // sola vez por sesión (ver ./lib/helpDynamic) y se puede descartar.
@@ -1133,7 +1147,7 @@ export function App(){
     else setActiveNudge(cur => (cur === null ? cur : null));
   }, [data, tab]);
   const dismissNudge = () => setActiveNudge(null);
-  // El ayudante aprende del uso: al cargar el resumen, anota en el dispositivo
+  // Mike aprende del uso: al cargar el resumen, anota en el dispositivo
   // qué categorías se pasaron de presupuesto este mes y qué conceptos se
   // repiten (ver ./lib/helpDynamic). No se envía nada fuera del dispositivo.
   useEffect(() => { if (data) recordHelpLearning(data); }, [data]);
@@ -1582,7 +1596,7 @@ export function App(){
   // tandas, Ajustes, Desarrollador y Configuración al final); dentro de
   // cada grupo los módulos sí van en orden alfabético (español, sin
   // distinguir acentos). Configuración participa como un grupo más (Guía
-  // de uso y Vista); Ayudante no es un grupo y sigue al pie del cajón.
+  // de uso y Vista); Mike no es un grupo y sigue al pie del cajón.
   const tabLabel = (tid:Tab)=> TABS.find(x=>x.id===tid)?.label ?? tid;
   const byLabelEs = (a:string,b:string)=> a.localeCompare(b,"es",{sensitivity:"base"});
   type DrawerSection = {title:string; tabs:Tab[]; config?:boolean};
@@ -1732,8 +1746,8 @@ export function App(){
           ); })}
         </nav>
         <div className="px-3 pb-4 pt-2 border-t border-[var(--border)]">
-          <button type="button" aria-label="Abrir el ayudante" onClick={()=>{ setMenuOpen(false); setHelpOpen(true); }} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
-            <span className="flex-1 text-[11px] font-bold tracking-widest text-[var(--dim)]">AYUDANTE</span>
+          <button type="button" aria-label="Abrir a Mike" onClick={()=>{ setMenuOpen(false); setHelpOpen(true); }} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
+            <span className="flex-1 text-[11px] font-bold tracking-widest text-[var(--dim)]">MIKE</span>
           </button>
         </div>
       </div>
@@ -1970,7 +1984,7 @@ export function App(){
                 </div>)}
               </div>
               {mvReview.length>0 && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-                <p className="text-sm font-bold">Revisión del Ayudante</p>
+                <p className="text-sm font-bold">Revisión de Mike</p>
                 {mvReview.map((w,i)=><p key={i} className="text-sm mt-1">{w}</p>)}
                 <p className="text-xs text-[var(--dim)] mt-1">Es solo un aviso: puede guardar de todos modos.</p>
               </div>}
@@ -2464,7 +2478,7 @@ export function App(){
                     </div>)}
                   </div>
                   {persReview.length>0 && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-                    <p className="text-sm font-bold">Revisión del Ayudante</p>
+                    <p className="text-sm font-bold">Revisión de Mike</p>
                     {persReview.map((w,i)=><p key={i} className="text-sm mt-1">{w}</p>)}
                     <p className="text-xs text-[var(--dim)] mt-1">Es solo un aviso: puede guardar de todos modos.</p>
                   </div>}

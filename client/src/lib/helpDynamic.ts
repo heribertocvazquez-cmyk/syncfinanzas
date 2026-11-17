@@ -1,9 +1,9 @@
-// Ayudante de uso: respuestas preparadas + respuestas dinámicas con datos
+// Mike: respuestas preparadas + respuestas dinámicas con datos
 // reales + revisión de movimientos + aprendizaje en el dispositivo +
 // asistente de ahorro conversacional + avisos proactivos.
 // Sin servicios externos, sin claves, sin costo, sin SQL nuevo.
 //
-// Lo que aprende el Ayudante y dónde se guarda (todo en el navegador):
+// Lo que aprende Mike y dónde se guarda (todo en el navegador):
 // - localStorage "sf-help-learn": preguntas más frecuentes (por texto de
 //   pregunta), meses en que cada categoría se pasó de presupuesto y
 //   conceptos recurrentes (cuántas veces, último importe, última fecha).
@@ -193,7 +193,7 @@ export function goalLines(ov: OverviewData): GoalLine[] {
 
 // Respuestas dinámicas con cifras reales del mes que muestra el tablero.
 // Se recalculan cada vez que cambian los datos; si no hay hogar, no hay
-// respuestas dinámicas y el Ayudante sigue solo con las preparadas.
+// respuestas dinámicas y Mike sigue solo con las preparadas.
 export function dynamicHelpFaqs(ov: OverviewData): HelpFaq[] {
   if (!ov.household) return [];
   const month = ov.summary.currentMonth;
@@ -264,6 +264,34 @@ export function dynamicHelpFaqs(ov: OverviewData): HelpFaq[] {
   return faqs;
 }
 
+// Tip corto de dinero con datos reales, para mostrarlo al abrir el chat:
+// el mayor exceso del mes, una meta en riesgo o el avance de una meta.
+// Siempre es una sola frase corta, en tono formal de usted.
+export function moneyTip(ov: OverviewData): string | null {
+  if (!ov.household) return null;
+  const month = ov.summary.currentMonth;
+  const monthLabel = fmtMonth(month);
+  const over = overBudgetCats(ov, month);
+  if (over.length > 0) {
+    const o = over[0]!;
+    return `Tip: en ${monthLabel} se pasó ${money(o.over)} en ${o.name}. Si lo recorta, ahorraría eso al mes.`;
+  }
+  const above = aboveAvgCats(ov, month);
+  if (above.length > 0) {
+    const a = above[0]!;
+    return `Tip: en ${monthLabel} gastó ${money(a.spent)} en ${a.name}, más que su promedio de ${money(a.avg)}.`;
+  }
+  const risky = goalLines(ov).find(g => g.status === "en riesgo" || g.status === "atrasada");
+  if (risky) return `Tip: su meta «${risky.name}» va al ${risky.pct}% y está ${risky.status}.`;
+  const goals = goalLines(ov);
+  if (goals.length > 0) {
+    const g = goals[0]!;
+    if (g.monthlyAmount != null && g.monthsLeft != null) return `Tip: su meta «${g.name}» va al ${g.pct}%. Aportando ${money(g.monthlyAmount)} al mes, llega en ${g.monthsLeft} meses.`;
+    return `Tip: su meta «${g.name}» va al ${g.pct}%.`;
+  }
+  return "Tip: su gasto está dentro de lo planeado. Apartar un poco cada mes es la mejor forma de llegar a su meta.";
+}
+
 // ---- Revisión en vivo al capturar un movimiento ----
 // Avisos que no bloquean: el usuario siempre puede guardar. Se revisa el
 // importe contra el presupuesto restante de la categoría en el mes de la
@@ -317,7 +345,7 @@ export function loadHelpLearning(): HelpLearning {
   } catch { return { v: 1, questions: {}, overBudget: {}, concepts: {} }; }
 }
 function saveHelpLearning(l: HelpLearning): void {
-  try { localStorage.setItem(HELP_LEARN_KEY, JSON.stringify(l)); } catch { /* sin almacenamiento, el Ayudante sigue con las respuestas preparadas */ }
+  try { localStorage.setItem(HELP_LEARN_KEY, JSON.stringify(l)); } catch { /* sin almacenamiento, Mike sigue con las respuestas preparadas */ }
 }
 export function recordHelpQuestion(q: string): void {
   const l = loadHelpLearning();
@@ -369,7 +397,7 @@ export function topHelpQuestion(l: HelpLearning): string | null {
 // presupuesto mes tras mes; si no hay, la pregunta que más se ha hecho.
 export function buildGreeting(ov: OverviewData, l: HelpLearning): { text: string; personal: string | null } | null {
   if (!ov.household) return null;
-  const text = "Hola. ¿Qué desea hacer hoy? Puedo darle un resumen del mes.";
+  const text = "Hola, soy Mike. ¿Le digo en qué gasta de más o le doy un tip para su dinero?";
   const repeat = repeatOverBudgetCats(l);
   if (repeat.length > 0) return { text, personal: `${repeat[0]!.name} se ha pasado de presupuesto ${repeat[0]!.months} meses. ¿Quiere revisarlo?` };
   const top = topHelpQuestion(l);
@@ -379,7 +407,7 @@ export function buildGreeting(ov: OverviewData, l: HelpLearning): { text: string
 
 // ---- Asistente de ahorro conversacional (el «mago») ----
 // Conversación de varios turnos dentro del chat: cuando el usuario pregunta
-// cómo ahorrar más o que quiere ahorrar, el Ayudante no contesta de una
+// cómo ahorrar más o que quiere ahorrar, Mike no contesta de una
 // vez: pregunta el motivo (ofrece sus metas como opciones rápidas o una
 // meta nueva), luego el monto y el plazo, y después piensa con sus datos
 // reales y le da los parámetros: aporte mensual, recortes sugeridos por
@@ -486,8 +514,8 @@ export function wizardResultText(r: PlanAnalysis, goalName: string): string {
   return parts.join(" ");
 }
 
-// ---- Avisos proactivos del Ayudante (siempre activo) ----
-// El botón flotante «?» ya está visible en toda la app; además el Ayudante
+// ---- Avisos proactivos de Mike (siempre activo) ----
+// El botón flotante «?» ya está visible en toda la app; además Mike
 // interviene solo, con tarjetas suaves junto al botón (nunca un popup que
 // bloquee, con × para descartar). Cada aviso se muestra una sola vez por
 // sesión (sessionStorage "sf-help-nudges"): al abrir Movimientos o Gasto
