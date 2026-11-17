@@ -8,7 +8,7 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, defaultHelpSuggestions, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, moneyTip, pickHelpNudge, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
+import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, moneyTip, pickHelpNudge, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
@@ -518,47 +518,74 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
 
 // ---- Mike (respuestas preparadas + respuestas dinámicas con datos reales) ----
 // Botón flotante con una estrella dorada, visible SIEMPRE en toda la app
-// mientras el chat está cerrado, en modo Personal y Familiar. (Antes el
-// botón solo aparecía junto al saludo o a un aviso: sin saludo ni aviso no
-// había botón y el chat solo se abría desde la entrada del cajón; ese era
-// el fallo que Heriberto reportó con su captura del 2026-11-17.) Cuando
-// Mike tiene una idea, una pregunta o un aviso para el usuario (saludo
-// o aviso pendiente), la estrella lleva un foco encima y un pulso para que
-// se note. Al tocarlo abre una ventanita de chat que responde dudas de uso
-// con una base de respuestas preparadas por palabras clave (sin claves ni
-// servicios de pago) y preguntas dinámicas calculadas en el dispositivo con
-// los datos del hogar (en qué se gasta de más, dónde ahorrar, cómo va la
-// meta, cuánto queda). Al abrir, el chat se presenta como Mike y muestra
-// las preguntas sugeridas (con la caja vacía se muestran las dinámicas
-// primero), nunca solo la caja de texto vacía, y un tip corto de dinero
-// con datos reales. Cada respuesta es corta, en tono formal de
-// usted, y trae un botón que lleva directo al lugar cuando la vista ya
-// tiene navegación (onGo). La lógica vive en ./lib/helpDynamic. Sin
-// `open`/`onOpenChange` se maneja solo (así lo usa el asistente de
-// creación de espacio). Con `open`/`onOpenChange` lo controla la app.
-// Con `greeting`, al entrar a la app aparece un saludo suave una vez por
-// sesión, que se puede descartar; nunca bloquea la pantalla. Con `hidden`
-// (menú abierto) el botón se oculta, porque el cajón ya tiene su entrada
-// a Mike.
+// mientras el chat está cerrado, en modo Personal y Familiar. La estrella
+// es estática y se arrastra: el usuario la toca y la mueve con el dedo (o
+// el ratón) a cualquier punto de la pantalla y queda ahí; la posición se
+// guarda en el dispositivo (localStorage "sf-help-fab-pos"). Un toque abre
+// el chat; arrastrar no lo abre. Cuando Mike tiene una idea, una pregunta
+// o un aviso para el usuario (saludo o aviso pendiente), la estrella lleva
+// un foco encima, sin animación. Al tocarlo abre una ventanita de chat que
+// responde dudas de uso con una base de respuestas preparadas por palabras
+// clave (sin claves ni servicios de pago) y preguntas dinámicas calculadas
+// en el dispositivo con los datos del hogar (en qué se gasta de más, dónde
+// ahorrar, cómo va la meta, cuánto queda). Al abrir, el chat abre limpio:
+// solo la caja de texto y, mientras el usuario escribe, las preguntas
+// predictivas que coinciden ("Preguntas relacionadas"). La presentación de
+// Mike vive en la burbuja arriba de la estrella, no dentro del chat. Al
+// abrir, Mike también da un tip corto de dinero con datos reales. Cada
+// respuesta es corta, en tono formal de usted, y trae un botón que lleva
+// directo al lugar cuando la vista ya tiene navegación (onGo). La lógica
+// vive en ./lib/helpDynamic. Sin `open`/`onOpenChange` se maneja solo (así
+// lo usa el asistente de creación de espacio). Con `open`/`onOpenChange` lo
+// controla la app.
+// Con `greeting`, al entrar a la app aparece una burbujita de saludo arriba
+// de la estrella una vez por sesión, que se puede descartar; al tocarla se
+// abre el chat. Nunca bloquea la pantalla. Con `hidden` (menú abierto) el
+// botón se oculta, porque el cajón ya tiene su entrada a Mike.
 // Además Mike es un asistente de ahorro conversacional: si el usuario
 // pregunta cómo ahorrar más, no contesta de una vez, pregunta el motivo (con
 // sus metas como opciones), el monto y el plazo, y piensa con sus datos
 // reales para darle los parámetros (aporte mensual, recortes por categoría,
 // plazo) con un botón para armar el plan en Metas. Y siempre está activo:
-// con `nudge` interviene solo con tarjetas suaves junto al botón (qué quiere
-// registrar, presupuesto cerca de su límite, plan de ahorro en riesgo), una
-// sola vez por sesión cada aviso, con × para descartar, nunca un popup que
-// bloquee. El saludo de entrada tiene prioridad sobre los avisos.
+// con `nudge` interviene solo con una burbujita arriba de la estrella (qué
+// quiere registrar, presupuesto cerca de su límite, plan de ahorro en
+// riesgo), una sola vez por sesión cada aviso, con × para descartar, nunca
+// un popup que bloquee. El saludo de entrada tiene prioridad sobre los
+// avisos.
+// Posición de la estrella de Mike. Se guarda en el dispositivo
+// (localStorage "sf-help-fab-pos") como coordenadas en píxeles desde la
+// esquina superior izquierda de la ventana; null = posición por defecto
+// (abajo a la derecha). Siempre se limita a la ventana visible, para que
+// la estrella nunca quede fuera de la pantalla ni bajo la barra del
+// sistema (se reserva el área segura inferior en la posición por defecto).
+const FAB_POS_KEY = "sf-help-fab-pos";
+const FAB_SIZE = 48;
+function clampFabPos(x: number, y: number): { x: number; y: number } {
+  const vw = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : 390;
+  const vh = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 844;
+  return { x: Math.max(8, Math.min(x, vw - FAB_SIZE - 8)), y: Math.max(8, Math.min(y, vh - FAB_SIZE - 8)) };
+}
+function loadFabPos(): { x: number; y: number } | null {
+  try {
+    const raw = localStorage.getItem(FAB_POS_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { x?: unknown; y?: unknown };
+    if (typeof v.x !== "number" || typeof v.y !== "number" || !isFinite(v.x) || !isFinite(v.y)) return null;
+    return clampFabPos(v.x, v.y);
+  } catch { return null; }
+}
 export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, greeting, onDismissGreeting, overview, nudge, onDismissNudge, hidden }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void; dynamicFaqs?: HelpFaq[]; greeting?: { text: string; personal?: string | null } | null; onDismissGreeting?: () => void; overview?: OverviewData | null; nudge?: HelpNudge | null; onDismissNudge?: () => void; hidden?: boolean }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const tipAddedRef = useRef(false);
   const setOpen = (v: boolean) => { if (!v) tipAddedRef.current = false; if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
   const [input, setInput] = useState("");
-  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Hola, soy Mike. Le ayudo con su dinero: le digo en qué gasta de más, cómo ahorrar más y le doy tips." }]);
-  // Al abrir el chat, después de la presentación, Mike da un tip corto de
-  // dinero con datos reales (una sola vez por apertura; al cerrar se
-  // reinicia para la próxima vez).
+  // El chat abre limpio, sin mensaje de presentación ni preguntas listadas:
+  // la presentación de Mike vive en la burbuja arriba de la estrella. Solo
+  // la caja de texto y, mientras el usuario escribe, las predicciones.
+  const [msgs, setMsgs] = useState<HelpMsg[]>([]);
+  // Al abrir el chat, Mike da un tip corto de dinero con datos reales (una
+  // sola vez por apertura; al cerrar se reinicia para la próxima vez).
   useEffect(() => {
     if (!open || !overview || tipAddedRef.current) return;
     const tip = moneyTip(overview);
@@ -571,7 +598,12 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
   // plazo en la memoria del chat y piensa con los datos reales.
   const [wizard, setWizard] = useState<WizardState | null>(null);
   const allFaqs = useMemo(() => [...HELP_FAQS, ...(dynamicFaqs ?? [])], [dynamicFaqs]);
-  const suggestions = useMemo(()=> wizard ? [] : input.trim().length < 2 ? defaultHelpSuggestions(allFaqs, dynamicFaqs ?? []) : predictHelp(input, allFaqs, 5, freq), [input, allFaqs, freq, wizard, dynamicFaqs]);
+  // Preguntas predictivas: solo aparecen mientras el usuario escribe
+  // (predictHelp devuelve [] con menos de 2 caracteres). Al abrir el chat
+  // no se lista nada: ni las dinámicas ni las de uso. Al escribir "gasto",
+  // "ahorr" o "meta" salen las que coinciden, incluidas las dinámicas con
+  // cifras reales y la entrada al asistente de ahorro ("¿Cómo ahorro más?").
+  const suggestions = useMemo(()=> wizard ? [] : predictHelp(input, allFaqs, 5, freq), [input, allFaqs, freq, wizard]);
   const ask = (text: string) => {
     const q = text.trim(); if (!q) return;
     setInput("");
@@ -610,42 +642,92 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
     recordHelpQuestion(q);
     setFreq(frequentQuestions(loadHelpLearning()));
   };
-  // El botón flotante se ve siempre que el chat está cerrado (antes solo
-  // aparecía con saludo o aviso: sin saludo ni aviso no había botón). La
-  // estrella lleva un foco encima y un pulso cuando Mike tiene una
-  // idea, una pregunta o un aviso para el usuario.
+  // La estrella se arrastra con el dedo (o el ratón): al soltar queda donde
+  // el usuario la dejó y la posición se guarda en el dispositivo. Un toque
+  // (menos de 8 px de movimiento) abre el chat; arrastrar no lo abre. La
+  // estrella es estática: no rebota ni pulsa. El foco encima es solo un
+  // aviso estático de que Mike tiene una idea, una pregunta o un aviso.
+  const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(() => loadFabPos());
+  const fabRef = useRef<HTMLButtonElement | null>(null);
+  const fabDrag = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
+  const fabClickGuard = useRef(false);
+  const onFabPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const r = fabRef.current?.getBoundingClientRect();
+    const orig = fabPos ?? (r ? { x: r.left, y: r.top } : { x: 0, y: 0 });
+    fabDrag.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origX: orig.x, origY: orig.y, moved: false };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* sin captura, el arrastre sigue con los eventos del botón */ }
+  };
+  const onFabPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = fabDrag.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    const dx = e.clientX - d.startX, dy = e.clientY - d.startY;
+    if (Math.abs(dx) + Math.abs(dy) > 8) d.moved = true;
+    if (!d.moved) return;
+    setFabPos(clampFabPos(d.origX + dx, d.origY + dy));
+  };
+  const onFabPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const d = fabDrag.current;
+    fabDrag.current = null;
+    if (!d) return;
+    if (d.moved) {
+      fabClickGuard.current = true;
+      const p = clampFabPos(d.origX + (e.clientX - d.startX), d.origY + (e.clientY - d.startY));
+      setFabPos(p);
+      try { localStorage.setItem(FAB_POS_KEY, JSON.stringify(p)); } catch { /* sin almacenamiento, la posición no se guarda */ }
+    }
+  };
+  const onFabPointerCancel = () => { fabDrag.current = null; };
+  const onFabClick = () => {
+    if (fabClickGuard.current) { fabClickGuard.current = false; return; }
+    setOpen(true);
+  };
+  // Si la ventana cambia de tamaño (giro del celular), la posición guardada
+  // se limita de nuevo a la ventana visible.
+  useEffect(() => {
+    const onResize = () => setFabPos(cur => (cur ? clampFabPos(cur.x, cur.y) : cur));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  // La burbuja de saludo o aviso va arriba de la estrella, como un globo de
+  // idea; si la estrella está arriba de la pantalla, la burbuja va abajo de
+  // ella para no salirse. Se alinea al lado con más espacio.
+  const vw = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : 390;
+  const fabCenterX = fabPos ? fabPos.x + FAB_SIZE / 2 : vw - 16 - FAB_SIZE / 2;
+  const bubbleBelow = fabPos ? fabPos.y < 170 : false;
+  const bubbleRight = fabCenterX > vw / 2;
   const hasIdea = Boolean(greeting || nudge);
+  // Una sola burbuja: el saludo tiene prioridad sobre los avisos.
+  const bubble = greeting
+    ? { kind: "greeting" as const, text: greeting.text, personal: greeting.personal ?? null, actions: [] as { label: string; ask?: string; go?: Tab }[] }
+    : nudge
+      ? { kind: "nudge" as const, text: nudge.text, personal: null as string | null, actions: nudge.actions }
+      : null;
+  const dismissBubble = () => { if (bubble?.kind === "greeting") onDismissGreeting?.(); else if (bubble?.kind === "nudge") onDismissNudge?.(); };
   return (
     <>
       {!open && !hidden && (
-        <div className="fixed right-4 z-40 flex items-end gap-2" style={{ bottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
-          {greeting && controlledOpen !== undefined && (
-            <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
-              <p className="text-[11px] font-bold tracking-widest text-[var(--gold-text)]">MIKE</p>
-              <p className="text-sm font-semibold mt-0.5">{greeting.text}</p>
-              {greeting.personal && <p className="text-xs text-[var(--dim)] mt-1">{greeting.personal}</p>}
-              <div className="flex gap-2 mt-2">
-                <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{ setOpen(true); ask("¿Me das un resumen del mes?"); }}>Resumen del mes</button>
-                <button type="button" aria-label="Descartar el saludo de Mike" onClick={()=>onDismissGreeting?.()} className={btnGhost}>×</button>
+        <div className="fixed z-40 w-12 h-12" style={fabPos ? { left: fabPos.x, top: fabPos.y } : { right: 16, bottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
+          {bubble && controlledOpen !== undefined && (
+            <div data-help-bubble role="status" className="absolute z-10 w-[min(240px,calc(100vw-24px))] rounded-2xl bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] shadow-lg px-3 py-2 cursor-pointer" style={bubbleBelow ? { top: "calc(100% + 10px)", ...(bubbleRight ? { right: 0 } : { left: 0 }) } : { bottom: "calc(100% + 10px)", ...(bubbleRight ? { right: 0 } : { left: 0 }) }} onClick={()=>{ setOpen(true); dismissBubble(); }}>
+              <span aria-hidden="true" className="absolute w-3 h-3 rotate-45 bg-[var(--surface)]" style={bubbleBelow ? { top: -6, ...(bubbleRight ? { right: 14 } : { left: 14 }) } : { bottom: -6, ...(bubbleRight ? { right: 14 } : { left: 14 }) }} />
+              <div className="flex items-start gap-1.5">
+                <p className="text-sm font-semibold flex-1">{bubble.text}</p>
+                <button type="button" aria-label={bubble.kind === "greeting" ? "Descartar el saludo de Mike" : "Descartar el aviso de Mike"} onClick={(e)=>{ e.stopPropagation(); dismissBubble(); }} className="shrink-0 w-6 h-6 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-base leading-none font-bold">×</button>
               </div>
+              {bubble.personal && <p className="text-xs text-[var(--dim)] mt-0.5">{bubble.personal}</p>}
+              {bubble.actions.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {bubble.actions.map(a=>(
+                    <button key={a.label} type="button" className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold" onClick={(e)=>{ e.stopPropagation(); if (a.ask) { setOpen(true); ask(a.ask); } else if (a.go && onGo) { setOpen(false); onGo(a.go); } dismissBubble(); }}>{a.label}</button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-          {!greeting && nudge && controlledOpen !== undefined && (
-            <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
-              <p className="text-[11px] font-bold tracking-widest text-[var(--gold-text)]">MIKE</p>
-              <p className="text-sm font-semibold mt-0.5">{nudge.text}</p>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {nudge.actions.map(a=>(
-                  <button key={a.label} type="button" className={a.ask ? btnPrimary : btnGhost} onClick={()=>{ if (a.ask) { setOpen(true); ask(a.ask); } else if (a.go && onGo) { setOpen(false); onGo(a.go); } onDismissNudge?.(); }}>{a.label}</button>
-                ))}
-                <button type="button" aria-label="Descartar el aviso de Mike" onClick={()=>onDismissNudge?.()} className={btnGhost}>×</button>
-              </div>
-            </div>
-          )}
-          <button type="button" data-help-fab aria-label={hasIdea ? "Abrir a Mike: tengo una idea para usted" : "Abrir a Mike"} onClick={()=>setOpen(true)} className={`relative w-12 h-12 rounded-full bg-[var(--gold)] text-[#13262E] shadow-xl flex items-center justify-center shrink-0 ${hasIdea ? "help-fab help-fab--idea" : "help-fab"}`}>
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+          <button ref={fabRef} type="button" data-help-fab aria-label={hasIdea ? "Abrir a Mike: tengo una idea para usted" : "Abrir a Mike"} onPointerDown={onFabPointerDown} onPointerMove={onFabPointerMove} onPointerUp={onFabPointerUp} onPointerCancel={onFabPointerCancel} onClick={onFabClick} className="help-fab-static relative w-12 h-12 rounded-full bg-[var(--gold)] text-[#13262E] shadow-xl flex items-center justify-center shrink-0">
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="w-6 h-6 pointer-events-none" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
             {hasIdea && (
-              <span data-help-badge="idea" aria-hidden="true" className="help-fab-badge absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#13262E] text-[var(--gold)] border-2 border-[var(--surface)] shadow flex items-center justify-center">
+              <span data-help-badge="idea" aria-hidden="true" className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-[#13262E] text-[var(--gold)] border-2 border-[var(--surface)] shadow flex items-center justify-center pointer-events-none">
                 <svg viewBox="0 0 24 24" className="w-3 h-3" fill="currentColor"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
               </span>
             )}
@@ -675,8 +757,11 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
               ))}
             </div>
             {suggestions.length > 0 && (
-              <div className="px-3 pb-2 flex flex-wrap gap-1.5">
-                {suggestions.map(s=><button key={s.q} type="button" className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold" onClick={()=>ask(s.q)}>{s.q}</button>)}
+              <div className="px-3 pb-2">
+                <p className="text-[11px] font-bold tracking-widest text-[var(--dim)] mb-1.5">PREGUNTAS RELACIONADAS</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestions.map(s=><button key={s.q} type="button" className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold" onClick={()=>ask(s.q)}>{s.q}</button>)}
+                </div>
               </div>
             )}
             <form className="flex gap-2 p-3 border-t border-[var(--border)]" onSubmit={(e:FormEvent)=>{ e.preventDefault(); ask(input); }}>
