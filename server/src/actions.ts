@@ -2008,7 +2008,7 @@ export const Actions = {
 
   setTandaPayment: defineAction({
     description: "Marks a participant's payment for one period as paid or pending, optionally attaching the deposit/transfer proof photo (stored as a blob, key only in DB). Marking paid with a proof still requires organizer verification before it displays as verified. No real charge is made.",
-    request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), quincenaIndex: z.number().int().min(0), status: z.enum(["paid","pending","late"]), proof: z.object({ dataBase64: z.string(), mimeType: z.string() }).optional() }),
+    request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), quincenaIndex: z.number().int().min(0), status: z.enum(["paid","pending","late"]), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), proof: z.object({ dataBase64: z.string(), mimeType: z.string() }).optional() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
@@ -2021,9 +2021,12 @@ export const Actions = {
       const rows = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId, args.tandaId));
       const mine = rows.find(r=>r.participantId===args.participantId && r.quincenaIndex===args.quincenaIndex);
       const today = new Date(); const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+      // Fecha de pago leída del comprobante (opcional): si viene y es válida
+      // se guarda; si no, se conserva la anterior o se usa hoy.
+      const paidDateArg = args.paidDate && !Number.isNaN(new Date(args.paidDate + "T00:00:00").getTime()) ? args.paidDate : null;
       const status = proofBlobKey ? "paid" as const : args.status;
-      if (mine) { await db.update(schema.tandaPayments).set({ status, paidDate: status==="paid"? (mine.paidDate || todayStr) : null, ...(proofBlobKey?{ proofBlobKey, verified: 0 }:{}), ...(status==="pending"?{ verified: 0 }:{}) }).where(eq(schema.tandaPayments.id, mine.id)); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
-      const [r] = await db.insert(schema.tandaPayments).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: args.participantId, quincenaIndex: args.quincenaIndex, status, paidDate: status==="paid"? todayStr : null, proofBlobKey: proofBlobKey ?? null, verified: 0 }).returning({ id: schema.tandaPayments.id });
+      if (mine) { await db.update(schema.tandaPayments).set({ status, paidDate: status==="paid"? (paidDateArg ?? mine.paidDate ?? todayStr) : null, ...(proofBlobKey?{ proofBlobKey, verified: 0 }:{}), ...(status==="pending"?{ verified: 0 }:{}) }).where(eq(schema.tandaPayments.id, mine.id)); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
+      const [r] = await db.insert(schema.tandaPayments).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: args.participantId, quincenaIndex: args.quincenaIndex, status, paidDate: status==="paid"? (paidDateArg ?? todayStr) : null, proofBlobKey: proofBlobKey ?? null, verified: 0 }).returning({ id: schema.tandaPayments.id });
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
     },
   }),

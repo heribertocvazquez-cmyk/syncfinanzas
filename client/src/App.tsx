@@ -1121,7 +1121,31 @@ export function App(){
   const setCard=useMutation({mutationFn:async(v:{id:number;cardLast4:string})=>await api.setParticipantCard(v),onSuccess:inv});
   const drawTanda=useMutation({mutationFn:async(v:{id:number;mode:"random"|"weighted"})=>await api.drawTanda({tandaId:v.id,mode:v.mode}),onSuccess:inv});
   const setPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;status:"paid"|"pending"|"late"})=>await api.setTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
-  const uploadProof=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;file:File})=>{ const r=await fileToBase64(v.file); return await api.setTandaPayment({householdId:data!.household!.id,tandaId:v.tandaId,participantId:v.participantId,quincenaIndex:v.quincenaIndex,status:"paid",proof:{dataBase64:r.dataBase64,mimeType:r.mimeType}}); },onSuccess:inv});
+  const uploadProof=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;file:File;paidDate?:string})=>{ const r=await fileToBase64(v.file); return await api.setTandaPayment({householdId:data!.household!.id,tandaId:v.tandaId,participantId:v.participantId,quincenaIndex:v.quincenaIndex,status:"paid",paidDate:v.paidDate,proof:{dataBase64:r.dataBase64,mimeType:r.mimeType}}); },onSuccess:inv});
+  // Revisión del comprobante de pago de tanda antes de guardar: se sube la
+  // foto del depósito, la lectura llena importe y fecha, y la persona revisa
+  // antes de confirmar. El importe leído se compara con el pago de la tanda;
+  // la fecha leída se guarda como fecha de pago (si no se lee, queda hoy).
+  // Nada se guarda sin revisar: el comprobante solo se sube al confirmar.
+  type TandaProofReview = { tandaId:number; participantId:number; participantName:string; quincenaIndex:number; file:File; preview:string; detail:ReceiptRead|null; paidDate:string; busy:boolean; error:string; notice:string };
+  const [tandaProofReview,setTandaProofReview]=useState<TandaProofReview|null>(null);
+  const pickTandaProof=async(v:{tandaId:number;participantId:number;participantName:string;quincenaIndex:number;file:File})=>{
+    const preview=URL.createObjectURL(v.file);
+    setTandaProofReview({...v,preview,detail:null,paidDate:todayISO(),busy:true,error:"",notice:""});
+    try{
+      const jpeg=await imageFileToJpeg(v.file);
+      const text=await readReceiptText(`data:${jpeg.mimeType};base64,${jpeg.dataBase64}`);
+      const parsed=parseReceiptText(text);
+      if(parsed.total==null){ setTandaProofReview(r=>r?{...r,busy:false,error:"No se pudo leer el total del comprobante. Puede confirmar el pago con la foto; el organizador lo verifica."}:r); return; }
+      setTandaProofReview(r=>r?{...r,detail:parsed,paidDate:parsed.date||todayISO(),busy:false,notice:`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de confirmar.`}:r);
+    }catch{
+      setTandaProofReview(r=>r?{...r,busy:false,error:"No se pudo leer el comprobante en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica."}:r);
+    }
+  };
+  const confirmTandaProof=()=>{
+    const r=tandaProofReview; if(!r) return;
+    uploadProof.mutate({tandaId:r.tandaId,participantId:r.participantId,quincenaIndex:r.quincenaIndex,file:r.file,paidDate:r.paidDate},{onSuccess:()=>{ setTandaProofReview(null); setSavedNotice("Pago registrado con comprobante."); }});
+  };
   const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
   const createTandaInv=useMutation({mutationFn:async(v:{tandaId:number})=>await api.createTandaInvitation({householdId:data!.household!.id,tandaId:v.tandaId,email:tInvEmail[v.tandaId]||"",invitedName:tInvName[v.tandaId]||undefined}),onSuccess:(r,v)=>{inv();setTInvResult(p=>({...p,[v.tandaId]:{emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}}));setTInvEmail(p=>({...p,[v.tandaId]:""}));setTInvName(p=>({...p,[v.tandaId]:""}));}});
   const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:inv});
@@ -1826,6 +1850,15 @@ export function App(){
               {voiceNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{voiceNoticeMv}</p>}
               {appliedRuleMv && <p className="text-xs text-[var(--dim)] mt-1">Regla aplicada: «{appliedRuleMv.keyword}» → {appliedRuleMv.categoryName}. Puede cambiarla en el paso 2.</p>}</div>
               <div><Label htmlFor="mv-account">{mvType==="income"?"¿A qué cuenta entra?":mvType==="transfer"?"¿De qué cuenta sale?":"¿De dónde se descuenta?"}</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>setMvAccount(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
+              {ocrDetailMv && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+                <p className="text-sm font-bold">¿Este movimiento es Compartido o Privado?</p>
+                <p className="text-xs text-[var(--dim)]">Revise antes de guardar: lo compartido lo ven todos; lo privado solo usted.</p>
+                <div className="grid grid-cols-2 gap-1.5 mt-2" role="group" aria-label="Visibilidad del movimiento leído">
+                  <button type="button" aria-label="Movimiento compartido" onClick={()=>setMvVis("shared")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="shared"?"bg-[var(--green)] text-white":"border border-[var(--border)]"}`}>Compartido</button>
+                  <button type="button" aria-label="Movimiento privado" onClick={()=>setMvVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
+                </div>
+                <p className="text-xs text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos.":"Solo usted lo ve."}</p>
+              </div>}
               {mvType==="transfer" && <div><Label htmlFor="mv-to">Cuenta destino</Label><select id="mv-to" aria-label="Cuenta destino" className={inputCls} value={mvToAccount} onChange={e=>setMvToAccount(e.target.value)}><option value="">Seleccione…</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>}
               <div>
                 <button type="button" aria-expanded={mvMore} aria-label={mvMore?"Ocultar más opciones del movimiento":"Mostrar más opciones del movimiento"} onClick={()=>setMvMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{mvMore?"▾ Ocultar más opciones":"▸ Más opciones"}</button>
@@ -2587,7 +2620,7 @@ export function App(){
                                 <span className="block">{pt.name}: {verified?`Pago verificado${pay?.paidDate?` · pagó el ${fmtDate(pay.paidDate)}`:""}`:paid?`Pagado, en revisión${pay?.proofUrl?" (con comprobante)":" (sin comprobante)"}${pay?.paidDate?` · ${fmtDate(pay.paidDate)}`:""}`:"Pendiente"}</span>
                                 <span className="flex flex-wrap gap-1 mt-1.5">
                                   {pay?.proofUrl && <span className="flex items-center gap-1"><img src={pay.proofUrl} alt={`Comprobante de pago de ${pt.name} periodo ${c.index+1}`} className="w-8 h-8 object-cover rounded-md border border-[var(--border)]" /><button aria-label={`Ver comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setReceiptView(pay.proofUrl)}>Ver comprobante</button></span>}
-                                  {(p.canTreasury || p.isOwn(pt.id)) && <label className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)] cursor-pointer" aria-label={`Subir comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`}>{pay?.proofUrl?"Cambiar comprobante":"Subir comprobante"}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de ${pt.name} periodo ${c.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) uploadProof.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,file:f}); e.target.value=""; }} /></label>}
+                                  {(p.canTreasury || p.isOwn(pt.id)) && <label className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)] cursor-pointer" aria-label={`Subir comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`}>{pay?.proofUrl?"Cambiar comprobante":"Subir comprobante"}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de ${pt.name} periodo ${c.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) void pickTandaProof({tandaId:td.id,participantId:pt.id,participantName:pt.name,quincenaIndex:c.index,file:f}); e.target.value=""; }} /></label>}
                                   {!verified && p.canTreasury && <button aria-label={`Verificar y confirmar el pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--green)] text-white rounded-full px-2 py-1 font-bold" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:true})}>Verificar pago</button>}
                                   {verified && p.canTreasury && <button aria-label={`Retirar la verificación del pago de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>verifyPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,verified:false})}>Retirar verificación</button>}
                                   {(p.canTreasury || p.isOwn(pt.id)) && <button aria-label={`${paid?"Marcar pendiente":"Marcar pagado sin comprobante"} a ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:pt.id,quincenaIndex:c.index,status:paid?"pending":"paid"})}>{paid?"Marcar pendiente":"Marcar pagado"}</button>}
@@ -2598,6 +2631,31 @@ export function App(){
                           })}
                           {td.participants.length===0 && <span className="text-xs text-[var(--dim)]">Agregue participantes.</span>}
                         </div>
+                        {tandaProofReview && tandaProofReview.tandaId===td.id && tandaProofReview.quincenaIndex===c.index && (
+                          <div className="mt-3 border border-[var(--gold)] rounded-2xl p-4 bg-[var(--surface2)] space-y-2">
+                            <p className="font-display font-bold text-sm">Revisar comprobante · {tandaProofReview.participantName} · Periodo {c.index+1}</p>
+                            <div className="flex items-center gap-2">
+                              <img src={tandaProofReview.preview} alt="Foto del comprobante del depósito" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" />
+                              <p className="text-sm">Pago de la tanda: <b className="whitespace-nowrap">{money(td.amountPerQuincena)}</b></p>
+                            </div>
+                            {tandaProofReview.busy && <p className="text-xs text-[var(--dim)]">Leyendo el comprobante en su dispositivo…</p>}
+                            {tandaProofReview.error && <p className="text-xs text-[var(--red)]">{tandaProofReview.error}</p>}
+                            {tandaProofReview.notice && <p className="text-xs text-[var(--green)]">{tandaProofReview.notice}</p>}
+                            {tandaProofReview.detail && <>
+                              <div className="flex justify-between gap-2 text-sm"><span className="text-[var(--dim)]">Importe leído</span><b className="whitespace-nowrap">{money2(tandaProofReview.detail.total ?? 0)}</b></div>
+                              {tandaProofReview.detail.total != null && Math.abs(tandaProofReview.detail.total - td.amountPerQuincena) > 0.51
+                                ? <p className="text-xs font-bold text-[var(--red)]">El importe leído no coincide con el pago de la tanda ({money(td.amountPerQuincena)}). Revise antes de confirmar.</p>
+                                : <p className="text-xs text-[var(--green)]">El importe leído coincide con el pago de la tanda.</p>}
+                              <OcrDetail detail={tandaProofReview.detail} />
+                            </>}
+                            <div><Label htmlFor="tanda-proof-date">Fecha del pago</Label><input id="tanda-proof-date" aria-label="Fecha del pago de tanda" type="date" required className={inputCls} value={tandaProofReview.paidDate} onChange={e=>setTandaProofReview(r=>r?{...r,paidDate:e.target.value}:r)} /></div>
+                            <div className="flex gap-2">
+                              <button type="button" className={btnPrimary+" flex-1"} disabled={uploadProof.isPending || tandaProofReview.busy} onClick={confirmTandaProof}>{uploadProof.isPending?"Guardando…":"Confirmar pago"}</button>
+                              <button type="button" className={btnGhost} onClick={()=>setTandaProofReview(null)}>Cancelar</button>
+                            </div>
+                            {uploadProof.error && <p className="text-xs text-[var(--red)]">{String(uploadProof.error)}</p>}
+                          </div>
+                        )}
                       </div>
                     );})}
                   </div>
