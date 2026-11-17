@@ -1,5 +1,6 @@
 // Ayudante de uso: respuestas preparadas + respuestas dinámicas con datos
-// reales + revisión de movimientos + aprendizaje en el dispositivo.
+// reales + revisión de movimientos + aprendizaje en el dispositivo +
+// asistente de ahorro conversacional + avisos proactivos.
 // Sin servicios externos, sin claves, sin costo, sin SQL nuevo.
 //
 // Lo que aprende el Ayudante y dónde se guarda (todo en el navegador):
@@ -15,7 +16,8 @@
 import type { Tab } from "../App";
 import type { api } from "../api";
 
-export type HelpMsg = { from: "user" | "bot"; text: string; go?: Tab; goLabel?: string };
+export type HelpOption = { label: string; send: string };
+export type HelpMsg = { from: "user" | "bot"; text: string; go?: Tab; goLabel?: string; options?: HelpOption[] };
 export type HelpFaq = { keys: string[]; q: string; a: string; go?: Tab; goLabel?: string };
 // Los datos del hogar ya cargados por la app (getOverview). Los movimientos
 // de esa lista ya vienen filtrados por el servidor: cada usuario ve solo los
@@ -163,13 +165,13 @@ export function aboveAvgCats(ov: OverviewData, month: string): AboveAvgCat[] {
   return out.sort((a, b) => (b.spent - b.avg) - (a.spent - a.avg));
 }
 
-export type GoalLine = { name: string; saved: number; target: number; pct: number; monthlyAmount: number | null; monthsLeft: number | null; projectedDate: string | null; status: "al corriente" | "atrasada" | "en riesgo" | "sin plan" };
+export type GoalLine = { id: number; name: string; saved: number; target: number; pct: number; monthlyAmount: number | null; monthsLeft: number | null; projectedDate: string | null; status: "al corriente" | "atrasada" | "en riesgo" | "sin plan" };
 export function goalLines(ov: OverviewData): GoalLine[] {
   return ov.goals.map(g => {
     const plan = ov.goalPlans.find(p => p.goalId === g.id);
-    if (!plan) return { name: g.name, saved: g.savedAmount, target: g.targetAmount, pct: g.pct, monthlyAmount: null, monthsLeft: null, projectedDate: null, status: "sin plan" as const };
+    if (!plan) return { id: g.id, name: g.name, saved: g.savedAmount, target: g.targetAmount, pct: g.pct, monthlyAmount: null, monthsLeft: null, projectedDate: null, status: "sin plan" as const };
     const status = plan.atRisk ? "en riesgo" as const : plan.onTrack ? "al corriente" as const : "atrasada" as const;
-    return { name: g.name, saved: g.savedAmount, target: g.targetAmount, pct: g.pct, monthlyAmount: plan.monthlyAmount, monthsLeft: plan.monthsLeft, projectedDate: plan.projectedDate, status };
+    return { id: g.id, name: g.name, saved: g.savedAmount, target: g.targetAmount, pct: g.pct, monthlyAmount: plan.monthlyAmount, monthsLeft: plan.monthsLeft, projectedDate: plan.projectedDate, status };
   });
 }
 
@@ -205,6 +207,12 @@ export function dynamicHelpFaqs(ov: OverviewData): HelpFaq[] {
   else if (top.length === 1) a2 = `Si recorta ${money(top[0]!.excess)} en ${top[0]!.name}, ahorraría ${money(top[0]!.excess)} al mes.`;
   else { const total = top.reduce((s, t) => s + t.excess, 0); a2 = `Si recorta ${top.map(t => `${money(t.excess)} en ${t.name}`).join(", ")}, ahorraría ${money(total)} al mes. Empiece por ${top[0]!.name}, que es el mayor exceso.`; }
   faqs.push({ keys: ["donde puedo ahorrar", "puedo ahorrar", "como puedo ahorrar", "como ahorrar", "donde ahorrar", "ahorrar"], q: "¿Dónde puedo ahorrar?", a: a2, go: "presupuestos", goLabel: "Ir a Presupuestos" });
+
+  // El asistente de ahorro conversacional: «cómo ahorrar más» no contesta
+  // de una vez, abre el asistente que pregunta el motivo, el monto y el
+  // plazo (ver wizardStep). Su respuesta preparada es solo un respaldo, el
+  // chat intercepta la pregunta antes de contestarla.
+  faqs.push({ keys: ["como ahorro mas", "quiero ahorrar", "ahorrar mas", "ayudame a ahorrar", "quiero ahorrar mas"], q: "¿Cómo ahorro más?", a: "Le ayudo a armar su plan paso a paso. ¿Para qué quiere ahorrar?", go: "metas", goLabel: "Ir a Metas" });
 
   let a3: string;
   if (goals.length === 0) a3 = "Aún no tiene metas de ahorro. Cree una en Metas y arme su plan de ahorro.";
@@ -351,4 +359,175 @@ export function buildGreeting(ov: OverviewData, l: HelpLearning): { text: string
   const top = topHelpQuestion(l);
   if (top) return { text, personal: `Usted suele preguntar por «${top}».` };
   return { text, personal: null };
+}
+
+// ---- Asistente de ahorro conversacional (el «mago») ----
+// Conversación de varios turnos dentro del chat: cuando el usuario pregunta
+// cómo ahorrar más o que quiere ahorrar, el Ayudante no contesta de una
+// vez: pregunta el motivo (ofrece sus metas como opciones rápidas o una
+// meta nueva), luego el monto y el plazo, y después piensa con sus datos
+// reales y le da los parámetros: aporte mensual, recortes sugeridos por
+// categoría y plazo. La cuenta es la misma del plan de ahorro del servidor
+// (ingreso, compromisos fijos y gasto promedio de los últimos 3 meses): el
+// chat llama a la acción analyzeGoalPlan que ya existe, sin SQL nuevo.
+// El estado del asistente vive en la memoria del chat (no se guarda en la
+// base); si el usuario escribe Cancelar, se cierra sin más.
+export type WizardStep = "motive" | "amount" | "deadline";
+export type WizardState = { step: WizardStep; goalId: number | null; goalName: string; targetAmount: number | null; savedAmount: number; months: number | null };
+const WIZARD_CANCEL: HelpOption = { label: "Cancelar", send: "Cancelar" };
+
+export function matchSavingsWizard(input: string): boolean {
+  const n = normHelp(input);
+  if (!n) return false;
+  return n.includes("quiero ahorrar") || n.includes("ayudame a ahorrar") || n.includes("ayuda a ahorrar") || n.includes("ahorrar mas") || n.includes("ahorro mas");
+}
+
+// Pregunta inicial del asistente: el motivo, con sus metas como opciones.
+export function wizardMotive(ov: OverviewData): { text: string; options: HelpOption[] } {
+  const goals = ov.goals.slice(0, 4);
+  const options: HelpOption[] = goals.map(g => ({ label: g.name, send: g.name }));
+  options.push({ label: "Una meta nueva", send: "Una meta nueva" });
+  options.push(WIZARD_CANCEL);
+  return { text: "Claro, le ayudo a ahorrar. ¿Para qué quiere ahorrar?", options };
+}
+
+export function wizardParseAmount(input: string): number | null {
+  const n = normHelp(input);
+  if (!n) return null;
+  const m = input.replace(/[$\s]/g, "").match(/(\d[\d.,]*)/);
+  if (!m) return null;
+  const v = parseFloat(m[1]!.replace(/,/g, "")) * (n.includes("mil") ? 1000 : 1);
+  if (!(v > 0) || v > 100000000) return null;
+  return Math.round(v);
+}
+
+export function wizardParseMonths(input: string): number | null {
+  const n = normHelp(input);
+  const m = n.match(/(\d+)/);
+  if (!m) return null;
+  const v = parseInt(m[1]!, 10);
+  return v >= 1 && v <= 60 ? v : null;
+}
+
+export type PlanAnalysis = { monthlyAmount: number; months: number; surplus: number; income: number; fixedCommitments: number; avgMonthlyExpense: number; feasible: boolean; cutSuggestions: { name: string; suggestedCut: number }[]; extendedMonths: number; extendedMonthly: number; remaining: number };
+export type WizardThink = { name: string; targetAmount: number; savedAmount: number; months: number; goalId: number | null };
+export type WizardStepResult = { text: string; options?: HelpOption[]; next: WizardState | null; think?: WizardThink };
+
+export function wizardStep(ov: OverviewData, w: WizardState, input: string): WizardStepResult {
+  const q = input.trim();
+  const n = normHelp(q);
+  if (n === "cancelar" || n.startsWith("cancelar ")) return { text: "De acuerdo, lo dejamos por ahora. ¿En qué más le ayudo?", next: null };
+  if (w.step === "motive") {
+    const matched = ov.goals.find(g => {
+      const gn = normHelp(g.name);
+      if (gn.length < 3 || n.length < 3) return n === gn;
+      return n === gn || n.includes(gn) || gn.includes(n);
+    });
+    if (matched) {
+      const remaining = Math.round((matched.targetAmount - matched.savedAmount) * 100) / 100;
+      if (remaining <= 0) return { text: `Su meta «${matched.name}» ya está cubierta: lleva ${money(matched.savedAmount)} de ${money(matched.targetAmount)}.`, next: null };
+      return {
+        text: `Su meta «${matched.name}» lleva ${money(matched.savedAmount)} de ${money(matched.targetAmount)}. ¿Para cuándo quiere tener el resto?`,
+        options: [{ label: "3 meses", send: "3 meses" }, { label: "6 meses", send: "6 meses" }, { label: "12 meses", send: "12 meses" }, WIZARD_CANCEL],
+        next: { step: "deadline", goalId: matched.id, goalName: matched.name, targetAmount: matched.targetAmount, savedAmount: matched.savedAmount, months: null },
+      };
+    }
+    if (n.includes("meta nueva") || n.includes("nueva meta")) {
+      return { text: "¿Cuánto quiere ahorrar?", options: [WIZARD_CANCEL], next: { step: "amount", goalId: null, goalName: "", targetAmount: null, savedAmount: 0, months: null } };
+    }
+    return { text: `«${q}» es una buena meta. ¿Cuánto quiere ahorrar para eso?`, options: [WIZARD_CANCEL], next: { step: "amount", goalId: null, goalName: q, targetAmount: null, savedAmount: 0, months: null } };
+  }
+  if (w.step === "amount") {
+    const amount = wizardParseAmount(q);
+    if (amount == null) return { text: "No entendí el monto. Escríbalo en pesos, por ejemplo 20000.", options: [WIZARD_CANCEL], next: w };
+    const name = w.goalName || "Su meta";
+    return {
+      text: `Para ahorrar ${money(amount)} para «${name}», ¿en cuántos meses quiere lograrlo?`,
+      options: [{ label: "3 meses", send: "3 meses" }, { label: "6 meses", send: "6 meses" }, { label: "12 meses", send: "12 meses" }, WIZARD_CANCEL],
+      next: { step: "deadline", goalId: null, goalName: name, targetAmount: amount, savedAmount: 0, months: null },
+    };
+  }
+  const months = wizardParseMonths(q);
+  if (months == null) return { text: "¿En cuántos meses? Por ejemplo 6.", options: [{ label: "3 meses", send: "3 meses" }, { label: "6 meses", send: "6 meses" }, { label: "12 meses", send: "12 meses" }, WIZARD_CANCEL], next: w };
+  return {
+    text: "Déjeme calcularlo con sus datos…",
+    next: null,
+    think: { name: w.goalName, targetAmount: w.targetAmount ?? 0, savedAmount: w.savedAmount, months, goalId: w.goalId },
+  };
+}
+
+// Parámetros del plan, con la misma cuenta del plan de ahorro del servidor.
+export function wizardResultText(r: PlanAnalysis, goalName: string): string {
+  if (r.remaining <= 0) return `Su meta «${goalName}» ya está cubierta.`;
+  const parts = [`Para «${goalName}» necesita ahorrar ${money(r.monthlyAmount)} al mes durante ${r.months} meses.`];
+  parts.push(`Su sobrante es de ${money(r.surplus)} al mes: entran ${money(r.income)}, sus compromisos son ${money(r.fixedCommitments)} y gasta en promedio ${money(r.avgMonthlyExpense)} al mes.`);
+  if (r.feasible) parts.push("Con su sobrante le alcanza sin recortar nada.");
+  else {
+    parts.push(`Le faltan ${money(r.monthlyAmount - r.surplus)} al mes.`);
+    if (r.cutSuggestions.length > 0) parts.push(`Si recorta ${r.cutSuggestions.map(c => `${money(c.suggestedCut)} en ${c.name}`).join(", ")}, lo cubre.`);
+    if (r.extendedMonths > 0) parts.push(`O puede alargar el plazo a ${r.extendedMonths} meses con ${money(r.extendedMonthly)} al mes.`);
+  }
+  return parts.join(" ");
+}
+
+// ---- Avisos proactivos del Ayudante (siempre activo) ----
+// El botón flotante «?» ya está visible en toda la app; además el Ayudante
+// interviene solo, con tarjetas suaves junto al botón (nunca un popup que
+// bloquee, con × para descartar). Cada aviso se muestra una sola vez por
+// sesión (sessionStorage "sf-help-nudges"): al abrir Movimientos o Gasto
+// del día pregunta qué quiere registrar o subir; si un presupuesto está
+// cerca de su límite o ya se pasó, avisa; si un plan de ahorro está en
+// riesgo, sugiere revisarlo. El saludo de entrada sigue teniendo prioridad.
+export type HelpNudgeAction = { label: string; ask?: string; go?: Tab };
+export type HelpNudge = { id: string; text: string; actions: HelpNudgeAction[] };
+export const HELP_NUDGES_KEY = "sf-help-nudges";
+export function loadNudgeShown(): string[] {
+  try {
+    const raw = sessionStorage.getItem(HELP_NUDGES_KEY);
+    if (!raw) return [];
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch { return []; }
+}
+export function markNudgeShown(id: string): void {
+  try {
+    const ids = loadNudgeShown();
+    if (!ids.includes(id)) { ids.push(id); sessionStorage.setItem(HELP_NUDGES_KEY, JSON.stringify(ids)); }
+  } catch { /* sin almacenamiento, el aviso puede repetirse */ }
+}
+export function pickHelpNudge(ov: OverviewData, tab: Tab, shown: string[]): HelpNudge | null {
+  if (!ov.household) return null;
+  const month = ov.summary.currentMonth;
+  if (tab === "movimientos" && !shown.includes("register-movimientos")) {
+    return { id: "register-movimientos", text: "¿Qué quiere registrar? Un gasto, un ingreso o un comprobante.", actions: [
+      { label: "Un gasto", ask: "¿Cómo registro un gasto?" },
+      { label: "Un ingreso", ask: "¿Cómo registro un ingreso?" },
+      { label: "Un comprobante", ask: "¿Cómo leo un comprobante?" },
+    ] };
+  }
+  if (tab === "personal" && !shown.includes("register-personal")) {
+    return { id: "register-personal", text: "¿Qué quiere registrar? Un gasto, un ingreso o un comprobante.", actions: [
+      { label: "Un gasto", ask: "¿Cómo registro el gasto del día?" },
+      { label: "Un comprobante", ask: "¿Cómo leo un comprobante?" },
+    ] };
+  }
+  const over = ov.budgets.filter(b => b.month === month && b.amount > 0 && b.pct >= 90).sort((a, b) => b.pct - a.pct)[0];
+  if (over) {
+    const id = `budget-${month}-${over.categoryId}`;
+    if (!shown.includes(id)) {
+      const name = catName(ov, over.categoryId);
+      const text = over.pct >= 100
+        ? `El presupuesto de ${name} ya se pasó: gastó ${money(over.spent)} de ${money(over.amount)}.`
+        : `El presupuesto de ${name} está al ${over.pct}%: gastó ${money(over.spent)} de ${money(over.amount)}.`;
+      return { id, text, actions: [{ label: "Ir a Presupuestos", go: "presupuestos" }] };
+    }
+  }
+  const risky = goalLines(ov).find(g => g.status === "en riesgo" || g.status === "atrasada");
+  if (risky) {
+    const id = `goal-risk-${risky.id}`;
+    if (!shown.includes(id)) {
+      return { id, text: `Su plan de ahorro de «${risky.name}» está ${risky.status}. ¿Quiere revisarlo?`, actions: [{ label: "Ir a Metas", go: "metas" }] };
+    }
+  }
+  return null;
 }

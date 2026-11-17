@@ -8,7 +8,7 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, type HelpFaq, type HelpMsg } from "./lib/helpDynamic";
+import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
@@ -530,17 +530,57 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
 // del cajón, hasta abajo (el botón del encabezado se quitó para despejarlo).
 // Con `greeting`, al entrar a la app aparece un saludo suave una vez por
 // sesión, que se puede descartar; nunca bloquea la pantalla.
-function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, greeting, onDismissGreeting }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void; dynamicFaqs?: HelpFaq[]; greeting?: { text: string; personal?: string | null } | null; onDismissGreeting?: () => void }) {
+// Además el Ayudante es un asistente de ahorro conversacional: si el usuario
+// pregunta cómo ahorrar más, no contesta de una vez, pregunta el motivo (con
+// sus metas como opciones), el monto y el plazo, y piensa con sus datos
+// reales para darle los parámetros (aporte mensual, recortes por categoría,
+// plazo) con un botón para armar el plan en Metas. Y siempre está activo:
+// con `nudge` interviene solo con tarjetas suaves junto al botón (qué quiere
+// registrar, presupuesto cerca de su límite, plan de ahorro en riesgo), una
+// sola vez por sesión cada aviso, con × para descartar, nunca un popup que
+// bloquee. El saludo de entrada tiene prioridad sobre los avisos.
+function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, greeting, onDismissGreeting, overview, nudge, onDismissNudge }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void; dynamicFaqs?: HelpFaq[]; greeting?: { text: string; personal?: string | null } | null; onDismissGreeting?: () => void; overview?: OverviewData | null; nudge?: HelpNudge | null; onDismissNudge?: () => void }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
   const [input, setInput] = useState("");
-  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Bienvenido al Ayudante de uso. Escriba cualquier duda sobre la app y le ayudaré." }]);
+  const [msgs, setMsgs] = useState<HelpMsg[]>([{ from: "bot", text: "Bienvenido al Ayudante de uso. Escriba cualquier duda sobre la app y le ayudaré. Si quiere ahorrar más, pregúnteme «¿Cómo ahorro más?»." }]);
   const [freq, setFreq] = useState<Record<string, number>>(() => frequentQuestions(loadHelpLearning()));
+  // Asistente de ahorro conversacional: recuerda el motivo, el monto y el
+  // plazo en la memoria del chat y piensa con los datos reales.
+  const [wizard, setWizard] = useState<WizardState | null>(null);
   const allFaqs = useMemo(() => [...HELP_FAQS, ...(dynamicFaqs ?? [])], [dynamicFaqs]);
-  const suggestions = useMemo(()=>predictHelp(input, allFaqs, 5, freq), [input, allFaqs, freq]);
+  const suggestions = useMemo(()=> wizard ? [] : predictHelp(input, allFaqs, 5, freq), [input, allFaqs, freq, wizard]);
   const ask = (text: string) => {
     const q = text.trim(); if (!q) return;
+    setInput("");
+    // Asistente de ahorro activo: la respuesta avanza la conversación.
+    if (wizard && overview?.household) {
+      const res = wizardStep(overview, wizard, q);
+      setMsgs(m => [...m, { from: "user", text: q }, { from: "bot", text: res.text, options: res.options }]);
+      if (res.think) {
+        setWizard(null);
+        const think = res.think;
+        void api.analyzeGoalPlan({ householdId: overview.household.id, goalId: think.goalId ?? undefined, name: think.name, targetAmount: think.targetAmount, savedAmount: think.savedAmount, months: think.months }).then(
+          r => setMsgs(m => [...m, { from: "bot", text: wizardResultText(r, think.name), go: onGo ? "metas" : undefined, goLabel: "Armar el plan en Metas" }]),
+          () => setMsgs(m => [...m, { from: "bot", text: "No pude calcularlo ahora. Puede armar el plan en Metas, en Armar plan de ahorro.", go: onGo ? "metas" : undefined, goLabel: "Ir a Metas" }]),
+        );
+      } else {
+        setWizard(res.next);
+      }
+      recordHelpQuestion(q);
+      setFreq(frequentQuestions(loadHelpLearning()));
+      return;
+    }
+    // Nuevo asistente de ahorro: «cómo ahorrar más», «quiero ahorrar»…
+    if (overview?.household && matchSavingsWizard(q)) {
+      const start = wizardMotive(overview);
+      setMsgs(m => [...m, { from: "user", text: q }, { from: "bot", text: start.text, options: start.options }]);
+      setWizard({ step: "motive", goalId: null, goalName: "", targetAmount: null, savedAmount: 0, months: null });
+      recordHelpQuestion(q);
+      setFreq(frequentQuestions(loadHelpLearning()));
+      return;
+    }
     const found = findHelpAnswer(q, allFaqs);
     const reply: HelpMsg = found
       ? { from: "bot", text: found.a, go: found.go, goLabel: found.goLabel }
@@ -548,7 +588,6 @@ function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, 
     setMsgs(m => [...m, { from: "user", text: q }, reply]);
     recordHelpQuestion(q);
     setFreq(frequentQuestions(loadHelpLearning()));
-    setInput("");
   };
   return (
     <>
@@ -568,6 +607,20 @@ function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, 
           <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="w-14 h-14 rounded-full bg-[var(--gold)] text-[#13262E] font-display font-extrabold text-2xl shadow-lg flex items-center justify-center shrink-0">?</button>
         </div>
       )}
+      {!greeting && nudge && !open && controlledOpen !== undefined && (
+        <div className="fixed bottom-4 right-4 z-40 flex items-end gap-2">
+          <div className="bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] rounded-2xl p-3 shadow-lg max-w-[270px]">
+            <p className="text-sm font-semibold">{nudge.text}</p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {nudge.actions.map(a=>(
+                <button key={a.label} type="button" className={a.ask ? btnPrimary : btnGhost} onClick={()=>{ if (a.ask) { setOpen(true); ask(a.ask); } else if (a.go && onGo) { setOpen(false); onGo(a.go); } onDismissNudge?.(); }}>{a.label}</button>
+              ))}
+              <button type="button" aria-label="Descartar el aviso del ayudante" onClick={()=>onDismissNudge?.()} className={btnGhost}>×</button>
+            </div>
+          </div>
+          <button type="button" aria-label="Abrir el ayudante de uso" onClick={()=>setOpen(true)} className="w-14 h-14 rounded-full bg-[var(--gold)] text-[#13262E] font-display font-extrabold text-2xl shadow-lg flex items-center justify-center shrink-0">?</button>
+        </div>
+      )}
       {open && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Ayudante de uso" onClick={()=>setOpen(false)}>
           <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[82vh] flex flex-col overflow-hidden" onClick={e=>e.stopPropagation()}>
@@ -581,6 +634,11 @@ function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, 
                   <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.from==="user"?"bg-[var(--accent)] text-[var(--accent-text)]":"bg-[var(--surface2)]"}`}>
                     <p>{m.text}</p>
                     {m.from==="bot" && m.go && onGo && <button type="button" className={btnGhost+" mt-2"} onClick={()=>{ setOpen(false); onGo(m.go!); }}>{m.goLabel || "Ir"}</button>}
+                    {m.from==="bot" && m.options && i===msgs.length-1 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {m.options.map(o=><button key={o.label} type="button" className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[13px] font-semibold" onClick={()=>ask(o.send)}>{o.label}</button>)}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1046,6 +1104,18 @@ export function App(){
     return buildGreeting(data, helpLearning);
   }, [data, helpLearning, greetingDismissed]);
   const dismissGreeting = () => { try { sessionStorage.setItem(HELP_GREETED_KEY, "1"); } catch {} setGreetingDismissed(true); };
+  // Avisos proactivos del Ayudante: al abrir Movimientos o Gasto del día
+  // pregunta qué quiere registrar; si un presupuesto está cerca de su
+  // límite o un plan de ahorro está en riesgo, avisa. Cada aviso sale una
+  // sola vez por sesión (ver ./lib/helpDynamic) y se puede descartar.
+  const [activeNudge, setActiveNudge] = useState<HelpNudge | null>(null);
+  useEffect(() => {
+    if (!data?.household) return;
+    const n = pickHelpNudge(data, tab, loadNudgeShown());
+    if (n) { markNudgeShown(n.id); setActiveNudge(cur => (cur && cur.id === n.id ? cur : n)); }
+    else setActiveNudge(cur => (cur === null ? cur : null));
+  }, [data, tab]);
+  const dismissNudge = () => setActiveNudge(null);
   // El ayudante aprende del uso: al cargar el resumen, anota en el dispositivo
   // qué categorías se pasaron de presupuesto este mes y qué conceptos se
   // repiten (ver ./lib/helpDynamic). No se envía nada fuera del dispositivo.
@@ -2922,7 +2992,7 @@ export function App(){
         )}
       </main>
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
-      <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} dynamicFaqs={dynamicFaqs} greeting={greeting} onDismissGreeting={dismissGreeting} />
+      <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} dynamicFaqs={dynamicFaqs} greeting={greeting} onDismissGreeting={dismissGreeting} overview={data} nudge={activeNudge} onDismissNudge={dismissNudge} />
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">
