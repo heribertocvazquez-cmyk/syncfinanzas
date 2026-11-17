@@ -11,14 +11,32 @@
 // active (SKIP_WAITING) y recarga cuando toma el control. La sesión y los
 // datos no se tocan: viven en Supabase y la recarga solo cambia el código
 // de la aplicación.
+//
+// REVISIONES: además de al volver a la app, se revisa 3 veces al día
+// (cada 8 horas), al recuperar el foco, al restaurar la página y al abrir
+// la campanilla. Tres veces al día basta para avisar sin gastar recurso
+// ni memoria: cada revisión es solo una petición pequeña del archivo
+// sw.js, y en segundo plano los temporizadores se suspenden. El navegador
+// por su cuenta solo revisa una vez cada 24 h; estas revisiones usan
+// registration.update() explícito, que salta ese límite, igual que el
+// botón manual "Buscar actualizaciones".
 export const APP_UPDATE_EVENT = "sf-update-available";
 
 let registration: ServiceWorkerRegistration | null = null;
+let updateNotified = false;
 let updateApplied = false;
 let reloadScheduled = false;
 
 function notifyUpdateAvailable() {
+  updateNotified = true;
   window.dispatchEvent(new CustomEvent(APP_UPDATE_EVENT));
+}
+
+// Si el aviso ya se disparó antes de que la app montara su oyente (el
+// worker nuevo quedó en espera antes de que React montara), la app lo
+// puede consultar al arrancar en vez de esperar a que el evento llegue.
+export function isUpdateAvailable() {
+  return updateNotified || !!registration?.waiting;
 }
 
 function trackWorker(worker: ServiceWorker | null) {
@@ -56,6 +74,21 @@ export function registerAppServiceWorker() {
         // Revisar si hay versión nueva al volver a la app.
         document.addEventListener("visibilitychange", () => {
           if (!document.hidden) void checkForAppUpdate();
+        });
+        // Revisión periódica 3 veces al día (cada 8 horas): basta para
+        // avisar de una versión nueva sin gastar recurso ni memoria; en
+        // segundo plano los temporizadores se suspenden.
+        window.setInterval(() => {
+          void checkForAppUpdate();
+        }, 8 * 60 * 60 * 1000);
+        // Revisar también al recuperar el foco y al restaurar la página:
+        // en iPhone la PWA no recarga al reabrirla, así que la navegación
+        // no dispara la revisión.
+        window.addEventListener("focus", () => {
+          void checkForAppUpdate();
+        });
+        window.addEventListener("pageshow", () => {
+          void checkForAppUpdate();
         });
       })
       .catch(() => {

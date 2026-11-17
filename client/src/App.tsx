@@ -17,7 +17,7 @@ import guiaDecisionesPdf from "./assets/guia-decisiones-patrimonio.pdf";
 import guiaTandasPdf from "./assets/guia-tandas.pdf";
 import guiaConfiguracionPdf from "./assets/guia-configuracion-ayuda.pdf";
 import { APP_VERSION } from "./version";
-import { APP_UPDATE_EVENT, applyAppUpdate, checkForAppUpdate } from "./serviceWorkerUpdate";
+import { APP_UPDATE_EVENT, applyAppUpdate, checkForAppUpdate, isUpdateAvailable } from "./serviceWorkerUpdate";
 import { clearDeferredInstallPrompt, consumeDeferredInstallPrompt } from "./installPrompt";
 import appIcon512 from "./assets/app-icon-512.png";
 
@@ -781,6 +781,12 @@ export function App(){
   useEffect(()=>{
     const onUpdate=()=>setUpdateAvailable(true);
     window.addEventListener(APP_UPDATE_EVENT,onUpdate);
+    // Aviso "pegajoso": si el worker nuevo ya quedó en espera antes de
+    // que este oyente se montara, el aviso no se pierde hasta la siguiente
+    // revisión. También se revisa al abrir la app, por si hay una versión
+    // nueva esperando desde antes.
+    if(isUpdateAvailable()) setUpdateAvailable(true);
+    void checkForAppUpdate();
     return ()=>window.removeEventListener(APP_UPDATE_EVENT,onUpdate);
   },[]);
   // Correo de la sesión actual: solo el dueño de la app (Heriberto) ve el
@@ -836,6 +842,9 @@ export function App(){
     ? (unreadCount>0 ? `Notificaciones: ${unreadCount} sin leer y una nueva versión disponible` : "Notificaciones: hay una nueva versión disponible")
     : (unreadCount>0 ? `Notificaciones: ${unreadCount} sin leer` : "Notificaciones");
   const [notifOpen,setNotifOpen]=useState(false);
+  // Al abrir la campanilla se revisa si hay versión nueva: así el panel
+  // siempre muestra el estado real, sin depender de que el aviso llegara.
+  const toggleNotif=()=>{ if(!notifOpen) void checkForAppUpdate(); setNotifOpen((o)=>!o); };
   const markNotifRead=useMutation({mutationFn:async(id:number)=>await api.markNotificationRead({id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
   const markAllNotifRead=useMutation({mutationFn:async()=>await api.markAllNotificationsRead({householdId:data!.household!.id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
   const openNotif=(n:{id:number;target:string})=>{ void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); goTab(n.target as Tab); };
@@ -893,10 +902,11 @@ export function App(){
     if(!(await pinCheck(pinCurrent))){ setPinMsg("El PIN actual no coincide."); return; }
     pinRemove(); setPinSetState(false); setPinCurrent(""); setPinMsg("PIN quitado.");
   };
-  // Insignia del icono de la app instalada: número de avisos sin leer; se
-  // quita cuando ya no hay. Solo funciona en navegadores que la soportan
-  // (Android con Chrome y iPhone con iOS 16.4 o posterior).
-  useEffect(()=>{ try{ const nav=navigator as Navigator & { setAppBadge?: (n?:number)=>Promise<void>; clearAppBadge?: ()=>Promise<void> }; if(unreadCount>0) void nav.setAppBadge?.(unreadCount); else void nav.clearAppBadge?.(); }catch{} },[unreadCount]);
+  // Insignia del icono de la app instalada: número de avisos sin leer más
+  // la versión nueva en espera (bellCount); se quita cuando ya no hay.
+  // Solo funciona en navegadores que la soportan (Android con Chrome y
+  // iPhone con iOS 16.4 o posterior).
+  useEffect(()=>{ try{ const nav=navigator as Navigator & { setAppBadge?: (n?:number)=>Promise<void>; clearAppBadge?: ()=>Promise<void> }; if(bellCount>0) void nav.setAppBadge?.(bellCount); else void nav.clearAppBadge?.(); }catch{} },[bellCount]);
 
   // onboarding state
   const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;email:string;householdName:string;invitedName:string|null;kind:"household"|"tanda";tandaId:number|null;tandaName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500");
@@ -1675,7 +1685,7 @@ export function App(){
               <button type="button" aria-label="Ir a Inicio" aria-current={effTab==="inicio"?"page":undefined} onClick={()=>{goTab("inicio");setMenuOpen(false);window.setTimeout(()=>window.scrollTo({top:0,behavior:"smooth"}),60);}} className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--accent)] text-[var(--accent-text)] flex items-center justify-center">
                 <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
               </button>
-              <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={bellLabel} onClick={()=>setNotifOpen(o=>!o)}>
+              <button type="button" className="relative shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex items-center justify-center" aria-label={bellLabel} onClick={toggleNotif}>
                 <svg aria-hidden="true" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
                 {bellCount>0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-[var(--red)] text-white text-[11px] font-bold flex items-center justify-center">{bellCount>99?"99+":bellCount}</span>}
               </button>
