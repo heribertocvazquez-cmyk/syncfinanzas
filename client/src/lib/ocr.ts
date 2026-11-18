@@ -25,6 +25,28 @@
 // escalera (directo, directo sin SIMD, blob, blob sin SIMD) y guarda el
 // motivo real de cada intento en OcrError.detail, para que el siguiente
 // fallo diga exactamente qué se rompió.
+//
+// POR QUÉ SEGUÍA FALLANDO (2026-11-17, tercera ronda): con el worker
+// directo los archivos daban HTTP 200 y el worker arrancaba, pero se
+// quedaba colgado en "initializing tesseract" hasta el tiempo límite
+// (45 s) en los dos intentos directos, y los intentos blob daban
+// "undefined". La causa era la CSP: script-src 'self' NO permite
+// compilar WebAssembly — hace falta 'wasm-unsafe-eval' (CSP nivel 3;
+// Safari 16+, Chrome 97+, Firefox 102+). El núcleo del lector se
+// compila con WebAssembly.instantiateStreaming (o instantiate desde un
+// búfer) justo en "initializing tesseract": el navegador rechaza la
+// compilación dentro del worker, el worker nunca resuelve y la promesa
+// del hilo principal nunca se cumple, así que solo queda el tiempo
+// límite. Los datos del idioma vienen DESPUÉS ("initializing api" y
+// luego "loading language traineddata"), así que no eran el bloqueo.
+// El "undefined" de los intentos blob es otro síntoma de lo mismo:
+// tesseract.js rechaza la promesa del worker con el mensaje del evento
+// de error (worker.onerror = t => reject(t.message)), y cuando la carga
+// del script del worker se bloquea por CSP ese mensaje viene vacío.
+// La corrección es 'wasm-unsafe-eval' en script-src (solo permite
+// compilar WebAssembly; eval() de JavaScript sigue bloqueado), más una
+// comprobación rápida de WebAssembly antes de la escalera para que un
+// bloqueo así falle de inmediato con su motivo, en vez de colgarse.
 
 export type OcrProgress = { status: string; progress: number; downloadedMB?: number; totalMB?: number };
 
@@ -50,6 +72,51 @@ export class OcrError extends Error {
 // nunca se descarga.
 const CORE_MB = 3.95;
 const LANG_MB = 8.36;
+
+// Convierte cualquier valor rechazado en texto diagnóstico. Tesseract.js
+// rechaza a veces SIN valor (undefined): cuando la carga del script del
+// worker se bloquea, su onerror rechaza la promesa con el mensaje del
+// evento de error, y en Safari ese mensaje viene vacío, así que
+// `String(undefined)` era todo el diagnóstico ("blob: undefined").
+export function serializeErr(err: unknown): string {
+  if (err === undefined) return "rechazado sin valor (undefined)";
+  if (err === null) return "rechazado sin valor (null)";
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err) ?? String(err);
+  } catch {
+    return String(err);
+  }
+}
+
+// Comprobación rápida de WebAssembly antes de cargar el lector: compila
+// un módulo mínimo válido (solo la cabecera). Si la CSP del sitio no
+// incluye 'wasm-unsafe-eval' en script-src, el navegador rechaza la
+// compilación y el worker se queda colgado en "initializing tesseract"
+// hasta el tiempo límite de cada intento, sin decir nada. Esta prueba
+// falla de inmediato con su motivo, en el hilo principal, antes de
+// gastar 4 intentos de 45 s.
+const WASM_MAGIC = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+
+export async function checkWasmAllowed(): Promise<void> {
+  if (typeof WebAssembly === "undefined" || typeof WebAssembly.compile !== "function") {
+    throw new OcrError(
+      "load",
+      "No se pudo cargar el lector de comprobantes.",
+      "Este navegador no permite compilar WebAssembly, que es lo que usa el lector.",
+    );
+  }
+  try {
+    await WebAssembly.compile(WASM_MAGIC);
+  } catch (err) {
+    throw new OcrError(
+      "load",
+      "No se pudo cargar el lector de comprobantes.",
+      `El navegador bloquea la compilación de WebAssembly (la política de seguridad del sitio no lo permite; hace falta 'wasm-unsafe-eval' en script-src). ${serializeErr(err)}`,
+    );
+  }
+}
 
 function fmtMB(mb: number): string {
   return `${mb.toFixed(1).replace(".", ",")} MB`;
@@ -139,7 +206,7 @@ async function tryLoadStrategy(
     // Si el worker termina de cargar después del tiempo límite, se apaga
     // para no dejarlo corriendo en segundo plano.
     void workerPromise.then((w) => w.terminate()).catch(() => {});
-    const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    const msg = serializeErr(err);
     attemptLog.push(`${strategy.name}: ${msg}${lastStatus ? ` (último estado: ${lastStatus})` : ""}`);
     throw err;
   }
@@ -173,6 +240,10 @@ export async function readReceiptText(imageSrc: string, onProgress?: (p: OcrProg
     );
   }
   const mod = await import("tesseract.js");
+  // Comprobación rápida: si el navegador no permite compilar WebAssembly,
+  // cada intento se quedaría colgado hasta el tiempo límite sin decir nada.
+  // Mejor fallar de inmediato con el motivo real.
+  await checkWasmAllowed();
   let worker: TesseractWorker | null = null;
   for (let i = 0; i < strategies.length; i++) {
     const strategy = strategies[i];
@@ -192,7 +263,7 @@ export async function readReceiptText(imageSrc: string, onProgress?: (p: OcrProg
     const { data } = await worker.recognize(imageSrc);
     return data.text || "";
   } catch (err) {
-    const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    const msg = serializeErr(err);
     throw new OcrError("read", "No se pudo leer el texto del comprobante.", msg);
   } finally {
     await worker.terminate();
