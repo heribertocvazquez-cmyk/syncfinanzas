@@ -181,10 +181,77 @@ export function accountTotalsLine(
   return groups.map((g) => `${g.name} ${fmt(g.total)}`).join(" · ");
 }
 
-// --- Tarjeta Movimientos de Inicio: mes compacto y control «Ver» ---
+// --- Detalle de ingresos/gastos: agrupación por fecha en dos niveles ---
+// «Por fecha» agrupa por mes y, dentro de cada mes, por día: mes (total
+// y conteo) → día (total y conteo) → movimientos. Meses y días en orden
+// descendente; dentro de cada día, los movimientos por fecha descendente
+// (desempate por id descendente). Los totales son la suma de los importes
+// recibidos: el detalle ya viene filtrado (mes, dirección, sin reversados
+// ni reversiones y con visibilidad) desde App.tsx, así que agrupar no
+// cambia ningún total.
+
+/** Un mes del detalle «Por fecha», con sus días plegables. */
+export type MonthDayGroup<T> = {
+  key: string; // YYYY-MM
+  label: string; // «nov 2026»
+  total: number;
+  count: number;
+  days: {
+    key: string; // YYYY-MM-DD
+    label: string; // «17 nov 2026»
+    total: number;
+    count: number;
+    movs: T[];
+  }[];
+};
+
+/** Día corto en español: «17 nov 2026». Con un valor inválido devuelve el valor tal cual. */
+export function fmtDayShort(ymd: string): string {
+  const y = ymd.slice(0, 4);
+  const m = Number(ymd.slice(5, 7));
+  const d = Number(ymd.slice(8, 10));
+  if (!y || !m || m < 1 || m > 12 || !d || d < 1 || d > 31) return ymd;
+  return `${d} ${MONTH_SHORT_ES[m - 1]} ${y}`;
+};
+
+/**
+ * Agrupa movimientos por mes y por día. No muta la lista recibida: los
+ * movimientos de cada día son una copia ordenada por fecha descendente.
+ */
+export function groupMovementsByMonthDay<
+  T extends { date: string; amount: number; id: number },
+>(movs: T[]): MonthDayGroup<T>[] {
+  const months = new Map<string, MonthDayGroup<T>>();
+  for (const m of movs) {
+    const ym = m.date.slice(0, 7);
+    const ymd = m.date.slice(0, 10);
+    let month = months.get(ym);
+    if (!month) {
+      month = { key: ym, label: fmtMonthShort(ym), total: 0, count: 0, days: [] };
+      months.set(ym, month);
+    }
+    month.total += m.amount;
+    month.count += 1;
+    let day = month.days.find((d) => d.key === ymd);
+    if (!day) {
+      day = { key: ymd, label: fmtDayShort(ymd), total: 0, count: 0, movs: [] };
+      month.days.push(day);
+    }
+    day.total += m.amount;
+    day.count += 1;
+    day.movs.push(m);
+  }
+  const out = [...months.values()].sort((a, b) => b.key.localeCompare(a.key));
+  for (const month of out) {
+    month.days.sort((a, b) => b.key.localeCompare(a.key));
+    for (const day of month.days) day.movs = sortMovementsByDate(day.movs);
+  }
+  return out;
+}
+
+// --- Tarjeta Movimientos de Inicio: mes compacto ---
 // El selector de mes de la tarjeta es un icono pequeño de calendario con
-// el mes corto («nov 2026»); el control para ver todos los movimientos
-// del mes es solo el texto «Ver» en blanco, centrado abajo de la tarjeta.
+// el mes corto («nov 2026»).
 
 /** Meses cortos en español, en orden, para el selector compacto y el calendario del selector. */
 export const MONTH_SHORT_ES = [
@@ -208,22 +275,4 @@ export function fmtMonthShort(ym: string): string {
   const m = Number(ym.slice(5, 7));
   if (!y || !m || m < 1 || m > 12) return ym;
   return `${MONTH_SHORT_ES[m - 1]} ${y}`;
-}
-
-/**
- * Movimientos visibles en la tarjeta: colapsada muestra los 5 primeros
- * del mes; expandida («Ver»), todos los del mes.
- */
-export function visibleHomeMovements<T>(movs: T[], showAll: boolean): T[] {
-  return showAll ? movs : movs.slice(0, 5);
-}
-
-/** ¿Se muestra el control «Ver» / «Ver menos»? Solo cuando hay más de 5 movimientos en el mes. */
-export function showHomeMovsToggle(count: number): boolean {
-  return count > 5;
-}
-
-/** Texto del control: «Ver» colapsado, «Ver menos» expandido. */
-export function homeMovsToggleLabel(showAll: boolean): string {
-  return showAll ? "Ver menos" : "Ver";
 }

@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
 import type { IncExpDetailView } from "../lib/movementsList";
-import { accountTotalsLine } from "../lib/movementsList";
+import { accountTotalsLine, groupMovementsByMonthDay } from "../lib/movementsList";
 
 const money2 = (n: number) =>
   n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
@@ -62,14 +63,64 @@ export type IncExpDetailModalProps = {
 /**
  * Detalle «¿De dónde salieron los gastos?» / «¿De dónde vienen los
  * ingresos?»: los movimientos del mes, con un interruptor «Por cuenta» /
- * «Por fecha». Por cuenta (vista por defecto) agrupa por cuenta, grupos
- * por total descendente y dentro de cada grupo por fecha descendente.
- * Por fecha es una sola lista cronológica (fecha descendente), con la
- * cuenta en cada renglón y arriba la línea de totales por cuenta, para
- * que no se pierda de dónde salió el dinero.
+ * «Por fecha». Por cuenta (vista por defecto) cada cuenta es un grupo
+ * plegable con su total y su conteo; al tocarla se abren sus movimientos
+ * en fecha descendente. Por fecha agrupa en dos niveles: mes plegable
+ * (total y conteo) → día plegable (total y conteo) → movimientos. Todos
+ * los grupos empiezan cerrados, para que el total de cada segmento se vea
+ * sin abrirlo. En «Por fecha» arriba se conserva la línea de totales por
+ * cuenta, para que no se pierda de dónde salió el dinero.
  */
 export function IncExpDetailModal(p: IncExpDetailModalProps) {
   const sign = p.kind === "income" ? "+" : "−";
+  // Grupos plegables: empiezan cerrados. Al cambiar de vista vuelven a
+  // empezar cerrados. El modal se desmonta al cerrarse, así que cada
+  // apertura también empieza cerrada.
+  const [openAcc, setOpenAcc] = useState<Set<string>>(new Set());
+  const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
+  const [openDays, setOpenDays] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setOpenAcc(new Set());
+    setOpenMonths(new Set());
+    setOpenDays(new Set());
+  }, [p.view]);
+  const toggleKey = (
+    open: Set<string>,
+    set: (v: Set<string>) => void,
+    key: string,
+  ) => {
+    const next = new Set(open);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    set(next);
+  };
+  // Meses con sus días para la vista «Por fecha»: la lista ya viene
+  // filtrada (mes, dirección, sin reversados ni reversiones) y ordenada
+  // por fecha descendente.
+  const monthGroups = groupMovementsByMonthDay(p.flatMovs);
+  // Un renglón de movimiento, igual que antes: en «Por fecha» incluye la
+  // cuenta, en «Por cuenta» no (la cuenta es el grupo que lo contiene).
+  const movRow = (m: IncExpDetailMov, showAcc: boolean, indent: boolean) => (
+    <div
+      key={m.id}
+      className={`flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm${indent ? " pl-3" : ""}`}
+    >
+      <span className="min-w-0">
+        {m.concept}
+        <span className="text-[var(--dim)] block text-xs">
+          {fmtDate(m.date)}
+          {m.subcategory ? ` · ${m.subcategory}` : ""} ·{" "}
+          {p.getCatName(m.categoryId)}
+          {showAcc ? ` · ${p.getAccName(m.accountId)}` : ""} ·{" "}
+          {m.visibility === "shared" ? "Compartido" : "Privado"}
+        </span>
+      </span>
+      <b className="shrink-0 whitespace-nowrap">
+        {sign}
+        {money(m.amount)}
+      </b>
+    </div>
+  );
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3"
@@ -151,60 +202,104 @@ export function IncExpDetailModal(p: IncExpDetailModalProps) {
             </p>
           )}
           {p.view === "cuenta" &&
-            p.groups.map((g) => (
-              <div key={g.key} className="mt-3">
-                <div className="flex justify-between gap-2 text-sm">
-                  <span className="font-bold">{g.name}</span>
-                  <b className="whitespace-nowrap">{money2(g.total)}</b>
-                </div>
-                {g.movs.map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"
+            p.groups.map((g) => {
+              const open = openAcc.has(g.key);
+              return (
+                <div key={g.key} className="mt-3">
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-label={`${open ? "Cerrar" : "Abrir"} los movimientos de ${g.name}`}
+                    onClick={() => toggleKey(openAcc, setOpenAcc, g.key)}
+                    className="w-full flex items-center justify-between gap-2 py-2 text-sm text-left"
                   >
-                    <span className="min-w-0">
-                      {m.concept}
-                      <span className="text-[var(--dim)] block text-xs">
-                        {fmtDate(m.date)}
-                        {m.subcategory ? ` · ${m.subcategory}` : ""} ·{" "}
-                        {p.getCatName(m.categoryId)} ·{" "}
-                        {m.visibility === "shared" ? "Compartido" : "Privado"}
+                    <span className="font-bold min-w-0">
+                      <span className="text-[var(--dim)] font-normal mr-1">
+                        {open ? "⌄" : "›"}
+                      </span>
+                      {g.name}
+                      <span className="text-[var(--dim)] font-normal">
+                        {" "}
+                        · {g.movs.length} movimiento(s)
                       </span>
                     </span>
-                    <b className="shrink-0 whitespace-nowrap">
-                      {sign}
-                      {money(m.amount)}
+                    <b className="whitespace-nowrap shrink-0">
+                      {money2(g.total)}
                     </b>
-                  </div>
-                ))}
-              </div>
-            ))}
+                  </button>
+                  {open && g.movs.map((m) => movRow(m, false, false))}
+                </div>
+              );
+            })}
           {p.view === "fecha" && p.movementCount > 0 && (
             <div className="mt-3">
               <p className="text-sm text-[var(--dim)]">
                 {accountTotalsLine(p.groups, money2)}
               </p>
-              {p.flatMovs.map((m) => (
-                <div
-                  key={m.id}
-                  className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"
-                >
-                  <span className="min-w-0">
-                    {m.concept}
-                    <span className="text-[var(--dim)] block text-xs">
-                      {fmtDate(m.date)}
-                      {m.subcategory ? ` · ${m.subcategory}` : ""} ·{" "}
-                      {p.getCatName(m.categoryId)} ·{" "}
-                      {p.getAccName(m.accountId)} ·{" "}
-                      {m.visibility === "shared" ? "Compartido" : "Privado"}
-                    </span>
-                  </span>
-                  <b className="shrink-0 whitespace-nowrap">
-                    {sign}
-                    {money(m.amount)}
-                  </b>
-                </div>
-              ))}
+              {monthGroups.map((mg) => {
+                const mOpen = openMonths.has(mg.key);
+                return (
+                  <div key={mg.key} className="mt-3">
+                    <button
+                      type="button"
+                      aria-expanded={mOpen}
+                      aria-label={`${mOpen ? "Cerrar" : "Abrir"} los días de ${mg.label}`}
+                      onClick={() =>
+                        toggleKey(openMonths, setOpenMonths, mg.key)
+                      }
+                      className="w-full flex items-center justify-between gap-2 py-2 text-sm text-left"
+                    >
+                      <span className="font-bold min-w-0">
+                        <span className="text-[var(--dim)] font-normal mr-1">
+                          {mOpen ? "⌄" : "›"}
+                        </span>
+                        {mg.label}
+                        <span className="text-[var(--dim)] font-normal">
+                          {" "}
+                          · {mg.count} movimiento(s)
+                        </span>
+                      </span>
+                      <b className="whitespace-nowrap shrink-0">
+                        {sign}
+                        {money2(mg.total)}
+                      </b>
+                    </button>
+                    {mOpen &&
+                      mg.days.map((dg) => {
+                        const dOpen = openDays.has(dg.key);
+                        return (
+                          <div key={dg.key}>
+                            <button
+                              type="button"
+                              aria-expanded={dOpen}
+                              aria-label={`${dOpen ? "Cerrar" : "Abrir"} los movimientos del ${dg.label}`}
+                              onClick={() =>
+                                toggleKey(openDays, setOpenDays, dg.key)
+                              }
+                              className="w-full flex items-center justify-between gap-2 py-2 pl-3 text-sm text-left"
+                            >
+                              <span className="font-bold min-w-0">
+                                <span className="text-[var(--dim)] font-normal mr-1">
+                                  {dOpen ? "⌄" : "›"}
+                                </span>
+                                {dg.label}
+                                <span className="text-[var(--dim)] font-normal">
+                                  {" "}
+                                  · {dg.count} movimiento(s)
+                                </span>
+                              </span>
+                              <b className="whitespace-nowrap shrink-0">
+                                {sign}
+                                {money2(dg.total)}
+                              </b>
+                            </button>
+                            {dOpen && dg.movs.map((m) => movRow(m, true, true))}
+                          </div>
+                        );
+                      })}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
