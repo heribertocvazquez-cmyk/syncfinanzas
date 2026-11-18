@@ -1981,7 +1981,7 @@ export function App(){
               <CollapsibleCard
                 title={<h2 className="font-display font-bold text-lg">Metas y patrimonio</h2>}
                 above={<>
-                <div className="border-t border-[var(--border)] mt-3 pt-3 flex justify-between gap-2"><span className="text-sm">Patrimonio neto</span>{/* Mismas clases que las cifras de Entradas, Salidas y Neto de la tarjeta principal (font-display text-base font-bold): decisión visual deliberada 2026-11-17, para que se lea igual de grande que esas; shrink-0 es solo para que no se apriete en la fila. */}<b className="font-display text-base font-bold whitespace-nowrap shrink-0">{money2(s.netWorth)}</b></div>
+                <div className="border-t border-[var(--border)] mt-3 pt-3 flex justify-between gap-2"><span className="text-sm">Patrimonio neto</span>{/* Un paso por encima de las cifras de Entradas, Salidas y Neto (font-display text-lg font-extrabold): con las mismas clases el cambio no se percibía (Heriberto 2026-11-18); shrink-0 es solo para que no se apriete en la fila. */}<b className="font-display text-lg font-extrabold whitespace-nowrap shrink-0">{money2(s.netWorth)}</b></div>
                 <p className="text-xs text-[var(--dim)]">Activos {money(s.totalAssets)} − Pasivos {money(s.totalLiabilities)}.</p>
                 {data.goals.length>0 && <p className="text-xs text-[var(--dim)]">Metas: {money(goalsSum.saved)} ahorrado de {money(goalsSum.target)} · {data.goals.length} {data.goals.length===1?"meta":"metas"}</p>}
                 </>}
