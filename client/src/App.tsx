@@ -1119,7 +1119,7 @@ export function App(){
     if(target==="mv"){ if(mvCat==="" || appliedRuleMv){ setMvCat(String(r.categoryId)); setAppliedRuleMv({keyword:r.keyword,categoryName:cat.name}); } }
     else { if(persCat==="" || appliedRulePers){ setPersCat(String(r.categoryId)); setAppliedRulePers({keyword:r.keyword,categoryName:cat.name}); } }
   };
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();setMvAmount("");setMvConcept("");setMvCat("");setMvSub("");setAppliedRuleMv(null);setEditingMv(null);setReceipt(null);setMvStep(1);setOcrDetailMv(null);setOcrLabelMv("");setSavedNotice("Movimiento guardado.");}});
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();resetMvForm();if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}setSavedNotice("Movimiento guardado.");}});
   const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:inv});
   const [confirmReverseId,setConfirmReverseId]=useState<number|null>(null);
   const revMv=useMutation({mutationFn:async(id:number)=>await api.reverseMovement({id}),onSuccess:()=>{inv();setConfirmReverseId(null);}});
@@ -1215,7 +1215,7 @@ export function App(){
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();setPersAmt("");setPersConcept("");setPersReceipt(null);setPersCat("");setAppliedRulePers(null);setPersStep(1);setOcrDetailPers(null);setOcrLabelPers("");setSavedNotice("Gasto del día guardado.");}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();resetPersForm();setSavedNotice("Gasto del día guardado.");}});
   // Mike dinámico: preguntas con cifras reales del mes que se está viendo,
   // calculadas en el dispositivo con los datos ya cargados (sin llamadas nuevas
   // ni servicios externos). Las respuestas usan solo los movimientos que el
@@ -1252,15 +1252,17 @@ export function App(){
   // Acceso directo para registrar un gasto rápido (?accion=nuevo-gasto):
   // al entrar con ese parámetro, después de iniciar sesión y con el espacio
   // creado, se abre el formulario de gasto con el importe listo para escribir.
-  // En modo Personal es el gasto del día; en modo Familiar, Movimientos.
+  // En modo Personal es el gasto del día; en modo Familiar, el pop-up de
+  // registro sobre Inicio (sin ir a Movimientos).
   const [quickExpense,setQuickExpense]=useState<boolean>(()=>{ try{ return new URLSearchParams(window.location.search).get("accion")==="nuevo-gasto"; }catch{ return false; } });
   useEffect(()=>{
     if(!quickExpense || !data?.household) return;
     setQuickExpense(false);
     try{ const u=new URL(window.location.href); u.searchParams.delete("accion"); window.history.replaceState(null,"",u.pathname+u.search+u.hash); }catch{}
     const personal=data.household.mode==="personal";
-    setTab(personal?"personal":"movimientos"); setMvType("expense"); setMvStep(1); setPersStep(1); setMenuOpen(false);
-    window.setTimeout(()=>{ const el=document.getElementById(personal?"pers-amt":"mv-amount"); el?.scrollIntoView({block:"center",behavior:"smooth"}); (el as HTMLInputElement|null)?.focus({preventScroll:true}); },250);
+    setMenuOpen(false);
+    if(personal){ setTab("personal"); setPersStep(1); window.setTimeout(()=>{ const el=document.getElementById("pers-amt"); el?.scrollIntoView({block:"center",behavior:"smooth"}); (el as HTMLInputElement|null)?.focus({preventScroll:true}); },250); }
+    else { setTab("inicio"); openInicioMovement("expense"); window.setTimeout(()=>{ const el=document.getElementById("mv-amount"); el?.scrollIntoView({block:"center",behavior:"smooth"}); (el as HTMLInputElement|null)?.focus({preventScroll:true}); },250); }
   },[quickExpense,data?.household]);
   // tandas
   const [tandaName,setTandaName]=useState(""); const [tandaCount,setTandaCount]=useState("10"); const [tandaAmount,setTandaAmount]=useState(""); const [tandaStart,setTandaStart]=useState(todayISO());
@@ -1421,6 +1423,22 @@ export function App(){
   const [ocrLabelMv,setOcrLabelMv]=useState(""); const [ocrLabelPers,setOcrLabelPers]=useState("");
   const [ocrNewCatName,setOcrNewCatName]=useState("");
   const createOcrCat=useMutation({mutationFn:async(v:{target:"mv"|"pers";name:string})=>await api.saveCategory({householdId:data!.household!.id,name:v.name,kind:"expense",subcategories:[],isActive:1}),onSuccess:(r,v)=>{inv(); if(v.target==="mv"){ if(r.id) setMvCat(String(r.id)); setOcrLabelMv(""); } else { if(r.id) setPersCat(String(r.id)); setOcrLabelPers(""); } setOcrNewCatName(""); setSavedNotice("Categoría creada y seleccionada.");}});
+  // Reinicio completo de los formularios de movimiento: tras guardar, el
+  // formulario debe quedar como recién abierto (sin foto, sin nota del
+  // lector, sin concepto ni importe, fecha de hoy, paso 1). Antes solo se
+  // limpiaban algunos campos y la nota «Leído del comprobante» (con el
+  // nombre leído) y la fecha leída se quedaban, así que el siguiente gasto
+  // heredaba el anterior.
+  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); };
+  const resetPersForm=()=>{ setPersAmt(""); setPersConcept(""); setPersReceipt(null); setPersCat(""); setPersAccount(""); setAppliedRulePers(null); setPersStep(1); setPersMore(false); setOcrDetailPers(null); setOcrLabelPers(""); setOcrNewCatName(""); setOcrNoticePers(""); setOcrErrorPers(""); setOcrErrDetailPers(""); setOcrProgressPers(""); setOcrBusyPers(false); setVoiceNoticePers(""); setVoiceErrorPers(""); setVoiceBusyPers(false); };
+  // Registro rápido desde Inicio: se queda en Inicio y abre el formulario
+  // de movimientos en un pop-up, sin ir a Movimientos. Al guardar, el
+  // pop-up se cierra y el tablero se actualiza. El ref espeja el estado
+  // para que el onSuccess de saveMv (definido antes) lo vea al guardar.
+  const [inicioMvOpen,setInicioMvOpen]=useState(false);
+  const inicioMvOpenRef=useRef(false);
+  const openInicioMovement=(t:"income"|"expense")=>{ resetMvForm(); setMvType(t); inicioMvOpenRef.current=true; setInicioMvOpen(true); };
+  const closeInicioMovement=()=>{ inicioMvOpenRef.current=false; setInicioMvOpen(false); resetMvForm(); };
   // Registro por voz con Web Speech API (gratis, en el navegador): dictar
   // "gasté 320 en el súper" llena importe, concepto y categoría; se revisa
   // antes de guardar. Si el navegador no lo soporta, se escribe el gasto.
@@ -1778,6 +1796,114 @@ export function App(){
   const getAccName=(id:number|null)=>data.accounts.find(a=>a.id===id)?.name||"Efectivo";
   const incExpByAcc: {key:string;name:string;total:number;movs:typeof incExpMovs}[] = (()=>{ const groups=new Map<string,{name:string;total:number;movs:typeof incExpMovs}>(); for(const m of incExpMovs){ const key=m.accountId==null?"efectivo":`cta-${m.accountId}`; const g=groups.get(key) ?? {name:getAccName(m.accountId),total:0,movs:[]}; g.total+=m.amount; g.movs.push(m); groups.set(key,g); } return [...groups.entries()].map(([key,g])=>({key,...g})).sort((a,b)=>b.total-a.total); })();
 
+  // Formulario de registro de movimientos (pasos 1-3, con lectura de
+  // comprobante en el paso 1). Se usa en el módulo Movimientos y en el
+  // pop-up de registro rápido desde Inicio: la misma forma, sin duplicar
+  // el JSX, y solo una instancia montada a la vez (el módulo y el pop-up
+  // nunca se muestran juntos).
+  const renderMvForm=()=>(
+<form id="mv-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(mvStep<3){ if(mvStep===1 && !mvAmount) return; setMvStep(mvStep+1); scrollFormTop("mv-form"); } else saveMv.mutate();}}>
+  <h2 className="font-display font-bold text-lg">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
+  <p className="text-xs text-[var(--dim)]">Paso {mvStep} de 3</p>
+  <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${mvStep*33.33}%`}} /></div>
+  {ocrNoticeMv && <p className="text-xs text-[var(--green)]">{ocrNoticeMv}</p>}
+  {mvStep===1 && <>
+  <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
+    {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
+  </div>
+  {(mvType==="expense"||mvType==="debt_payment") && <div className="border border-dashed border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+    <p className="text-sm font-bold">¿Tiene el comprobante?</p>
+    <p className="text-xs text-[var(--dim)]">Suba la foto y la app lee el importe, el concepto y la categoría. Puede revisar y corregir todo antes de guardar.</p>
+    <label className={btnPrimary+" w-full mt-2 text-center cursor-pointer"} aria-label="Subir foto del comprobante al empezar">Subir foto del comprobante<input type="file" accept="image/*" className="hidden" aria-label="Archivo del comprobante" onChange={e=>{ const f=e.target.files?.[0]; void pickAndReadReceipt(f,"mv"); e.target.value=""; }} /></label>
+    {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");setOcrNoticeMv("");setOcrErrorMv("");setOcrErrDetailMv("");}}>Quitar foto</button></div>}
+    {receipt && <div className="mt-2">
+      <button type="button" aria-label="Leer el comprobante de nuevo y llenar el formulario" className={btnGhost+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante de nuevo"}</button>
+      {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
+      {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
+      {ocrErrDetailMv && <p className="text-xs text-[var(--dim)] mt-1">Detalle: {ocrErrDetailMv}</p>}
+      <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
+    </div>}
+  </div>}
+  <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
+  <button type="button" className={btnPrimary+" w-full"} disabled={!mvAmount} onClick={()=>{setMvStep(2); scrollFormTop("mv-form");}}>Siguiente</button>
+  </>}
+  {mvStep===2 && <>
+  {mvType!=="transfer" && <>
+    <div><Label htmlFor="mv-cat">{mvType==="income"?"Tipo de ingreso":"Tipo de gasto"}</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");setAppliedRuleMv(null);}}><option value="">Sin categoría</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+    <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Nueva subcategoría…</option></select>                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Agregar “{newSubName||"…"}” a {selectedCat.name}?</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
+    </div>
+  </>}
+  {mvType==="transfer" && <p className="text-sm text-[var(--dim)]">Las transferencias no llevan categoría.</p>}
+  {ocrLabelMv && mvCat==="" && mvType!=="transfer" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
+    <p className="text-sm">La categoría sugerida «{ocrLabelMv}» no está en su hogar. Puede crearla ya ajustada a este ticket.</p>
+    <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" className={inputCls} value={ocrNewCatName} onChange={e=>setOcrNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría sugerida y usarla" className={btnPrimary} disabled={!ocrNewCatName.trim() || createOcrCat.isPending} onClick={()=>createOcrCat.mutate({target:"mv",name:ocrNewCatName.trim()})}>{createOcrCat.isPending?"Creando…":"Crear y usar"}</button></div>
+    <button type="button" className="text-xs underline mt-2" onClick={()=>setOcrLabelMv("")}>Omitir, elegiré otra</button>
+    {createOcrCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createOcrCat.error)}</p>}
+  </div>}
+  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
+  </>}
+  {mvStep===3 && <>
+  <div><Label htmlFor="mv-concept">Concepto</Label><div className="flex gap-2"><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls+" flex-1"} value={mvConcept} onChange={e=>{setMvConcept(e.target.value);applyRuleTo(e.target.value,"mv");}} placeholder="Ej. Súper semanal" />{(mvType==="expense"||mvType==="debt_payment") && <button type="button" aria-label={voiceBusyMv?"Escuchando…":"Dictar el gasto por voz"} title="Dictar por voz" className="shrink-0 w-11 rounded-xl border border-[var(--border)] bg-[var(--surface2)] flex items-center justify-center" disabled={voiceBusyMv} onClick={()=>startVoice("mv")}>{micIcon}</button>}</div>
+  {voiceBusyMv && <p className="text-xs text-[var(--dim)] mt-1">Escuchando… Diga, por ejemplo, «gasté 320 en el súper».</p>}
+  {voiceErrorMv && <p className="text-xs text-[var(--red)] mt-1">{voiceErrorMv}</p>}
+  {voiceNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{voiceNoticeMv}</p>}
+  {appliedRuleMv && <p className="text-xs text-[var(--dim)] mt-1">Regla aplicada: «{appliedRuleMv.keyword}» → {appliedRuleMv.categoryName}. Puede cambiarla en el paso 2.</p>}</div>
+  <div><Label htmlFor="mv-account">{mvType==="income"?"¿A qué cuenta entra?":mvType==="transfer"?"¿De qué cuenta sale?":"¿De dónde se descuenta?"}</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>setMvAccount(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
+  {ocrDetailMv && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+    <p className="text-sm font-bold">¿Este movimiento es Compartido o Privado?</p>
+    <p className="text-xs text-[var(--dim)]">Revise antes de guardar: lo compartido lo ven todos; lo privado solo usted.</p>
+    <div className="grid grid-cols-2 gap-1.5 mt-2" role="group" aria-label="Visibilidad del movimiento leído">
+      <button type="button" aria-label="Movimiento compartido" onClick={()=>setMvVis("shared")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="shared"?"bg-[var(--green)] text-white":"border border-[var(--border)]"}`}>Compartido</button>
+      <button type="button" aria-label="Movimiento privado" onClick={()=>setMvVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
+    </div>
+    <p className="text-xs text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos.":"Solo usted lo ve."}</p>
+  </div>}
+  {mvType==="transfer" && <div><Label htmlFor="mv-to">Cuenta destino</Label><select id="mv-to" aria-label="Cuenta destino" className={inputCls} value={mvToAccount} onChange={e=>setMvToAccount(e.target.value)}><option value="">Seleccione…</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>}
+  <div>
+    <button type="button" aria-expanded={mvMore} aria-label={mvMore?"Ocultar más opciones del movimiento":"Mostrar más opciones del movimiento"} onClick={()=>setMvMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{mvMore?"▾ Ocultar más opciones":"▸ Más opciones"}</button>
+    {mvMore && (<div className="space-y-2 mt-3">
+  <div className="grid grid-cols-2 gap-2">
+    <div><Label htmlFor="mv-date">Fecha</Label><input id="mv-date" aria-label="Fecha del movimiento" type="date" required className={inputCls} value={mvDate} onChange={e=>setMvDate(e.target.value)} /></div>
+  </div>
+  <div className="border border-dashed border-[var(--border)] rounded-2xl p-4 sm:p-5">
+    <Label htmlFor="mv-receipt">Foto del comprobante (opcional)</Label>
+    <input id="mv-receipt" aria-label="Adjuntar foto del comprobante" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setReceipt); }} />
+    <p className="text-xs text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
+    {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");setOcrNoticeMv("");setOcrErrorMv("");setOcrErrDetailMv("");}}>Quitar foto</button></div>}
+    {receipt && (mvType==="expense"||mvType==="debt_payment") && <div className="mt-2">
+      <button type="button" aria-label="Leer el comprobante y llenar el formulario" className={btnPrimary+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante"}</button>
+      {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
+      {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
+      {ocrErrDetailMv && <p className="text-xs text-[var(--dim)] mt-1">Detalle: {ocrErrDetailMv}</p>}
+      {ocrNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticeMv}</p>}
+      {ocrDetailMv && <OcrDetail detail={ocrDetailMv} />}
+      <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
+    </div>}
+  </div>
+  <div><Label htmlFor="mv-profile">Hecho por</Label><select id="mv-profile" aria-label="Integrante que hizo el movimiento" className={inputCls} value={mvProfile} onChange={e=>setMvProfile(e.target.value)}><option value="">{me?`Yo (${fullName(me)})`:"El hogar"}</option>{data.profiles.filter(x=>x.kind==="adult").map(x=><option key={x.id} value={x.id}>{fullName(x)}</option>)}</select></div>
+  <div>
+    <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">Visibilidad</span>
+    <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Selector de visibilidad compartido o privado">
+      <button type="button" aria-label="Movimiento compartido" onClick={()=>setMvVis("shared")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="shared"?"bg-[var(--green)] text-white":"border border-[var(--border)]"}`}>Compartido</button>
+      <button type="button" aria-label="Movimiento privado" onClick={()=>setMvVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
+    </div>
+    <p className="text-xs text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos.":"Solo usted lo ve."}</p>
+  </div>
+    </div>)}
+  </div>
+  {mvReview.length>0 && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+    <p className="text-sm font-bold">Revisión de Mike</p>
+    {mvReview.map((w,i)=><p key={i} className="text-sm mt-1">{w}</p>)}
+    <p className="text-xs text-[var(--dim)] mt-1">Es solo un aviso: puede guardar de todos modos.</p>
+  </div>}
+  {Number(mvAmount)>=hh.approvalThreshold && mvVis==="shared" && mvType==="expense" && <Help>Supera el umbral de {money(hh.approvalThreshold)}: requiere un Acuerdo.</Help>}
+  {saveMv.error && <p className="text-sm text-[var(--red)]">{String(saveMv.error)}</p>}
+  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(2); scrollFormTop("mv-form");}}>Atrás</button><button className={btnPrimary+" flex-1"} disabled={saveMv.isPending || !mvAmount || !mvConcept}>{saveMv.isPending?"Guardando…":editingMv?"Guardar cambios":"Finalizar"}</button></div>
+  {editingMv && <button type="button" className={btnGhost+" w-full"} onClick={()=>{setEditingMv(null);setMvStep(1);}}>Cancelar edición</button>}
+  {data.accounts.length===0 && <Help>Si no tiene cuentas, los movimientos se descuentan de Efectivo.</Help>}
+  </>}
+</form>
+  );
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
       <SafeAreaTopScrim backgroundColor="var(--bg)" />
@@ -1982,8 +2108,8 @@ export function App(){
                 showHomeMovs && homeMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-[13px]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`text-base whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)
               )}
               <div className="flex gap-2 mt-3">
-                <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openNewMovement("expense")}>+ Gasto</button>
-                <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openNewMovement("income")}>+ Ingreso</button>
+                <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openInicioMovement("expense")}>+ Gasto</button>
+                <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openInicioMovement("income")}>+ Ingreso</button>
               </div>
             </div>
             <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
@@ -2013,107 +2139,7 @@ export function App(){
 
         {effTab==="movimientos" && (
           <section className="grid md:grid-cols-[340px_1fr] gap-4 md:gap-6 items-start">
-            <form id="mv-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(mvStep<3){ if(mvStep===1 && !mvAmount) return; setMvStep(mvStep+1); scrollFormTop("mv-form"); } else saveMv.mutate();}}>
-              <h2 className="font-display font-bold text-lg">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
-              <p className="text-xs text-[var(--dim)]">Paso {mvStep} de 3</p>
-              <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${mvStep*33.33}%`}} /></div>
-              {ocrNoticeMv && <p className="text-xs text-[var(--green)]">{ocrNoticeMv}</p>}
-              {mvStep===1 && <>
-              <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
-                {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
-              </div>
-              {(mvType==="expense"||mvType==="debt_payment") && <div className="border border-dashed border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-                <p className="text-sm font-bold">¿Tiene el comprobante?</p>
-                <p className="text-xs text-[var(--dim)]">Suba la foto y la app lee el importe, el concepto y la categoría. Puede revisar y corregir todo antes de guardar.</p>
-                <label className={btnPrimary+" w-full mt-2 text-center cursor-pointer"} aria-label="Subir foto del comprobante al empezar">Subir foto del comprobante<input type="file" accept="image/*" className="hidden" aria-label="Archivo del comprobante" onChange={e=>{ const f=e.target.files?.[0]; void pickAndReadReceipt(f,"mv"); e.target.value=""; }} /></label>
-                {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");}}>Quitar foto</button></div>}
-                {receipt && <div className="mt-2">
-                  <button type="button" aria-label="Leer el comprobante de nuevo y llenar el formulario" className={btnGhost+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante de nuevo"}</button>
-                  {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
-                  {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
-                  {ocrErrDetailMv && <p className="text-xs text-[var(--dim)] mt-1">Detalle: {ocrErrDetailMv}</p>}
-                  <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
-                </div>}
-              </div>}
-              <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
-              <button type="button" className={btnPrimary+" w-full"} disabled={!mvAmount} onClick={()=>{setMvStep(2); scrollFormTop("mv-form");}}>Siguiente</button>
-              </>}
-              {mvStep===2 && <>
-              {mvType!=="transfer" && <>
-                <div><Label htmlFor="mv-cat">{mvType==="income"?"Tipo de ingreso":"Tipo de gasto"}</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");setAppliedRuleMv(null);}}><option value="">Sin categoría</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Nueva subcategoría…</option></select>                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Agregar “{newSubName||"…"}” a {selectedCat.name}?</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
-                </div>
-              </>}
-              {mvType==="transfer" && <p className="text-sm text-[var(--dim)]">Las transferencias no llevan categoría.</p>}
-              {ocrLabelMv && mvCat==="" && mvType!=="transfer" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
-                <p className="text-sm">La categoría sugerida «{ocrLabelMv}» no está en su hogar. Puede crearla ya ajustada a este ticket.</p>
-                <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" className={inputCls} value={ocrNewCatName} onChange={e=>setOcrNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría sugerida y usarla" className={btnPrimary} disabled={!ocrNewCatName.trim() || createOcrCat.isPending} onClick={()=>createOcrCat.mutate({target:"mv",name:ocrNewCatName.trim()})}>{createOcrCat.isPending?"Creando…":"Crear y usar"}</button></div>
-                <button type="button" className="text-xs underline mt-2" onClick={()=>setOcrLabelMv("")}>Omitir, elegiré otra</button>
-                {createOcrCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createOcrCat.error)}</p>}
-              </div>}
-              <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
-              </>}
-              {mvStep===3 && <>
-              <div><Label htmlFor="mv-concept">Concepto</Label><div className="flex gap-2"><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls+" flex-1"} value={mvConcept} onChange={e=>{setMvConcept(e.target.value);applyRuleTo(e.target.value,"mv");}} placeholder="Ej. Súper semanal" />{(mvType==="expense"||mvType==="debt_payment") && <button type="button" aria-label={voiceBusyMv?"Escuchando…":"Dictar el gasto por voz"} title="Dictar por voz" className="shrink-0 w-11 rounded-xl border border-[var(--border)] bg-[var(--surface2)] flex items-center justify-center" disabled={voiceBusyMv} onClick={()=>startVoice("mv")}>{micIcon}</button>}</div>
-              {voiceBusyMv && <p className="text-xs text-[var(--dim)] mt-1">Escuchando… Diga, por ejemplo, «gasté 320 en el súper».</p>}
-              {voiceErrorMv && <p className="text-xs text-[var(--red)] mt-1">{voiceErrorMv}</p>}
-              {voiceNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{voiceNoticeMv}</p>}
-              {appliedRuleMv && <p className="text-xs text-[var(--dim)] mt-1">Regla aplicada: «{appliedRuleMv.keyword}» → {appliedRuleMv.categoryName}. Puede cambiarla en el paso 2.</p>}</div>
-              <div><Label htmlFor="mv-account">{mvType==="income"?"¿A qué cuenta entra?":mvType==="transfer"?"¿De qué cuenta sale?":"¿De dónde se descuenta?"}</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>setMvAccount(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
-              {ocrDetailMv && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-                <p className="text-sm font-bold">¿Este movimiento es Compartido o Privado?</p>
-                <p className="text-xs text-[var(--dim)]">Revise antes de guardar: lo compartido lo ven todos; lo privado solo usted.</p>
-                <div className="grid grid-cols-2 gap-1.5 mt-2" role="group" aria-label="Visibilidad del movimiento leído">
-                  <button type="button" aria-label="Movimiento compartido" onClick={()=>setMvVis("shared")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="shared"?"bg-[var(--green)] text-white":"border border-[var(--border)]"}`}>Compartido</button>
-                  <button type="button" aria-label="Movimiento privado" onClick={()=>setMvVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
-                </div>
-                <p className="text-xs text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos.":"Solo usted lo ve."}</p>
-              </div>}
-              {mvType==="transfer" && <div><Label htmlFor="mv-to">Cuenta destino</Label><select id="mv-to" aria-label="Cuenta destino" className={inputCls} value={mvToAccount} onChange={e=>setMvToAccount(e.target.value)}><option value="">Seleccione…</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>}
-              <div>
-                <button type="button" aria-expanded={mvMore} aria-label={mvMore?"Ocultar más opciones del movimiento":"Mostrar más opciones del movimiento"} onClick={()=>setMvMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{mvMore?"▾ Ocultar más opciones":"▸ Más opciones"}</button>
-                {mvMore && (<div className="space-y-2 mt-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div><Label htmlFor="mv-date">Fecha</Label><input id="mv-date" aria-label="Fecha del movimiento" type="date" required className={inputCls} value={mvDate} onChange={e=>setMvDate(e.target.value)} /></div>
-              </div>
-              <div className="border border-dashed border-[var(--border)] rounded-2xl p-4 sm:p-5">
-                <Label htmlFor="mv-receipt">Foto del comprobante (opcional)</Label>
-                <input id="mv-receipt" aria-label="Adjuntar foto del comprobante" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setReceipt); }} />
-                <p className="text-xs text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
-                {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");}}>Quitar foto</button></div>}
-                {receipt && (mvType==="expense"||mvType==="debt_payment") && <div className="mt-2">
-                  <button type="button" aria-label="Leer el comprobante y llenar el formulario" className={btnPrimary+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante"}</button>
-                  {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
-                  {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
-                  {ocrErrDetailMv && <p className="text-xs text-[var(--dim)] mt-1">Detalle: {ocrErrDetailMv}</p>}
-                  {ocrNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticeMv}</p>}
-                  {ocrDetailMv && <OcrDetail detail={ocrDetailMv} />}
-                  <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
-                </div>}
-              </div>
-              <div><Label htmlFor="mv-profile">Hecho por</Label><select id="mv-profile" aria-label="Integrante que hizo el movimiento" className={inputCls} value={mvProfile} onChange={e=>setMvProfile(e.target.value)}><option value="">{me?`Yo (${fullName(me)})`:"El hogar"}</option>{data.profiles.filter(x=>x.kind==="adult").map(x=><option key={x.id} value={x.id}>{fullName(x)}</option>)}</select></div>
-              <div>
-                <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">Visibilidad</span>
-                <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Selector de visibilidad compartido o privado">
-                  <button type="button" aria-label="Movimiento compartido" onClick={()=>setMvVis("shared")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="shared"?"bg-[var(--green)] text-white":"border border-[var(--border)]"}`}>Compartido</button>
-                  <button type="button" aria-label="Movimiento privado" onClick={()=>setMvVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${mvVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
-                </div>
-                <p className="text-xs text-[var(--dim)] mt-1">{mvVis==="shared"?"Lo ven todos.":"Solo usted lo ve."}</p>
-              </div>
-                </div>)}
-              </div>
-              {mvReview.length>0 && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-                <p className="text-sm font-bold">Revisión de Mike</p>
-                {mvReview.map((w,i)=><p key={i} className="text-sm mt-1">{w}</p>)}
-                <p className="text-xs text-[var(--dim)] mt-1">Es solo un aviso: puede guardar de todos modos.</p>
-              </div>}
-              {Number(mvAmount)>=hh.approvalThreshold && mvVis==="shared" && mvType==="expense" && <Help>Supera el umbral de {money(hh.approvalThreshold)}: requiere un Acuerdo.</Help>}
-              {saveMv.error && <p className="text-sm text-[var(--red)]">{String(saveMv.error)}</p>}
-              <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(2); scrollFormTop("mv-form");}}>Atrás</button><button className={btnPrimary+" flex-1"} disabled={saveMv.isPending || !mvAmount || !mvConcept}>{saveMv.isPending?"Guardando…":editingMv?"Guardar cambios":"Finalizar"}</button></div>
-              {editingMv && <button type="button" className={btnGhost+" w-full"} onClick={()=>{setEditingMv(null);setMvStep(1);}}>Cancelar edición</button>}
-              {data.accounts.length===0 && <Help>Si no tiene cuentas, los movimientos se descuentan de Efectivo.</Help>}
-              </>}
-            </form>
+            {renderMvForm()}
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
               <div className="flex gap-2 flex-wrap" role="group" aria-label="Mostrar movimientos por tipo">
                 {([["all","Todos"],["income","Ingresos"],["expense","Gastos"],["transfer","Transferencias"],["debt_payment","Pagos de deuda"]] as const).map(([v,l])=>(
@@ -2566,7 +2592,7 @@ export function App(){
                     <p className="text-sm font-bold">¿Tiene el comprobante?</p>
                     <p className="text-xs text-[var(--dim)]">Suba la foto y la app lee el importe, el concepto y la categoría. Puede revisar y corregir todo antes de guardar.</p>
                     <label className={btnPrimary+" w-full mt-2 text-center cursor-pointer"} aria-label="Subir foto del comprobante al empezar">Subir foto del comprobante<input type="file" accept="image/*" className="hidden" aria-label="Archivo del comprobante" onChange={e=>{ const f=e.target.files?.[0]; void pickAndReadReceipt(f,"pers"); e.target.value=""; }} /></label>
-                    {persReceipt && <div className="flex items-center gap-2 mt-2"><img src={persReceipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setPersReceipt(null);setOcrDetailPers(null);setOcrLabelPers("");}}>Quitar foto</button></div>}
+                    {persReceipt && <div className="flex items-center gap-2 mt-2"><img src={persReceipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setPersReceipt(null);setOcrDetailPers(null);setOcrLabelPers("");setOcrNoticePers("");setOcrErrorPers("");setOcrErrDetailPers("");}}>Quitar foto</button></div>}
                     {persReceipt && <div className="mt-2">
                       <button type="button" aria-label="Leer el comprobante de nuevo y llenar el gasto del día" className={btnGhost+" w-full"} disabled={ocrBusyPers} onClick={()=>void runOcr("pers")}>{ocrBusyPers?"Leyendo el comprobante…":"Leer el comprobante de nuevo"}</button>
                       {ocrProgressPers && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressPers}</p>}
@@ -3214,6 +3240,12 @@ export function App(){
             <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setCatDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
             <button type="button" className={btnGhost} onClick={()=>setCatDetail(null)}>Cerrar</button>
           </div>
+        </div>
+      </div>}
+      {inicioMvOpen && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Registrar movimiento" onClick={()=>closeInicioMovement()}>
+        <div className="relative w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+          <button type="button" aria-label="Cerrar el registro de movimiento" onClick={()=>closeInicioMovement()} className="absolute right-3 top-3 z-10 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+          {renderMvForm()}
         </div>
       </div>}
       {showSummary && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Resumen del mes de ${fmtMonth(s.currentMonth)}`} onClick={()=>{setShowSummary(false); setShowBalanceBreakdown(false);}}>

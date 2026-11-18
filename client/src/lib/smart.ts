@@ -166,6 +166,26 @@ export function resolveReceiptCategory(categories: SimpleCategory[], parsed: Rec
   return null;
 }
 
+// El nombre del comercio solo se usa si se lee limpio. El OCR a veces
+// devuelve las primeras líneas hechas fragmentos sueltos ("Edi Br a. A EX
+// pe C TE ae.") que no son un nombre usable: antes pasaban el filtro y
+// quedaban como concepto del gasto. Se acepta solo si hay palabras
+// reales: al menos una palabra de 3+ letras, la mayoría de las letras en
+// palabras de 3+ letras y como mucho una letra suelta. Si ninguna línea
+// pasa, el comercio queda vacío y la persona escribe el concepto.
+export function isCleanStoreName(line: string): boolean {
+  const tokens = line
+    .split(/\s+/)
+    .map((t) => t.replace(/[^\p{L}]/gu, ""))
+    .filter(Boolean);
+  if (tokens.length === 0) return false;
+  const letters = tokens.reduce((a, t) => a + t.length, 0);
+  const longTokens = tokens.filter((t) => t.length >= 3);
+  const longLetters = longTokens.reduce((a, t) => a + t.length, 0);
+  const singleLetters = tokens.filter((t) => t.length === 1).length;
+  return letters >= 3 && longTokens.length >= 1 && longLetters / letters >= 0.5 && singleLetters <= 1;
+}
+
 export function parseReceiptText(text: string): ReceiptRead {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   let total: number | null = null;
@@ -216,6 +236,7 @@ export function parseReceiptText(text: string): ReceiptRead {
     if (!/[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(l)) continue;
     if (skip.some((w) => n.includes(w))) continue;
     if (/\d{4,}/.test(l)) continue;
+    if (!isCleanStoreName(l)) continue;
     store = l.replace(/[^\p{L}\p{N} &.'-]/gu, "").trim() || null;
     if (store) break;
   }
