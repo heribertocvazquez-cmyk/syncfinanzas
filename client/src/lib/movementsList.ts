@@ -145,3 +145,50 @@ export function groupMovementsByAccount<
     .map(([key, g]) => ({ key, ...g }))
     .sort((a, b) => b.total - a.total);
 }
+
+// --- Tarjeta Movimientos de Inicio: mes compacto y control «Ver» ---
+// El selector de mes de la tarjeta es un icono pequeño de calendario con
+// el mes corto («nov 2026»); el control para ver todos los movimientos
+// del mes es solo el texto «Ver» en blanco, centrado abajo de la tarjeta.
+
+/** Meses cortos en español, en orden, para el selector compacto y el calendario del selector. */
+export const MONTH_SHORT_ES = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+];
+
+/** Mes corto para el selector compacto: «nov 2026». Con un valor inválido devuelve el valor tal cual. */
+export function fmtMonthShort(ym: string): string {
+  const y = ym.slice(0, 4);
+  const m = Number(ym.slice(5, 7));
+  if (!y || !m || m < 1 || m > 12) return ym;
+  return `${MONTH_SHORT_ES[m - 1]} ${y}`;
+}
+
+/**
+ * Movimientos visibles en la tarjeta: colapsada muestra los 5 primeros
+ * del mes; expandida («Ver»), todos los del mes.
+ */
+export function visibleHomeMovements<T>(movs: T[], showAll: boolean): T[] {
+  return showAll ? movs : movs.slice(0, 5);
+}
+
+/** ¿Se muestra el control «Ver» / «Ver menos»? Solo cuando hay más de 5 movimientos en el mes. */
+export function showHomeMovsToggle(count: number): boolean {
+  return count > 5;
+}
+
+/** Texto del control: «Ver» colapsado, «Ver menos» expandido. */
+export function homeMovsToggleLabel(showAll: boolean): string {
+  return showAll ? "Ver menos" : "Ver";
+}

@@ -12,6 +12,7 @@ import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnl
 import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice } from "./lib/movementsList";
 import { buildBalanceBreakdown } from "./lib/balanceBreakdown";
 import { MoneyLocationModal } from "./components/MoneyLocationModal";
+import { HomeMovementsCard } from "./components/HomeMovementsCard";
 import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
@@ -287,46 +288,6 @@ function MonthlyChart({series,currentMonth,todayMonth,onSelect,inicio}:{series:{
       </BarChart>
     </ResponsiveContainer>
   </div>;
-}
-// Selector de mes y año (tarjeta Movimientos): el mes elegido es el mes
-// que muestra el tablero. La ventanita se cierra al elegir un mes, con
-// Escape o al tocar fuera.
-// Anclaje: la ventanita se ancla a la cabecera de la tarjeta Movimientos
-// (alineada a su derecha, no al botón). El botón cambia de sitio según haya
-// movimientos o no —a la izquierda en la segunda fila con movimientos, a la
-// derecha del título sin ellos—, y anclada al botón se salía por un lado o
-// por el otro. Anclada a la cabecera, con ancho acotado al ancho de la
-// cabecera, cabe completa en los dos casos a 390 px.
-const MONTH_SHORT = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
-function MonthPicker({value,onChange}:{value:string;onChange:(ym:string)=>void}){
-  const [open,setOpen]=useState(false);
-  const [year,setYear]=useState(()=>Number(value.slice(0,4))||new Date().getFullYear());
-  const todayMonth=todayISO().slice(0,7);
-  useEffect(()=>{ if(!open) return; const onKey=(e:KeyboardEvent)=>{ if(e.key==="Escape") setOpen(false); }; document.addEventListener("keydown",onKey); return ()=>document.removeEventListener("keydown",onKey); },[open]);
-  // Al abrir, el año es siempre el del mes visto (no el de la última visita).
-  useEffect(()=>{ if(open) setYear(Number(value.slice(0,4))||new Date().getFullYear()); },[open,value]);
-  const pick=(m:number)=>{ onChange(`${year}-${String(m+1).padStart(2,"0")}`); setOpen(false); };
-  return (
-    <div className="shrink-0">
-      <button type="button" aria-label={`Cambiar el mes, actualmente ${fmtMonth(value)}`} aria-haspopup="dialog" aria-expanded={open} onClick={()=>{ setYear(Number(value.slice(0,4))); setOpen(o=>!o); }} className="rounded-full border border-[var(--gold)] text-[var(--gold-text)] px-3 py-1.5 text-[13px] font-bold whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
-        {fmtMonth(value)} <svg aria-hidden="true" className="inline w-3.5 h-3.5 -mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-      </button>
-      {open && (<>
-        <div aria-hidden="true" className="fixed inset-0 z-40" onClick={()=>setOpen(false)} />
-        <div role="dialog" aria-label="Elegir mes y año" className="absolute right-0 top-full mt-2 z-50 w-[min(288px,100%)] rounded-2xl border border-[var(--gold)] bg-[var(--surface)] p-4 shadow-2xl">
-          <div className="flex items-center justify-between">
-            <button type="button" aria-label={`Año anterior, ${year-1}`} onClick={()=>setYear(y=>y-1)} className="w-9 h-9 rounded-full border border-[var(--border)] font-bold text-lg leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">‹</button>
-            <span className="font-display text-2xl font-extrabold text-[var(--gold-text)]">{year}</span>
-            <button type="button" aria-label={`Año siguiente, ${year+1}`} onClick={()=>setYear(y=>y+1)} className="w-9 h-9 rounded-full border border-[var(--border)] font-bold text-lg leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">›</button>
-          </div>
-          <div className="grid grid-cols-3 gap-2 mt-3">
-            {MONTH_SHORT.map((label,m)=>{ const ym=`${year}-${String(m+1).padStart(2,"0")}`; const selected=ym===value; return <button key={label} type="button" aria-label={`${label} de ${year}`} aria-pressed={selected} autoFocus={selected} onClick={()=>pick(m)} className={`rounded-xl py-2 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${selected?"bg-[#E8B84A] text-[#13262E]":"bg-[var(--surface2)]"}`}>{label}</button>; })}
-          </div>
-          {value!==todayMonth && <button type="button" className="text-[13px] font-bold underline mt-3" onClick={()=>{ onChange(todayMonth); setOpen(false); }}>Ver el mes actual</button>}
-        </div>
-      </>)}
-    </div>
-  );
 }
 function Help({children}:{children:React.ReactNode}){ return <p className="text-[13px] leading-snug text-[var(--dim)] bg-[var(--surface2)] rounded-xl px-3 py-2">{children}</p>; }
 function Empty({title,body,action}:{title:string;body:string;action?:{label:string;onClick:()=>void}}){ return <div className="border border-dashed border-[var(--border)] rounded-2xl p-4 sm:p-5 text-center"><p className="font-display font-bold text-lg">{title}</p><p className="text-sm text-[var(--dim)] mt-1">{body}</p>{action && <button type="button" aria-label={action.label} className={btnPrimary+" mt-3"} onClick={action.onClick}>{action.label}</button>}</div>; }
@@ -1162,7 +1123,6 @@ export function App(){
   const [showMoneyLocation,setShowMoneyLocation]=useState(false);
   const [showSummary,setShowSummary]=useState(false);
   const [helpOpen,setHelpOpen]=useState(false);
-  const [showHomeMovs,setShowHomeMovs]=useState(false);
   const [showAllHomeMovs,setShowAllHomeMovs]=useState(false);
   const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
@@ -2149,28 +2109,16 @@ export function App(){
               </div>
             </div>
             )}
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-4 md:mt-6">
-              <div className="relative flex items-center justify-between gap-2 flex-wrap">
-                <h2 className="font-display font-bold text-lg">Movimientos</h2>
-                <div className="flex items-center gap-2 shrink-0">
-                  <MonthPicker value={s.currentMonth} onChange={setViewMonth} />
-                  {homeMovs.length>0 && <button type="button" aria-expanded={showHomeMovs} aria-label={showHomeMovs?"Ocultar la lista de movimientos":"Ver la lista de movimientos"} className="shrink-0 rounded-full border border-[var(--border)] px-3 py-1 text-[13px] font-semibold" onClick={()=>setShowHomeMovs(v=>!v)}>{showHomeMovs?"Ocultar movimientos":"Ver movimientos"}</button>}
-                </div>
-              </div>
-              {data.movements.length===0 ? (
-                <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos todavía.</p>
-              ) : homeMovs.length===0 ? (
-                <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos en {fmtMonth(s.currentMonth)}.</p>
-              ) : (
-                showHomeMovs && <>{(showAllHomeMovs ? homeMovs : homeMovs.slice(0,5)).map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{movTitle(m)}<span className="text-[var(--dim)] block text-[13px]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`text-base whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
-                {homeMovs.length>5 && <button type="button" aria-label={showAllHomeMovs?"Ver menos movimientos":"Ver todos los movimientos del mes"} className="text-sm font-bold underline mt-2" onClick={()=>setShowAllHomeMovs(v=>!v)}>{showAllHomeMovs?"Ver menos":`Ver todos los movimientos (${homeMovs.length})`}</button>}
-                </>
-              )}
-              <div className="flex gap-2 mt-3">
-                <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openInicioMovement("expense")}>+ Gasto</button>
-                <button type="button" aria-label="Agregar ingreso" className={btnGhost+" flex-1"} onClick={()=>openInicioMovement("income")}>+ Ingreso</button>
-              </div>
-            </div>
+            <HomeMovementsCard
+              month={s.currentMonth}
+              monthLabel={fmtMonth(s.currentMonth)}
+              onMonthChange={setViewMonth}
+              rows={homeMovs.map(m=>({key:m.id,title:movTitle(m),detail:`${fmtDate(m.date)} · ${TYPE_LABEL[m.type]||m.type} · ${getCatName(m.categoryId)} · ${getAccName(m.accountId)}${m.isReversed?" · Reversado (fuera de los totales)":""}${m.reversalOfId?" · Reversión (fuera de los totales)":""}`,amount:`${m.type==="income"?"+":"−"}${money(m.amount)}`,isIncome:m.type==="income",struck:!!(m.isReversed||m.reversalOfId)}))}
+              hasAnyMovements={data.movements.length>0}
+              showAll={showAllHomeMovs}
+              onToggleShowAll={()=>setShowAllHomeMovs(v=>!v)}
+              onNewMovement={openInicioMovement}
+            />
             <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <h2 className="font-display font-bold text-lg">Presupuestos</h2>
