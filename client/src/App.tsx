@@ -18,6 +18,7 @@ import { MoneyLocationModal } from "./components/MoneyLocationModal";
 import { IncExpDetailModal } from "./components/IncExpDetailModal";
 import { HomeMovementsCard } from "./components/HomeMovementsCard";
 import { CollapsibleCard } from "./components/CollapsibleCard";
+import { TandaForm, type TandaFormValues } from "./components/TandaForm";
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
 import { DRAWER_GROUPS, orderDrawerTabs } from "./lib/drawerOrder";
 import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
@@ -2788,21 +2789,14 @@ export function App(){
               <p className="font-display font-bold text-lg">Tandas con pagos verificados</p>
               <p className="text-sm mt-1">Cada participante sube su comprobante; el organizador lo verifica.</p>
             </div>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-3 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveTanda.mutate();}}>
-              <div><Label htmlFor="tanda-name">Nombre de la tanda</Label><input id="tanda-name" aria-label="Nombre de la tanda" required className={inputCls} value={tandaName} onChange={e=>setTandaName(e.target.value)} placeholder="Ej. Tanda de la oficina" /></div>
-              <div><Label htmlFor="tanda-count">Participantes</Label><input id="tanda-count" aria-label="Número de participantes de la tanda" type="number" min="2" max="30" required className={inputCls} value={tandaCount} onChange={e=>setTandaCount(e.target.value)} /></div>
-              <div><Label htmlFor="tanda-amount">Monto por periodo ($)</Label><input id="tanda-amount" aria-label="Monto por periodo de la tanda" type="number" min="1" required className={inputCls} value={tandaAmount} onChange={e=>setTandaAmount(e.target.value)} /></div>
-              <div><Label htmlFor="tanda-start">Fecha de inicio</Label><input id="tanda-start" aria-label="Fecha de inicio de la tanda" type="date" required className={inputCls} value={tandaStart} onChange={e=>setTandaStart(e.target.value)} /></div>
-              <div><Label htmlFor="tanda-freq">Frecuencia de cobro</Label><select id="tanda-freq" aria-label="Frecuencia de cobro de la tanda" className={inputCls} value={tandaFreq} onChange={e=>setTandaFreq(e.target.value as "semanal"|"quincenal"|"mensual")}><option value="semanal">Semanal</option><option value="quincenal">Quincenal</option><option value="mensual">Mensual</option></select></div>
-              <div><Label htmlFor="tanda-drawmode">Sorteo</Label><select id="tanda-drawmode" aria-label="Modo de sorteo de la tanda" className={inputCls} value={tandaDrawMode} onChange={e=>setTandaDrawMode(e.target.value as "random"|"weighted")}><option value="random">Al azar</option><option value="weighted">Por cumplimiento</option></select></div>
-              <div><Label htmlFor="tanda-coverage">Si alguien no paga</Label><select id="tanda-coverage" aria-label="Regla si alguien no paga en la tanda" className={inputCls} value={tandaCoverage} onChange={e=>setTandaCoverage(e.target.value as "fondo"|"prorroga"|"reparto")}><option value="fondo">Fondo solidario</option><option value="prorroga">Prórroga</option><option value="reparto">Reparto entre los demás</option></select></div>
-              <div><Label htmlFor="tanda-fine">Multa por retardo o falta ($)</Label><input id="tanda-fine" aria-label="Multa por retardo o falta en la tanda" type="number" min="0" className={inputCls} value={tandaFine} onChange={e=>setTandaFine(e.target.value)} placeholder="0 = sin multa" /></div>
-              <div><Label htmlFor="tanda-meeting">Día fijo de reunión</Label><select id="tanda-meeting" aria-label="Día fijo de reunión de la tanda" className={inputCls} value={tandaMeeting} onChange={e=>setTandaMeeting(e.target.value)}><option value="">Sin día fijo</option><option value="lunes">Lunes</option><option value="martes">Martes</option><option value="miércoles">Miércoles</option><option value="jueves">Jueves</option><option value="viernes">Viernes</option><option value="sábado">Sábado</option><option value="domingo">Domingo</option></select></div>
-              <div><Label htmlFor="tanda-treasurer">Tesorero (administra los fondos)</Label><select id="tanda-treasurer" aria-label="Tesorero de la tanda" className={inputCls} value={tandaTreasurer} onChange={e=>setTandaTreasurer(e.target.value)}><option value="">Sin tesorero</option>{data.profiles.filter(p=>p.kind==="adult").map(p=><option key={p.id} value={p.id}>{fullName(p)}</option>)}</select></div>
-              <div><Label htmlFor="tanda-substitute">Suplente</Label><select id="tanda-substitute" aria-label="Suplente de la tanda" className={inputCls} value={tandaSubstitute} onChange={e=>setTandaSubstitute(e.target.value)}><option value="">Sin suplente</option>{data.profiles.filter(p=>p.kind==="adult").map(p=><option key={p.id} value={p.id}>{fullName(p)}</option>)}</select></div>
-              <p className="text-xs text-[var(--dim)] md:col-span-2">Organizador: <b>{me?fullName(me):"usted"}</b>. Sin intereses: la tanda es ahorro entre conocidos.</p>
-              <button className={btnPrimary} disabled={saveTanda.isPending}>Crear tanda</button>
-            </form>
+            <TandaForm
+              values={{name:tandaName,count:tandaCount,amount:tandaAmount,start:tandaStart,freq:tandaFreq,drawMode:tandaDrawMode,coverage:tandaCoverage,fine:tandaFine,meeting:tandaMeeting,treasurer:tandaTreasurer,substitute:tandaSubstitute}}
+              onChange={(patch: Partial<TandaFormValues>)=>{ if(patch.name!==undefined)setTandaName(patch.name); if(patch.count!==undefined)setTandaCount(patch.count); if(patch.amount!==undefined)setTandaAmount(patch.amount); if(patch.start!==undefined)setTandaStart(patch.start); if(patch.freq!==undefined)setTandaFreq(patch.freq); if(patch.drawMode!==undefined)setTandaDrawMode(patch.drawMode); if(patch.coverage!==undefined)setTandaCoverage(patch.coverage); if(patch.fine!==undefined)setTandaFine(patch.fine); if(patch.meeting!==undefined)setTandaMeeting(patch.meeting); if(patch.treasurer!==undefined)setTandaTreasurer(patch.treasurer); if(patch.substitute!==undefined)setTandaSubstitute(patch.substitute); }}
+              onSubmit={()=>saveTanda.mutate()}
+              pending={saveTanda.isPending}
+              organizerName={me?fullName(me):"usted"}
+              adultProfiles={data.profiles.filter(p=>p.kind==="adult").map(p=>({id:p.id,name:fullName(p)}))}
+            />
             {data.tandas.map(td=>{ const p = tandaPerms(td); return (
               <div key={td.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-3">
                 <div className="flex justify-between flex-wrap gap-2">
