@@ -230,6 +230,11 @@ export type ReceiptDateCheck = { readDate: string; reason: "future" | "other-yea
 
 export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  // Comprobante de transferencia (SPEI): no trae línea de "total"; el
+  // importe va en la línea "Monto" o "Importe" y el concepto en
+  // "Concepto:" o en el beneficiario. Se detecta por las palabras de
+  // transferencia, pero la línea de total de un ticket siempre gana.
+  const isTransferDoc = /transferencia|spei/.test(normText(text));
   let total: number | null = null;
   // La línea de total es la que dice "total" sin ser "subtotal".
   const totalLines = lines.filter((l) => {
@@ -239,6 +244,18 @@ export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
   for (const l of totalLines) {
     const amts = amountsIn(l);
     if (amts.length > 0) total = amts[amts.length - 1]!;
+  }
+  if (total == null && isTransferDoc) {
+    // Transferencia sin línea de total: el importe de la línea "Monto"
+    // o "Importe". El folio, la clave de rastreo y las cuentas son
+    // números largos sin decimales y no cuentan como importe.
+    for (const l of lines) {
+      const n = normText(l);
+      if (!/\bmonto\b/.test(n) && !/\bimporte\b/.test(n)) continue;
+      const dec = decimalAmounts(l);
+      const amts = dec.length > 0 ? dec : amountsIn(l);
+      if (amts.length > 0) { total = amts[amts.length - 1]!; break; }
+    }
   }
   if (total == null) {
     // Sin línea de total: el importe mayor del último tercio, en líneas con
@@ -305,6 +322,32 @@ export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
     store = l.replace(/[^\p{L}\p{N} &.'-]/gu, "").trim() || null;
     if (store) break;
   }
+  // En una transferencia, el concepto no es el encabezado del papel
+  // ("COMPROBANTE DE TRANSFERENCIA") sino lo que dice la línea
+  // "Concepto:" y, si no hay, el beneficiario. El valor viene de una
+  // línea con etiqueta, así que solo se exige que tenga letras y no sea
+  // un número largo (folio, clave o cuenta).
+  if (isTransferDoc) {
+    const cleanConcept = (v: string): string | null => {
+      const c = v.replace(/[^\p{L}\p{N} &.'-]/gu, "").trim().slice(0, 60);
+      return c.length >= 3 && /[A-Za-zÁÉÍÓÚÑ]{2}/.test(c) && !/^\d[\d ]+$/.test(c) ? c : null;
+    };
+    let speiConcept: string | null = null;
+    for (const l of lines) {
+      const m = /^\s*concepto\s*:\s*(.+)$/i.exec(l);
+      if (m) { speiConcept = cleanConcept(m[1]!); if (speiConcept) break; }
+    }
+    if (!speiConcept) {
+      for (const l of lines) {
+        const m = /^\s*beneficiario\s*:\s*(.+)$/i.exec(l);
+        if (m) {
+          const name = cleanConcept(m[1]!);
+          if (name) { speiConcept = `Transferencia a ${name}`; break; }
+        }
+      }
+    }
+    if (speiConcept) store = speiConcept;
+  }
   // Subtotal: último importe de la línea que dice "subtotal".
   let subtotal: number | null = null;
   for (const l of lines) {
@@ -323,7 +366,7 @@ export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
     : /transferencia|spei/.test(nt) ? "Transferencia" : null;
   // Artículos: líneas con importe al final, que no sean totales, impuestos
   // ni pago. Igual que en el previo.
-  const itemSkip = /total|iva|impuesto|cambio|efectivo|tarjeta|recib|saldo|puntos|redondeo|descuento/i;
+  const itemSkip = /total|iva|impuesto|cambio|efectivo|tarjeta|recib|saldo|puntos|redondeo|descuento|monto|importe|folio|clave|rastreo|cuenta|beneficiario|ordenante|concepto|banco|fecha|hora|operacion|spei/i;
   const items: ReceiptItem[] = [];
   for (const l of lines) {
     if (itemSkip.test(l)) continue;

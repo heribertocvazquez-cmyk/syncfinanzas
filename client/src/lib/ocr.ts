@@ -130,8 +130,159 @@ export function ocrStatusText(status: string, progress: number, downloadedMB?: n
   if (status === "loading language traineddata") return `Descargando el idioma español (solo la primera vez)…${mb}`;
   if (status === "initializing tesseract" || status === "initializing api") return "Preparando el lector…";
   if (status === "retrying") return "Probando otra forma de cargar el lector…";
+  if (status === "retry-read") return "Probando otra forma de leer el comprobante…";
   if (status === "recognizing text") return `Leyendo el comprobante… ${Math.round((progress || 0) * 100)}%`;
   return "Leyendo el comprobante…";
+}
+
+// ---- Preparación de la foto antes de leerla (texto chico y denso) ----
+
+// Pasa los píxeles de un canvas a grises y estira el contraste entre los
+// percentiles 1 y 99: el texto gris de un comprobante en papel sale negro
+// sobre blanco, que es lo que Tesseract lee mejor. Función pura sobre los
+// datos del canvas, para poder probarla sin navegador.
+export function enhanceReceiptPixels(data: Uint8ClampedArray): void {
+  const n = data.length / 4;
+  if (n === 0) return;
+  const gray = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    gray[i] = Math.round(0.299 * data[o]! + 0.587 * data[o + 1]! + 0.114 * data[o + 2]!);
+  }
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < n; i++) hist[gray[i]!]!++;
+  const edge = Math.max(1, Math.floor(n * 0.01));
+  let lo = 0;
+  let acc = 0;
+  for (let v = 0; v < 256; v++) {
+    acc += hist[v]!;
+    if (acc >= edge) { lo = v; break; }
+  }
+  let hi = 255;
+  acc = 0;
+  for (let v = 255; v >= 0; v--) {
+    acc += hist[v]!;
+    if (acc >= edge) { hi = v; break; }
+  }
+  if (hi - lo < 16) return; // casi plano o ya blanco y negro: no tocar
+  const span = hi - lo;
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    let v = Math.round(((gray[i]! - lo) * 255) / span);
+    if (v < 0) v = 0;
+    else if (v > 255) v = 255;
+    data[o] = v;
+    data[o + 1] = v;
+    data[o + 2] = v;
+  }
+}
+
+// Amplía la foto cuando es chica (hasta 2x, con el lado mayor en 3200 px
+// como tope), la pasa a grises y le estira el contraste. La foto de un
+// comprobante en papel suele traer el texto de pocos píxeles: sin esto,
+// Tesseract no devuelve nada útil. Todo en el dispositivo, con el canvas
+// del navegador, sin dependencias nuevas.
+export async function preprocessReceiptImage(imageSrc: string): Promise<string> {
+  const img = new Image();
+  await new Promise<void>((res, rej) => {
+    img.onload = () => res();
+    img.onerror = () => rej(new Error("No se pudo cargar la imagen para prepararla."));
+    img.src = imageSrc;
+  });
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (!w || !h) throw new Error("No se pudo medir la imagen para prepararla.");
+  const scale = Math.min(2, 3200 / Math.max(w, h));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(w * scale));
+  canvas.height = Math.max(1, Math.round(h * scale));
+  const cx = canvas.getContext("2d");
+  if (!cx) throw new Error("No fue posible procesar la imagen en este dispositivo.");
+  cx.imageSmoothingEnabled = true;
+  cx.imageSmoothingQuality = "high";
+  cx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const imageData = cx.getImageData(0, 0, canvas.width, canvas.height);
+  enhanceReceiptPixels(imageData.data);
+  cx.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
+// Calidad de un texto leído: palabras reales + dígitos + señales de
+// importe y fecha. Sirve para quedarse con el mejor intento de lectura.
+export function scoreOcrText(text: string): number {
+  const words = text.match(/[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,}/g) || [];
+  const digits = text.match(/\d/g) || [];
+  let score = words.length * 2 + digits.length;
+  if (/\$?\s*\d[\d,]*\.\d{2}/.test(text)) score += 20;
+  if (/\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}/.test(text)) score += 20;
+  return score;
+}
+
+// Un texto sirve para analizarlo: trae varias palabras o un importe.
+export function isUsableOcrText(text: string): boolean {
+  return scoreOcrText(text) >= 20;
+}
+
+type PsmMode = NonNullable<Parameters<TesseractWorker["setParameters"]>[0]["tessedit_pageseg_mode"]>;
+
+// Lee la foto con reintentos: primero como viene (PSM automático, el
+// comportamiento actual); si el texto no sirve, reintenta con la foto
+// preparada (ampliada, grises, contraste) en PSM 6 y luego en PSM 11, y
+// se queda con el mejor texto. Si un intento falla (el lector se cae con
+// esa imagen), se sigue con el siguiente en vez de fallar de inmediato;
+// solo si ningún intento devuelve texto se lanza el error de lectura.
+// Los modos PSM vienen del módulo cargado en forma dinámica (mod.PSM)
+// para no meter tesseract.js en el paquete inicial.
+async function recognizeWithRetries(
+  worker: TesseractWorker,
+  imageSrc: string,
+  emit: (p: OcrProgress) => void,
+  attemptLog: string[],
+  psmEnum: TesseractModule["PSM"],
+): Promise<string> {
+  let bestText = "";
+  let bestScore = -1;
+  let preparedSrc: string | null = null;
+  const prepare = async (): Promise<string> => {
+    if (preparedSrc == null) preparedSrc = await preprocessReceiptImage(imageSrc);
+    return preparedSrc;
+  };
+  const attempts: { label: string; psm: PsmMode; src: () => Promise<string> }[] = [
+    { label: "original PSM 3", psm: psmEnum.AUTO, src: async () => imageSrc },
+    { label: "preparada PSM 6", psm: psmEnum.SINGLE_BLOCK, src: prepare },
+    { label: "preparada PSM 11", psm: psmEnum.SPARSE_TEXT, src: prepare },
+  ];
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i]!;
+    if (i > 0) {
+      if (isUsableOcrText(bestText)) break;
+      emit({ status: "retry-read", progress: 0 });
+    }
+    let src: string;
+    try {
+      src = await attempt.src();
+    } catch (err) {
+      attemptLog.push(`${attempt.label}: no se pudo preparar la imagen (${serializeErr(err)})`);
+      continue;
+    }
+    try {
+      await worker.setParameters({ tessedit_pageseg_mode: attempt.psm });
+      const { data } = await worker.recognize(src);
+      const text = data.text || "";
+      const score = scoreOcrText(text);
+      attemptLog.push(`${attempt.label}: ${text.trim().length} caracteres, puntaje ${score}`);
+      if (score > bestScore) {
+        bestScore = score;
+        bestText = text;
+      }
+    } catch (err) {
+      attemptLog.push(`${attempt.label}: falló (${serializeErr(err)})`);
+    }
+  }
+  if (!bestText.trim()) {
+    throw new OcrError("read", "No se pudo leer el texto del comprobante.", attemptLog.join(" | "));
+  }
+  return bestText;
 }
 
 export const OCR_WORKER_PATH = "/tesseract/worker.min.js";
@@ -260,11 +411,12 @@ export async function readReceiptText(imageSrc: string, onProgress?: (p: OcrProg
     throw new OcrError("load", "No se pudo cargar el lector de comprobantes.", attemptLog.join(" | "));
   }
   try {
-    const { data } = await worker.recognize(imageSrc);
-    return data.text || "";
+    const text = await recognizeWithRetries(worker, imageSrc, emit, attemptLog, mod.PSM);
+    return text;
   } catch (err) {
+    if (err instanceof OcrError) throw err;
     const msg = serializeErr(err);
-    throw new OcrError("read", "No se pudo leer el texto del comprobante.", msg);
+    throw new OcrError("read", "No se pudo leer el texto del comprobante.", `${msg}${attemptLog.length > 0 ? ` | ${attemptLog.join(" | ")}` : ""}`);
   } finally {
     await worker.terminate();
   }
