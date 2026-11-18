@@ -25,6 +25,11 @@ const COPIES = [
   ["node_modules/tesseract.js/dist/worker.min.js", "worker.min.js"],
   ["node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm.js", "core/tesseract-core-simd-lstm.wasm.js"],
   ["node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm", "core/tesseract-core-simd-lstm.wasm"],
+  // Núcleo sin SIMD (mismo motor sin esa optimización): lo usa la escalera
+  // de carga del lector cuando el núcleo SIMD no arranca en el dispositivo.
+  // Como el SIMD, lleva el wasm incrustado en el .js, así que solo se
+  // copia el .js.
+  ["node_modules/tesseract.js-core/tesseract-core-lstm.wasm.js", "core/tesseract-core-lstm.wasm.js"],
 ];
 
 // Datos del idioma español (tesseract.js 6 los pide como .gz y los

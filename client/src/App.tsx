@@ -1303,7 +1303,8 @@ export function App(){
       if(parsed.total==null){ setTandaProofReview(r=>r?{...r,busy:false,error:"No se pudo leer el total del comprobante. Puede confirmar el pago con la foto; el organizador lo verifica."}:r); return; }
       setTandaProofReview(r=>r?{...r,detail:parsed,paidDate:parsed.date||todayISO(),busy:false,notice:`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de confirmar.`}:r);
     }catch(err){
-      setTandaProofReview(r=>r?{...r,busy:false,error:err instanceof OcrError && err.code==="load" ? "No se pudo cargar el lector en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica." : "No se pudo leer el comprobante en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica."}:r);
+      const detail=err instanceof OcrError?err.detail:"";
+      setTandaProofReview(r=>r?{...r,busy:false,error:(err instanceof OcrError && err.code==="load" ? "No se pudo cargar el lector en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica." : "No se pudo leer el comprobante en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica.")+(detail?` Detalle: ${detail}`:"")}:r);
     }
   };
   const confirmTandaProof=()=>{
@@ -1357,8 +1358,8 @@ export function App(){
   // Lectura de comprobantes en el dispositivo (Tesseract.js, gratis, sin
   // servidor): se llena el importe, el concepto y la categoría; la persona
   // revisa antes de guardar. El motor se carga solo al leer.
-  const [ocrBusyMv,setOcrBusyMv]=useState(false); const [ocrProgressMv,setOcrProgressMv]=useState(""); const [ocrErrorMv,setOcrErrorMv]=useState(""); const [ocrNoticeMv,setOcrNoticeMv]=useState("");
-  const [ocrBusyPers,setOcrBusyPers]=useState(false); const [ocrProgressPers,setOcrProgressPers]=useState(""); const [ocrErrorPers,setOcrErrorPers]=useState(""); const [ocrNoticePers,setOcrNoticePers]=useState("");
+  const [ocrBusyMv,setOcrBusyMv]=useState(false); const [ocrProgressMv,setOcrProgressMv]=useState(""); const [ocrErrorMv,setOcrErrorMv]=useState(""); const [ocrNoticeMv,setOcrNoticeMv]=useState(""); const [ocrErrDetailMv,setOcrErrDetailMv]=useState("");
+  const [ocrBusyPers,setOcrBusyPers]=useState(false); const [ocrProgressPers,setOcrProgressPers]=useState(""); const [ocrErrorPers,setOcrErrorPers]=useState(""); const [ocrNoticePers,setOcrNoticePers]=useState(""); const [ocrErrDetailPers,setOcrErrDetailPers]=useState("");
   const runOcr=async(target:"mv"|"pers",fileOverride?:File)=>{
     const file=fileOverride ?? (target==="mv"?receipt?.file:persReceipt?.file);
     if(!file || !data) return;
@@ -1367,11 +1368,12 @@ export function App(){
     const setError=target==="mv"?setOcrErrorMv:setOcrErrorPers;
     const setNotice=target==="mv"?setOcrNoticeMv:setOcrNoticePers;
     const setDetail=target==="mv"?setOcrDetailMv:setOcrDetailPers;
-    setBusy(true); setError(""); setNotice(""); setDetail(null); setProgress("Preparando la lectura…");
+    const setErrDetail=target==="mv"?setOcrErrDetailMv:setOcrErrDetailPers;
+    setBusy(true); setError(""); setNotice(""); setDetail(null); setErrDetail(""); setProgress("Preparando la lectura…");
     try{
       const jpeg=await imageFileToJpeg(file);
       setProgress("Leyendo el comprobante en su dispositivo…");
-      const text=await readReceiptText(`data:${jpeg.mimeType};base64,${jpeg.dataBase64}`,(p)=>{ setProgress(ocrStatusText(p.status,p.progress||0)); });
+      const text=await readReceiptText(`data:${jpeg.mimeType};base64,${jpeg.dataBase64}`,(p)=>{ setProgress(ocrStatusText(p.status,p.progress||0,p.downloadedMB,p.totalMB)); });
       const parsed=parseReceiptText(text);
       if(parsed.total==null){ setError("No se pudo leer el total del comprobante. Verifique que la foto sea nítida o escriba el importe."); return; }
       setDetail(parsed);
@@ -1397,7 +1399,7 @@ export function App(){
         setPersMore(true); setPersStep(1); scrollFormTop("pers-exp-form");
         setNotice(`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de guardar.`);
       }
-    }catch(err){ setError(err instanceof OcrError && err.code==="load" ? "No se pudo cargar el lector en este dispositivo. Intente de nuevo; la primera lectura descarga el lector y luego queda guardado." : "No se pudo leer el texto del comprobante. Verifique que la foto sea nítida o escriba el importe."); }
+    }catch(err){ const detail=err instanceof OcrError?err.detail:""; setErrDetail(detail); setError(err instanceof OcrError && err.code==="load" ? "No se pudo cargar el lector en este dispositivo. Intente de nuevo; la primera lectura descarga el lector y luego queda guardado." : "No se pudo leer el texto del comprobante. Verifique que la foto sea nítida o escriba el importe."); }
     finally{ setBusy(false); setProgress(""); }
   };
   // Subir el comprobante AL EMPEZAR el gasto: se adjunta la foto y la
@@ -2029,6 +2031,7 @@ export function App(){
                   <button type="button" aria-label="Leer el comprobante de nuevo y llenar el formulario" className={btnGhost+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante de nuevo"}</button>
                   {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
                   {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
+                  {ocrErrDetailMv && <p className="text-xs text-[var(--dim)] mt-1">Detalle: {ocrErrDetailMv}</p>}
                   <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
                 </div>}
               </div>}
@@ -2082,6 +2085,7 @@ export function App(){
                   <button type="button" aria-label="Leer el comprobante y llenar el formulario" className={btnPrimary+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante"}</button>
                   {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
                   {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
+                  {ocrErrDetailMv && <p className="text-xs text-[var(--dim)] mt-1">Detalle: {ocrErrDetailMv}</p>}
                   {ocrNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticeMv}</p>}
                   {ocrDetailMv && <OcrDetail detail={ocrDetailMv} />}
                   <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
@@ -2567,6 +2571,7 @@ export function App(){
                       <button type="button" aria-label="Leer el comprobante de nuevo y llenar el gasto del día" className={btnGhost+" w-full"} disabled={ocrBusyPers} onClick={()=>void runOcr("pers")}>{ocrBusyPers?"Leyendo el comprobante…":"Leer el comprobante de nuevo"}</button>
                       {ocrProgressPers && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressPers}</p>}
                       {ocrErrorPers && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorPers}</p>}
+                      {ocrErrDetailPers && <p className="text-xs text-[var(--dim)] mt-1">Detalle: {ocrErrDetailPers}</p>}
                       <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
                     </div>}
                   </div>
@@ -2598,6 +2603,7 @@ export function App(){
                     <button type="button" aria-label="Leer el comprobante y llenar el gasto del día" className={btnPrimary+" w-full"} disabled={ocrBusyPers} onClick={()=>void runOcr("pers")}>{ocrBusyPers?"Leyendo el comprobante…":"Leer el comprobante"}</button>
                     {ocrProgressPers && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressPers}</p>}
                     {ocrErrorPers && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorPers}</p>}
+                    {ocrErrDetailPers && <p className="text-xs text-[var(--dim)] mt-1">Detalle: {ocrErrDetailPers}</p>}
                     {ocrNoticePers && <p className="text-xs text-[var(--green)] mt-1">{ocrNoticePers}</p>}
                     {ocrDetailPers && <OcrDetail detail={ocrDetailPers} />}
                     <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>

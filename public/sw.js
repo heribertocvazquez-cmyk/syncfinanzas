@@ -39,6 +39,13 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   // API y autenticación: siempre en línea, nunca en caché.
   if (url.pathname.startsWith("/api/")) return;
+  // Archivos del lector de comprobantes: siempre en línea, sin pasar por
+  // la caché del service worker. El worker de Tesseract se crea desde
+  // /tesseract/worker.min.js y carga el núcleo con importScripts; en
+  // iPhone, servir esos archivos desde la caché del service worker puede
+  // fallar. La caché del navegador (con revalidación) y la IndexedDB del
+  // lector ya los guardan tras la primera lectura.
+  if (url.pathname.startsWith("/tesseract/")) return;
   if (event.request.method !== "GET") return;
   // Navegación (la página principal): primero en línea, para que una
   // recarga tras una actualización traiga el HTML nuevo; sin conexión,
