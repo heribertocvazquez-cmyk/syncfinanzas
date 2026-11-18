@@ -10,6 +10,8 @@ import { readReceiptText, ocrStatusText, OcrError } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
 import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice } from "./lib/movementsList";
+import { buildBalanceBreakdown } from "./lib/balanceBreakdown";
+import { MoneyLocationModal } from "./components/MoneyLocationModal";
 import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
@@ -1157,7 +1159,7 @@ export function App(){
   // Detalle de la gráfica de ingresos vs gastos: tipo y mes tocados.
   const [incExpDetail,setIncExpDetail]=useState<{kind:"income"|"expense";month:string;label:string}|null>(null);
   const [catDetail,setCatDetail]=useState<{categoryId:number|null;name:string;total:number;month:string}|null>(null);
-  const [showBalanceBreakdown,setShowBalanceBreakdown]=useState(false);
+  const [showMoneyLocation,setShowMoneyLocation]=useState(false);
   const [showSummary,setShowSummary]=useState(false);
   const [helpOpen,setHelpOpen]=useState(false);
   const [showHomeMovs,setShowHomeMovs]=useState(false);
@@ -3315,38 +3317,44 @@ export function App(){
           {renderMvForm()}
         </div>
       </div>}
-      {showSummary && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Resumen del mes de ${fmtMonth(s.currentMonth)}`} onClick={()=>{setShowSummary(false); setShowBalanceBreakdown(false);}}>
+      {showSummary && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Resumen del mes de ${fmtMonth(s.currentMonth)}`} onClick={()=>{setShowSummary(false);}}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4" onClick={e=>e.stopPropagation()}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">RESUMEN · {fmtMonth(s.currentMonth).toUpperCase()}</p>
               <p className="font-display font-bold text-lg leading-tight">Resumen del mes</p>
             </div>
-            <button type="button" aria-label="Cerrar el resumen del mes" onClick={()=>{setShowSummary(false); setShowBalanceBreakdown(false);}} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+            <button type="button" aria-label="Cerrar el resumen del mes" onClick={()=>{setShowSummary(false);}} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
           </div>
           <p className="text-sm text-[var(--dim)] mt-2">Disponible · {s.currentMonth}</p>
           <p className="font-display text-3xl font-extrabold mt-1">{money2(s.availableFree)}</p>
           <p className="text-sm text-[var(--dim)] mt-1">Total {money2(s.totalBalance)} − fondos apartados {money2(s.fundsReserved)}.</p>
-          <button type="button" aria-expanded={showBalanceBreakdown} onClick={()=>setShowBalanceBreakdown(v=>!v)} className="text-sm font-bold underline underline-offset-2 mt-1">Ver cómo se forma {showBalanceBreakdown?"‹":"›"}</button>
-          {showBalanceBreakdown && (
-            <div className="mt-2 text-sm space-y-1">
-              {s.openingBalance!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Saldo inicial</span><b className="whitespace-nowrap">{money(s.openingBalance)}</b></div>}
-              {s.priorMonthsNet!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Meses anteriores</span><b className="whitespace-nowrap">{money(s.priorMonthsNet)}</b></div>}
-              {s.monthNet!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">Neto del mes</span><b className="whitespace-nowrap">{money(s.monthNet)}</b></div>}
-              {s.fundsFromAccounts!==0 && <div className="flex justify-between gap-2"><span className="text-[var(--dim)]">{s.fundsFromAccounts>0?"Salidas a fondos":"Entradas desde fondos"}</span><b className="whitespace-nowrap">{s.fundsFromAccounts>0?`−${money(s.fundsFromAccounts)}`:`+${money(-s.fundsFromAccounts)}`}</b></div>}
-              <div className="flex justify-between gap-2 border-t border-[var(--border)] pt-1"><span className="text-[var(--dim)]">Total</span><b className="whitespace-nowrap">{money2(s.totalBalance)}</b></div>
-            </div>
-          )}
+          {/* El detalle ya no se despliega sobre la tarjeta: abre el pop-up
+              «Dónde está su dinero», con el saldo por cuenta y tipo de cuenta. */}
+          <button type="button" onClick={()=>setShowMoneyLocation(true)} className="text-sm font-bold underline underline-offset-2 mt-1">Ver dónde está su dinero ›</button>
           <div className="grid grid-cols-3 gap-2 mt-3 text-center">
             <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Entradas</p><p className="font-display font-bold text-lg">{money(s.monthIncome)}</p></div>
             <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Salidas</p><p className="font-display font-bold text-lg">{money(s.monthExpense)}</p></div>
             <div className="bg-[var(--surface2)] rounded-2xl py-2"><p className="text-xs text-[var(--dim)]">Neto</p><p className="font-display font-bold text-lg">{money(s.monthNet)}</p></div>
           </div>
           <div className="flex gap-2 mt-4">
-            <button type="button" className={btnGhost+" flex-1"} onClick={()=>{setShowSummary(false); setShowBalanceBreakdown(false);}}>Cerrar</button>
+            <button type="button" className={btnGhost+" flex-1"} onClick={()=>{setShowSummary(false);}}>Cerrar</button>
           </div>
         </div>
       </div>}
+      {showMoneyLocation && <MoneyLocationModal
+        monthLabel={fmtMonth(s.currentMonth)}
+        availableFree={s.availableFree}
+        totalBalance={s.totalBalance}
+        fundsReserved={s.fundsReserved}
+        groups={buildBalanceBreakdown({accounts: data.accounts, unassignedNet: s.unassignedNet, totalBalance: s.totalBalance, fundsReserved: s.fundsReserved, availableFree: s.availableFree}).groups}
+        unassignedNet={s.unassignedNet}
+        openingBalance={s.openingBalance}
+        priorMonthsNet={s.priorMonthsNet}
+        monthNet={s.monthNet}
+        fundsFromAccounts={s.fundsFromAccounts}
+        onClose={()=>setShowMoneyLocation(false)}
+      />}
       {receiptView && <div className="fixed inset-0 z-50 bg-black/85 flex flex-col items-center justify-center p-3" role="dialog" aria-label="Fotografía del comprobante en tamaño completo">
         <img src={receiptView} alt="Fotografía del comprobante adjunta al gasto, en tamaño completo" className="max-h-[78vh] w-auto rounded-2xl object-contain" />
         <p className="text-white/80 text-xs mt-3">Comprobante del gasto.</p>
