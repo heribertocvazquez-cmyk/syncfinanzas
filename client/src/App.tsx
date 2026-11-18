@@ -5,7 +5,7 @@ import { readInviteToken, type InvitePreview } from "./components/AuthGate";
 import { fileToBase64 } from "./lib/file";
 import { matchRule, normText, parseReceiptText, parseVoiceText, resolveReceiptCategory, suggestCategoryId } from "./lib/smart";
 import type { ReceiptRead } from "./lib/smart";
-import { readReceiptText } from "./lib/ocr";
+import { readReceiptText, ocrStatusText, OcrError } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
 import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
@@ -1302,8 +1302,8 @@ export function App(){
       const parsed=parseReceiptText(text);
       if(parsed.total==null){ setTandaProofReview(r=>r?{...r,busy:false,error:"No se pudo leer el total del comprobante. Puede confirmar el pago con la foto; el organizador lo verifica."}:r); return; }
       setTandaProofReview(r=>r?{...r,detail:parsed,paidDate:parsed.date||todayISO(),busy:false,notice:`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de confirmar.`}:r);
-    }catch{
-      setTandaProofReview(r=>r?{...r,busy:false,error:"No se pudo leer el comprobante en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica."}:r);
+    }catch(err){
+      setTandaProofReview(r=>r?{...r,busy:false,error:err instanceof OcrError && err.code==="load" ? "No se pudo cargar el lector en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica." : "No se pudo leer el comprobante en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica."}:r);
     }
   };
   const confirmTandaProof=()=>{
@@ -1359,8 +1359,8 @@ export function App(){
   // revisa antes de guardar. El motor se carga solo al leer.
   const [ocrBusyMv,setOcrBusyMv]=useState(false); const [ocrProgressMv,setOcrProgressMv]=useState(""); const [ocrErrorMv,setOcrErrorMv]=useState(""); const [ocrNoticeMv,setOcrNoticeMv]=useState("");
   const [ocrBusyPers,setOcrBusyPers]=useState(false); const [ocrProgressPers,setOcrProgressPers]=useState(""); const [ocrErrorPers,setOcrErrorPers]=useState(""); const [ocrNoticePers,setOcrNoticePers]=useState("");
-  const runOcr=async(target:"mv"|"pers")=>{
-    const file=target==="mv"?receipt?.file:persReceipt?.file;
+  const runOcr=async(target:"mv"|"pers",fileOverride?:File)=>{
+    const file=fileOverride ?? (target==="mv"?receipt?.file:persReceipt?.file);
     if(!file || !data) return;
     const setBusy=target==="mv"?setOcrBusyMv:setOcrBusyPers;
     const setProgress=target==="mv"?setOcrProgressMv:setOcrProgressPers;
@@ -1371,7 +1371,7 @@ export function App(){
     try{
       const jpeg=await imageFileToJpeg(file);
       setProgress("Leyendo el comprobante en su dispositivo…");
-      const text=await readReceiptText(`data:${jpeg.mimeType};base64,${jpeg.dataBase64}`,(p)=>{ if(p.status==="recognizing text") setProgress(`Leyendo el comprobante… ${Math.round((p.progress||0)*100)}%`); });
+      const text=await readReceiptText(`data:${jpeg.mimeType};base64,${jpeg.dataBase64}`,(p)=>{ setProgress(ocrStatusText(p.status,p.progress||0)); });
       const parsed=parseReceiptText(text);
       if(parsed.total==null){ setError("No se pudo leer el total del comprobante. Verifique que la foto sea nítida o escriba el importe."); return; }
       setDetail(parsed);
@@ -1397,8 +1397,18 @@ export function App(){
         setPersMore(true); setPersStep(1); scrollFormTop("pers-exp-form");
         setNotice(`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de guardar.`);
       }
-    }catch{ setError("No se pudo leer el comprobante en este dispositivo. Revise su conexión o escriba el importe."); }
+    }catch(err){ setError(err instanceof OcrError && err.code==="load" ? "No se pudo cargar el lector en este dispositivo. Intente de nuevo; la primera lectura descarga el lector y luego queda guardado." : "No se pudo leer el texto del comprobante. Verifique que la foto sea nítida o escriba el importe."); }
     finally{ setBusy(false); setProgress(""); }
+  };
+  // Subir el comprobante AL EMPEZAR el gasto: se adjunta la foto y la
+  // lectura llena importe, concepto, categoría y fecha; la persona revisa
+  // y corrige antes de guardar. Antes la foto solo se podía subir en el
+  // paso 3, cuando ya todo estaba escrito a mano.
+  const pickAndReadReceipt=async(file:File|undefined,target:"mv"|"pers")=>{
+    if(!file) return;
+    const set=target==="mv"?setReceipt:setPersReceipt;
+    await pickReceipt(file,set);
+    await runOcr(target,file);
   };
   // Detalle leído del comprobante y categoría sugerida por el lector propio.
   // El detalle solo se muestra para revisar, no se guarda. Si la categoría
@@ -2010,6 +2020,18 @@ export function App(){
               <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
                 {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
               </div>
+              {(mvType==="expense"||mvType==="debt_payment") && <div className="border border-dashed border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+                <p className="text-sm font-bold">¿Tiene el comprobante?</p>
+                <p className="text-xs text-[var(--dim)]">Suba la foto y la app lee el importe, el concepto y la categoría. Puede revisar y corregir todo antes de guardar.</p>
+                <label className={btnPrimary+" w-full mt-2 text-center cursor-pointer"} aria-label="Subir foto del comprobante al empezar">Subir foto del comprobante<input type="file" accept="image/*" className="hidden" aria-label="Archivo del comprobante" onChange={e=>{ const f=e.target.files?.[0]; void pickAndReadReceipt(f,"mv"); e.target.value=""; }} /></label>
+                {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");}}>Quitar foto</button></div>}
+                {receipt && <div className="mt-2">
+                  <button type="button" aria-label="Leer el comprobante de nuevo y llenar el formulario" className={btnGhost+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante de nuevo"}</button>
+                  {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
+                  {ocrErrorMv && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorMv}</p>}
+                  <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
+                </div>}
+              </div>}
               <div><Label htmlFor="mv-amount">Importe ($)</Label><input id="mv-amount" aria-label="Importe del movimiento" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={mvAmount} onChange={e=>setMvAmount(e.target.value)} /></div>
               <button type="button" className={btnPrimary+" w-full"} disabled={!mvAmount} onClick={()=>{setMvStep(2); scrollFormTop("mv-form");}}>Siguiente</button>
               </>}
@@ -2536,6 +2558,18 @@ export function App(){
                   <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${persStep*33.33}%`}} /></div>
                   {ocrNoticePers && <p className="text-xs text-[var(--green)]">{ocrNoticePers}</p>}
                   {persStep===1 && <>
+                  <div className="border border-dashed border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+                    <p className="text-sm font-bold">¿Tiene el comprobante?</p>
+                    <p className="text-xs text-[var(--dim)]">Suba la foto y la app lee el importe, el concepto y la categoría. Puede revisar y corregir todo antes de guardar.</p>
+                    <label className={btnPrimary+" w-full mt-2 text-center cursor-pointer"} aria-label="Subir foto del comprobante al empezar">Subir foto del comprobante<input type="file" accept="image/*" className="hidden" aria-label="Archivo del comprobante" onChange={e=>{ const f=e.target.files?.[0]; void pickAndReadReceipt(f,"pers"); e.target.value=""; }} /></label>
+                    {persReceipt && <div className="flex items-center gap-2 mt-2"><img src={persReceipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setPersReceipt(null);setOcrDetailPers(null);setOcrLabelPers("");}}>Quitar foto</button></div>}
+                    {persReceipt && <div className="mt-2">
+                      <button type="button" aria-label="Leer el comprobante de nuevo y llenar el gasto del día" className={btnGhost+" w-full"} disabled={ocrBusyPers} onClick={()=>void runOcr("pers")}>{ocrBusyPers?"Leyendo el comprobante…":"Leer el comprobante de nuevo"}</button>
+                      {ocrProgressPers && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressPers}</p>}
+                      {ocrErrorPers && <p className="text-xs text-[var(--red)] mt-1">{ocrErrorPers}</p>}
+                      <p className="text-xs text-[var(--dim)] mt-1">La lectura se hace en su dispositivo, sin costo.</p>
+                    </div>}
+                  </div>
                   <div><Label htmlFor="pers-amt">Importe ($)</Label><input id="pers-amt" aria-label="Importe del gasto del día" type="number" min="0.01" step="0.01" required className={inputCls+" text-xl font-bold py-2"} value={persAmt} onChange={e=>setPersAmt(e.target.value)} /></div>
                   <button type="button" className={btnPrimary+" w-full"} disabled={!persAmt} onClick={()=>{setPersStep(2); scrollFormTop("pers-exp-form");}}>Siguiente</button>
                   </>}
@@ -2891,7 +2925,7 @@ export function App(){
               <button type="button" className={btnPrimary+" shrink-0"} aria-label="Cargar datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>{demo.isPending?"Cargando…":"Cargar demo"}</button>
             </div>
             <div className="grid sm:grid-cols-3 gap-2">
-              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto y pulse Leer el comprobante: la app lee el total en su dispositivo y llena el gasto.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto al empezar el gasto: la app lee el total en su dispositivo y llena el gasto.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">Gráficas ingresos vs gastos</p><p className="text-sm text-[var(--dim)] mt-1">Por mes y por categoría.</p><button type="button" aria-label="Ir a Inicio para ver las gráficas" className={btnGhost+" mt-2"} onClick={()=>goTab("inicio")}>Ver gráficas</button></div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">Tandas</p><p className="text-sm text-[var(--dim)] mt-1">Cree su tanda e invite por correo.</p><button type="button" aria-label="Ir a Tandas desde la guía" className={btnGhost+" mt-2"} onClick={()=>goTab("tandas")}>Ir a Tandas</button></div>
             </div>
