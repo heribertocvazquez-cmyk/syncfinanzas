@@ -21,6 +21,7 @@ import { CollapsibleCard } from "./components/CollapsibleCard";
 import { money, money2, fmtDate, todayISO } from "./lib/format";
 import { Stars, Label, inputCls, btnPrimary, btnGhost, Empty } from "./lib/uiShared";
 import { OcrDetail } from "./components/OcrDetail";
+import { LoadingSplash } from "./components/LoadingSplash";
 import { TandasModule } from "./components/TandasModule";
 import { HomeTandasCard } from "./components/HomeTandasCard";
 import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview } from "./components/TandaDetail";
@@ -1381,7 +1382,7 @@ export function App(){
   useEffect(()=>{ if(!persAccount && cashDefaultId) setPersAccount(cashDefaultId); },[persAccount, cashDefaultId]);
   // Al cambiar el mes que muestra el tablero, la lista de Inicio vuelve a mostrar solo los 5 más recientes.
   useEffect(()=>{ setShowAllHomeMovs(false); },[data?.summary?.currentMonth]);
-  if(q.isPending) return <div className="min-h-screen bg-[var(--bg)] p-6 text-center text-[var(--dim)]">Cargando SyncFinanzas…</div>;
+  if(q.isPending) return <LoadingSplash />;
   if(q.error) return <div className="min-h-screen bg-[var(--bg)] p-6"><p className="text-[var(--red)]">No se pudo cargar. {String(q.error)}</p><button className={btnPrimary} onClick={()=>q.refetch()}>Reintentar</button></div>;
   if(!data) return null;
 
