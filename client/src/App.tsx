@@ -8,6 +8,7 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText, ocrStatusText, OcrError } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
+import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice } from "./lib/movementsList";
 import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
@@ -1103,7 +1104,7 @@ export function App(){
   const [tInvResult,setTInvResult]=useState<Record<number,InviteSend>>({});
 
   // movement form
-  const [mvType,setMvType]=useState<"income"|"expense"|"transfer"|"debt_payment">("expense"); const [mvStep,setMvStep]=useState(1); const [mvAmount,setMvAmount]=useState(""); const [mvConcept,setMvConcept]=useState(""); const [mvAccount,setMvAccount]=useState(""); const [mvToAccount,setMvToAccount]=useState(""); const [mvCat,setMvCat]=useState(""); const [mvSub,setMvSub]=useState(""); const [mvDate,setMvDate]=useState(todayISO()); const [mvVis,setMvVis]=useState<"private"|"shared">("shared"); const [mvSearch,setMvSearch]=useState(""); const [mvFilter,setMvFilter]=useState("all"); const [editingMv,setEditingMv]=useState<number|null>(null);
+  const [mvType,setMvType]=useState<"income"|"expense"|"transfer"|"debt_payment">("expense"); const [mvStep,setMvStep]=useState(1); const [mvAmount,setMvAmount]=useState(""); const [mvConcept,setMvConcept]=useState(""); const [mvAccount,setMvAccount]=useState(""); const [mvAccountError,setMvAccountError]=useState(""); const [mvToAccount,setMvToAccount]=useState(""); const [mvCat,setMvCat]=useState(""); const [mvSub,setMvSub]=useState(""); const [mvDate,setMvDate]=useState(todayISO()); const [mvVis,setMvVis]=useState<"private"|"shared">("shared"); const [mvSearch,setMvSearch]=useState(""); const [mvFilter,setMvFilter]=useState("all"); const [editingMv,setEditingMv]=useState<number|null>(null);
   // Regla de auto-categorización aplicada en cada formulario (se muestra y
   // se puede corregir). La regla solo llena la categoría cuando está vacía
   // o cuando la categoría actual la puso una regla: si la persona eligió
@@ -1159,6 +1160,7 @@ export function App(){
   const [showSummary,setShowSummary]=useState(false);
   const [helpOpen,setHelpOpen]=useState(false);
   const [showHomeMovs,setShowHomeMovs]=useState(false);
+  const [showAllHomeMovs,setShowAllHomeMovs]=useState(false);
   const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
   const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:()=>{inv();setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");setSavedNotice("Gasto registrado.");}});
@@ -1213,7 +1215,7 @@ export function App(){
   useEffect(()=>{ if(savedNotice){ savedNoticeRef.current?.scrollIntoView({behavior:"smooth",block:"center"}); } },[savedNotice]);
   const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); localStorage.removeItem("sf-pin-hash"); sessionStorage.removeItem("sf-pin-unlocked"); localStorage.removeItem("sf-periodic-alerts-date"); }catch{} }});
   // personal
-  const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persStep,setPersStep]=useState(1);
+  const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persAccountError,setPersAccountError]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
   const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();resetPersForm();setSavedNotice("Gasto del día guardado.");}});
   // Mike dinámico: preguntas con cifras reales del mes que se está viendo,
@@ -1429,8 +1431,8 @@ export function App(){
   // limpiaban algunos campos y la nota «Leído del comprobante» (con el
   // nombre leído) y la fecha leída se quedaban, así que el siguiente gasto
   // heredaba el anterior.
-  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); };
-  const resetPersForm=()=>{ setPersAmt(""); setPersConcept(""); setPersReceipt(null); setPersCat(""); setPersAccount(""); setAppliedRulePers(null); setPersStep(1); setPersMore(false); setOcrDetailPers(null); setOcrLabelPers(""); setOcrNewCatName(""); setOcrNoticePers(""); setOcrErrorPers(""); setOcrErrDetailPers(""); setOcrProgressPers(""); setOcrBusyPers(false); setVoiceNoticePers(""); setVoiceErrorPers(""); setVoiceBusyPers(false); };
+  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvAccountError(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); };
+  const resetPersForm=()=>{ setPersAmt(""); setPersConcept(""); setPersReceipt(null); setPersCat(""); setPersAccount(""); setPersAccountError(""); setAppliedRulePers(null); setPersStep(1); setPersMore(false); setOcrDetailPers(null); setOcrLabelPers(""); setOcrNewCatName(""); setOcrNoticePers(""); setOcrErrorPers(""); setOcrErrDetailPers(""); setOcrProgressPers(""); setOcrBusyPers(false); setVoiceNoticePers(""); setVoiceErrorPers(""); setVoiceBusyPers(false); };
   // Registro rápido desde Inicio: se queda en Inicio y abre el formulario
   // de movimientos en un pop-up, sin ir a Movimientos. Al guardar, el
   // pop-up se cierra y el tablero se actualiza. El ref espeja el estado
@@ -1539,8 +1541,19 @@ export function App(){
 
   const catsForType = useMemo(()=>{ if(!data) return []; const kind = mvType==="income"?"income":"expense"; if(mvType==="transfer") return []; return data.categories.filter(c=>c.kind===kind && c.isActive===1); },[data,mvType]);
   const selectedCat = data?.categories.find(c=>String(c.id)===mvCat);
-  const filteredMovs = useMemo(()=>{ if(!data) return []; const meId = currentProfileId ?? data.profiles.find(x=>x.role==="admin")?.id ?? data.profiles.find(x=>x.kind==="adult")?.id ?? null; const meIsAdmin = meId!=null && data.profiles.find(x=>x.id===meId)?.role==="admin"; return data.movements.filter(m=> m.visibility==="shared" || (meId ? (m.profileId===meId || (m.profileId===null && meIsAdmin)) : true)).filter(m=>{ if(mvFilter!=="all" && m.type!==mvFilter) return false; if(mvSubFilter!=="all" && (m.subcategory||"")!==mvSubFilter) return false; if(mvSearch && !m.concept.toLowerCase().includes(mvSearch.toLowerCase())) return false; return true; }); },[data,mvFilter,mvSubFilter,mvSearch,currentProfileId]);
+  const filteredMovs = useMemo(()=>{ if(!data) return []; const meId = currentProfileId ?? data.profiles.find(x=>x.role==="admin")?.id ?? data.profiles.find(x=>x.kind==="adult")?.id ?? null; const meIsAdmin = meId!=null && data.profiles.find(x=>x.id===meId)?.role==="admin"; const meRow = meId!=null ? { id: meId, role: meIsAdmin ? "admin" : "member" } : null; return data.movements.filter(m=> canSeeMovementRow(m, meRow)).filter(m=>{ if(mvFilter!=="all" && m.type!==mvFilter) return false; if(mvSubFilter!=="all" && (m.subcategory||"")!==mvSubFilter) return false; if(mvSearch && !m.concept.toLowerCase().includes(mvSearch.toLowerCase())) return false; return true; }); },[data,mvFilter,mvSubFilter,mvSearch,currentProfileId]);
 
+  // Los hooks van antes de los retornos de carga/error: si van después,
+  // el primer render (cargando) llamaría menos hooks que el siguiente y
+  // React fallaría. Cuenta de Efectivo por defecto: si el hogar tiene una
+  // cuenta de efectivo real, el formulario la trae ya elegida (gastos se
+  // descuentan de ahí, ingresos entran ahí). Si no hay cuenta de efectivo,
+  // el campo queda vacío y la regla de cuenta obligatoria pide elegir una.
+  const cashDefaultId = useMemo(()=> data ? defaultCashAccountId(data.accounts, data.movements) : "", [data]);
+  useEffect(()=>{ if(!mvAccount && cashDefaultId) setMvAccount(cashDefaultId); },[mvAccount, cashDefaultId]);
+  useEffect(()=>{ if(!persAccount && cashDefaultId) setPersAccount(cashDefaultId); },[persAccount, cashDefaultId]);
+  // Al cambiar el mes que muestra el tablero, la lista de Inicio vuelve a mostrar solo los 5 más recientes.
+  useEffect(()=>{ setShowAllHomeMovs(false); },[data?.summary?.currentMonth]);
   if(q.isPending) return <div className="min-h-screen bg-[var(--bg)] p-6 text-center text-[var(--dim)]">Cargando SyncFinanzas…</div>;
   if(q.error) return <div className="min-h-screen bg-[var(--bg)] p-6"><p className="text-[var(--red)]">No se pudo cargar. {String(q.error)}</p><button className={btnPrimary} onClick={()=>q.refetch()}>Reintentar</button></div>;
   if(!data) return null;
@@ -1774,11 +1787,16 @@ export function App(){
   // regla de la lista de Movimientos. Los totales de las gráficas sí
   // incluyen todo el hogar; las ventanas de detalle solo listan lo visible
   // y avisan cuántos movimientos privados quedan fuera.
-  const canSeeMov = (m:{visibility:string;profileId:number|null})=> m.visibility==="shared" || (me ? (m.profileId===me.id || (m.profileId===null && me.role==="admin")) : true);
+  // «mine» lo marca el servidor (el perfil del movimiento pertenece a la
+  // cuenta del usuario): un movimiento propio nunca se esconde, aunque se
+  // haya guardado con otro perfil de la misma cuenta o el perfil actual
+  // del dispositivo sea otro. Sin ese dato, un gasto propio contado en
+  // los totales podía no aparecer en la lista.
+  const canSeeMov = (m:{visibility:string;profileId:number|null;mine?:boolean})=> canSeeMovementRow(m, me);
   const visibleMovs = data.movements.filter(canSeeMov);
   // Movimientos de la tarjeta de Inicio: solo los del mes que muestra el
   // tablero (los 5 más recientes de ese mes).
-  const homeMovs = visibleMovs.filter(m=>m.date.startsWith(s.currentMonth));
+  const homeMovs = monthMovements(visibleMovs, s.currentMonth);
   // Movimientos del detalle de ingresos vs gastos: misma regla con la que el
   // servidor arma las barras (mes tocado, ingreso o gasto/pago de deuda, sin
   // reversados ni reversiones), para que la suma coincida con la barra.
@@ -1793,8 +1811,13 @@ export function App(){
   // no se muestra la línea.
   const netVar = (()=>{ const idx=s.monthlySeries.findIndex(x=>x.month===s.currentMonth); if(idx<=0) return null; const cur=s.monthlySeries[idx]; const prev=s.monthlySeries[idx-1]; if(!cur||!prev) return null; const diff=(cur.income-cur.expense)-(prev.income-prev.expense); const prevName=fmtMonth(prev.month).replace(/\s+(de\s+)?\d{4}$/,""); return {diff, prevName}; })();
   const getCatName=(id:number|null)=>data.categories.find(c=>c.id===id)?.name||"—";
-  const getAccName=(id:number|null)=>data.accounts.find(a=>a.id===id)?.name||"Efectivo";
-  const incExpByAcc: {key:string;name:string;total:number;movs:typeof incExpMovs}[] = (()=>{ const groups=new Map<string,{name:string;total:number;movs:typeof incExpMovs}>(); for(const m of incExpMovs){ const key=m.accountId==null?"efectivo":`cta-${m.accountId}`; const g=groups.get(key) ?? {name:getAccName(m.accountId),total:0,movs:[]}; g.total+=m.amount; g.movs.push(m); groups.set(key,g); } return [...groups.entries()].map(([key,g])=>({key,...g})).sort((a,b)=>b.total-a.total); })();
+  // Título legible de un movimiento en las listas: si el concepto viene
+  // vacío, se muestra la categoría y, si tampoco hay, «Gasto sin concepto».
+  // Un movimiento guardado siempre debe verse en su lista, aunque su
+  // concepto esté vacío.
+  const movTitle=(m:{concept:string;categoryId:number|null})=> movementTitle(m, getCatName(m.categoryId)!=="—" ? getCatName(m.categoryId) : null);
+  const getAccName=(id:number|null)=>data.accounts.find(a=>a.id===id)?.name||"Sin cuenta";
+  const incExpByAcc: {key:string;name:string;total:number;movs:typeof incExpMovs}[] = groupMovementsByAccount(incExpMovs, (id)=>getAccName(id));
 
   // Formulario de registro de movimientos (pasos 1-3, con lectura de
   // comprobante en el paso 1). Se usa en el módulo Movimientos y en el
@@ -1802,7 +1825,7 @@ export function App(){
   // el JSX, y solo una instancia montada a la vez (el módulo y el pop-up
   // nunca se muestran juntos).
   const renderMvForm=()=>(
-<form id="mv-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(mvStep<3){ if(mvStep===1 && !mvAmount) return; setMvStep(mvStep+1); scrollFormTop("mv-form"); } else saveMv.mutate();}}>
+<form id="mv-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(mvStep<3){ if(mvStep===1 && !mvAmount) return; setMvStep(mvStep+1); scrollFormTop("mv-form"); } else { const notice=requiredAccountNotice(mvType,mvAccount); if(notice){ setMvAccountError(notice); return; } saveMv.mutate(); }}}>
   <h2 className="font-display font-bold text-lg">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
   <p className="text-xs text-[var(--dim)]">Paso {mvStep} de 3</p>
   <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${mvStep*33.33}%`}} /></div>
@@ -1848,7 +1871,8 @@ export function App(){
   {voiceErrorMv && <p className="text-xs text-[var(--red)] mt-1">{voiceErrorMv}</p>}
   {voiceNoticeMv && <p className="text-xs text-[var(--green)] mt-1">{voiceNoticeMv}</p>}
   {appliedRuleMv && <p className="text-xs text-[var(--dim)] mt-1">Regla aplicada: «{appliedRuleMv.keyword}» → {appliedRuleMv.categoryName}. Puede cambiarla en el paso 2.</p>}</div>
-  <div><Label htmlFor="mv-account">{mvType==="income"?"¿A qué cuenta entra?":mvType==="transfer"?"¿De qué cuenta sale?":"¿De dónde se descuenta?"}</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>setMvAccount(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
+  <div><Label htmlFor="mv-account">{mvType==="income"?"¿A qué cuenta entra?":mvType==="transfer"?"¿De qué cuenta sale?":"¿De dónde se descuenta?"}</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>{setMvAccount(e.target.value); setMvAccountError("");}}><option value="">Seleccione la cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
+  {mvAccountError && <p className="text-sm text-[var(--red)]">{mvAccountError}</p>}
   {ocrDetailMv && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
     <p className="text-sm font-bold">¿Este movimiento es Compartido o Privado?</p>
     <p className="text-xs text-[var(--dim)]">Revise antes de guardar: lo compartido lo ven todos; lo privado solo usted.</p>
@@ -2105,7 +2129,9 @@ export function App(){
               ) : homeMovs.length===0 ? (
                 <p className="text-sm text-[var(--dim)] mt-2">Sin movimientos en {fmtMonth(s.currentMonth)}.</p>
               ) : (
-                showHomeMovs && homeMovs.slice(0,5).map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-[13px]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`text-base whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)
+                showHomeMovs && <>{(showAllHomeMovs ? homeMovs : homeMovs.slice(0,5)).map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{movTitle(m)}<span className="text-[var(--dim)] block text-[13px]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)} · {getAccName(m.accountId)}{m.isReversed?" · Reversado (fuera de los totales)":""}{m.reversalOfId?" · Reversión (fuera de los totales)":""}</span></span><b className={`text-base whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${(m.isReversed||m.reversalOfId)?"line-through opacity-60":""}`}>{m.type==="income"?"+":"−"}{money(m.amount)}</b></div>)}
+                {homeMovs.length>5 && <button type="button" aria-label={showAllHomeMovs?"Ver menos movimientos":"Ver todos los movimientos del mes"} className="text-sm font-bold underline mt-2" onClick={()=>setShowAllHomeMovs(v=>!v)}>{showAllHomeMovs?"Ver menos":`Ver todos los movimientos (${homeMovs.length})`}</button>}
+                </>
               )}
               <div className="flex gap-2 mt-3">
                 <button type="button" aria-label="Agregar gasto" className={btnPrimary+" flex-1 min-h-12 sm:min-h-0"} onClick={()=>openInicioMovement("expense")}>+ Gasto</button>
@@ -2193,7 +2219,7 @@ export function App(){
               {revMv.error && <p className="text-sm text-[var(--red)] mt-2">{String(revMv.error)}</p>}
               {revMv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">Movimiento reversado.</p>}
               <div className="divide-y divide-[var(--border)] mt-2">
-                {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm">{m.concept}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
+                {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm">{movTitle(m)}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
                 {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-xs text-[var(--dim)]">Fuera de los totales.</span></p>}
                 {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-xs text-[var(--dim)]">Anula «{data.movements.find(x=>x.id===m.reversalOfId)?.concept||""}».</span></p>}
                 </div><div className="text-right shrink-0"><p className={`font-display font-bold whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
@@ -2582,7 +2608,7 @@ export function App(){
                   <button className={btnPrimary+" w-full"} disabled={saveSalary.isPending || !salaryInput}>Guardar sueldo</button>
                   {data.personal.salary===0 && <Help>Registre su sueldo para ver su saldo restante.</Help>}
                 </form>
-                <form id="pers-exp-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(persStep<3){ if(persStep===1 && !persAmt) return; setPersStep(persStep+1); scrollFormTop("pers-exp-form"); } else savePersExp.mutate();}}>
+                <form id="pers-exp-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(persStep<3){ if(persStep===1 && !persAmt) return; setPersStep(persStep+1); scrollFormTop("pers-exp-form"); } else { const notice=requiredAccountNotice("expense",persAccount); if(notice){ setPersAccountError(notice); return; } savePersExp.mutate(); }}}>
                   <h2 className="font-display font-bold text-lg">Gasto del día</h2>
                   <p className="text-xs text-[var(--dim)]">Paso {persStep} de 3</p>
                   <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${persStep*33.33}%`}} /></div>
@@ -2620,7 +2646,8 @@ export function App(){
                   {voiceErrorPers && <p className="text-xs text-[var(--red)] mt-1">{voiceErrorPers}</p>}
                   {voiceNoticePers && <p className="text-xs text-[var(--green)] mt-1">{voiceNoticePers}</p>}
                   {appliedRulePers && <p className="text-xs text-[var(--dim)] mt-1">Regla aplicada: «{appliedRulePers.keyword}» → {appliedRulePers.categoryName}. Puede cambiarla en el paso 2.</p>}</div>
-                  <div><Label htmlFor="pers-account">¿De dónde se descuenta?</Label><select id="pers-account" aria-label="Cuenta del gasto del día" className={inputCls} value={persAccount} onChange={e=>setPersAccount(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
+                  <div><Label htmlFor="pers-account">¿De dónde se descuenta?</Label><select id="pers-account" aria-label="Cuenta del gasto del día" className={inputCls} value={persAccount} onChange={e=>{setPersAccount(e.target.value); setPersAccountError("");}}><option value="">Seleccione la cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
+                  {persAccountError && <p className="text-sm text-[var(--red)]">{persAccountError}</p>}
                   <div>
                     <button type="button" aria-expanded={persMore} aria-label={persMore?"Ocultar más opciones del gasto del día":"Mostrar más opciones del gasto del día"} onClick={()=>setPersMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{persMore?"▾ Ocultar más opciones":"▸ Más opciones: comprobante"}</button>
                     {persMore && (<div className="space-y-2 mt-3">
