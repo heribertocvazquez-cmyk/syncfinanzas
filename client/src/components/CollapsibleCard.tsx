@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 // Tarjeta plegable compartida (decisión de Heriberto 2026-11-18): todas las
 // tarjetas con lista de todos los módulos empiezan CERRADAS y se abren con
@@ -85,10 +85,21 @@ export function CollapsibleCard(p: {
   // z-30 no la tapa.
   const stickyTop =
     "top-[calc(52px+env(safe-area-inset-top,0px))] sm:top-[calc(56px+env(safe-area-inset-top,0px))]";
+  // El encabezado es táctil entero (la franja se ve como botón): tocar el
+  // título o el resumen también pliega/despliega. Los controles que viven
+  // dentro del encabezado (p. ej. el selector de mes de Movimientos)
+  // siguen siendo suyos: si el toque cae en un botón, enlace o campo, no
+  // se pliega. (Reporte de Heriberto 2026-11-18: los «+» / «−» de Tandas
+  // no respondían; el único blanco era el símbolo de 36 px y las
+  // secciones vacías no mostraban nada al abrirse.)
+  const onTitleClick = (e: ReactMouseEvent) => {
+    if ((e.target as HTMLElement).closest("button, a, input, select, textarea, label")) return;
+    toggle();
+  };
   const headerEl = (bg: string) => (
     <div className={`sticky ${stickyTop} z-10 has-[[data-popover-open]]:z-30 ${bg}`}>
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 cursor-pointer [touch-action:manipulation]" onClick={onTitleClick}>
           {p.title}
           {p.above}
         </div>
@@ -96,7 +107,7 @@ export function CollapsibleCard(p: {
           type="button"
           aria-expanded={open}
           aria-label={ariaLabel}
-          className="text-2xl leading-none font-bold text-white shrink-0 w-9 h-9 flex items-center justify-center"
+          className="text-2xl leading-none font-bold text-white shrink-0 w-11 h-11 flex items-center justify-center [touch-action:manipulation]"
           onClick={toggle}
         >
           {symbol}
