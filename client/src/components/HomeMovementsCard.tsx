@@ -2,8 +2,9 @@ import { CollapsibleCard } from "./CollapsibleCard";
 import { MonthPicker } from "./MonthPicker";
 
 // Tarjeta Movimientos de Inicio: título, selector de mes compacto (icono
-// pequeño de calendario + mes corto), lista del mes y, abajo, solo el
-// texto «Ver» en blanco, centrado. La lista empieza TOTALMENTE oculta
+// pequeño de calendario + mes corto), lista del mes y el texto «Ver» en
+// blanco arriba a la derecha del título, dentro del encabezado fijo
+// (CollapsibleCard). La lista empieza TOTALMENTE oculta
 // (decisión de Heriberto 2026-11-18: las tarjetas con lista empiezan
 // cerradas); al tocar «Ver» se despliegan todos los movimientos del mes y
 // al tocar «Ver menos» se esconden por completo. Los botones + Gasto /
