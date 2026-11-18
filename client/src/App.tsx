@@ -3124,13 +3124,19 @@ export function App(){
               <button className={btnPrimary} disabled={saveHh.isPending || !isAdmin} onClick={()=>{ if(!editName) setEditName(hh.name); }}>{saveHh.isPending?"Guardando…":"Guardar reglas"}</button>
               {saveHh.isSuccess && <p className="text-sm text-[var(--green)]">Reglas guardadas.</p>}
             </form>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
-              <h3 className="font-display font-bold text-lg">Miembros del hogar ({data.profiles.length})</h3>
+            <CollapsibleCard
+              toggleLabel="los miembros del hogar"
+              title={<h3 className="font-display font-bold text-lg">Miembros del hogar ({data.profiles.length})</h3>}
+            >
               {data.profiles.map(p=><p key={p.id} className="text-sm py-1.5 border-b border-[var(--border)] last:border-0">{fullName(p)} · {p.role==="admin"?"Administrador del hogar":"Integrante"} · {p.kind==="adult"?"Adulto":"Dependiente"}{p.email?` · ${p.email}`:""}</p>)}
               <p className="text-xs text-[var(--dim)] mt-2">Invite en Perfiles → Invitaciones.</p>
-            </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
-              <h3 className="font-display font-bold text-lg">Seguridad de su información</h3>
+            </CollapsibleCard>
+            <CollapsibleCard
+              toggleLabel="la seguridad de su información"
+              title={<h3 className="font-display font-bold text-lg">Seguridad de su información</h3>}
+              above={<p className="text-sm text-[var(--dim)] mt-1">7 puntos</p>}
+              below={<button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-3 py-2 text-sm font-bold mt-3" onClick={()=>{ void signOut().then(()=>window.location.reload()); }}>Cerrar sesión en este dispositivo</button>}
+            >
               <ul className="list-disc ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
                 <li>Contraseña de 12 caracteres; bloqueo 15 min tras 5 intentos.</li>
                 <li>Cada registro se valida en el servidor.</li>
@@ -3139,11 +3145,13 @@ export function App(){
                 <li>Sin claves en el código.</li>
                 <li>Bloqueo con PIN en este dispositivo (opcional).</li>
                 <li>Cierre de sesión en este dispositivo.</li>
-                <li><button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-3 py-2 text-sm font-bold" onClick={()=>{ void signOut().then(()=>window.location.reload()); }}>Cerrar sesión en este dispositivo</button></li>
               </ul>
-            </div>
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
-              <h3 className="font-display font-bold text-lg">Bloqueo con PIN en este dispositivo</h3>
+            </CollapsibleCard>
+            <CollapsibleCard
+              toggleLabel="el bloqueo con PIN"
+              title={<h3 className="font-display font-bold text-lg">Bloqueo con PIN en este dispositivo</h3>}
+              above={<p className="text-sm text-[var(--dim)] mt-1">{pinSetState ? "PIN activo" : "Sin PIN"}</p>}
+            >
               <p className="text-sm text-[var(--dim)] mt-1">Pide un PIN de 4 dígitos al reabrir la app en este dispositivo. Es un bloqueo local: no cifra sus datos y no impide entrar desde otro dispositivo con su cuenta.</p>
               {pinSetState ? (
                 <div className="mt-3 space-y-2">
@@ -3169,7 +3177,7 @@ export function App(){
                 </div>
               )}
               {pinMsg && <p className="text-sm text-[var(--green)] mt-2">{pinMsg}</p>}
-            </div>
+            </CollapsibleCard>
             <CollapsibleCard
               open={activityOpen}
               onToggle={()=>setActivityOpen(v=>!v)}

@@ -2,17 +2,17 @@ import { CollapsibleCard } from "./CollapsibleCard";
 import { MonthPicker } from "./MonthPicker";
 
 // Tarjeta Movimientos de Inicio: título, selector de mes compacto (icono
-// pequeño de calendario + mes corto), lista del mes y el texto «Ver» en
-// blanco arriba a la derecha del título, dentro del encabezado fijo
+// pequeño de calendario + mes corto), lista del mes y el símbolo «+» / «−»
+// en blanco arriba a la derecha del título, dentro del encabezado fijo
 // (CollapsibleCard). La lista empieza TOTALMENTE oculta
 // (decisión de Heriberto 2026-11-18: las tarjetas con lista empiezan
-// cerradas); al tocar «Ver» se despliegan todos los movimientos del mes y
-// al tocar «Ver menos» se esconden por completo. Los botones + Gasto /
+// cerradas); al tocar «+» se despliegan todos los movimientos del mes y
+// al tocar «−» se esconden por completo. Los botones + Gasto /
 // + Ingreso quedan como estaban, abajo de la tarjeta, siempre visibles.
 // Las filas ya vienen formateadas desde App.tsx (título, detalle, importe),
 // porque el título y los nombres de categoría y cuenta se resuelven allí.
 // Sin movimientos (o sin movimientos en el mes), la tarjeta es simple, sin
-// control «Ver», para que no aparezca un control sin nada que mostrar.
+// símbolo «+», para que no aparezca un control sin nada que mostrar.
 const btnPrimary =
   "rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
 const btnGhost =

@@ -2,14 +2,16 @@ import { useState, type ReactNode } from "react";
 
 // Tarjeta plegable compartida (decisión de Heriberto 2026-11-18): todas las
 // tarjetas con lista de todos los módulos empiezan CERRADAS y se abren con
-// «Ver» / se cierran con «Ver menos», para que las listas no abarquen toda
-// la pantalla. Plegada solo se ve el encabezado (title + resumen `above`).
-// El control «Ver» / «Ver menos» va ARRIBA, dentro del encabezado, a la
-// derecha del título: solo el texto «Ver» en blanco. El encabezado queda
-// FIJO (sticky) bajo la barra superior de la app mientras se baja por el
-// contenido abierto, con fondo sólido de la tarjeta, para que el contenido
-// pase por debajo sin transparentarse y el «Ver menos» nunca haya que
-// buscarlo abajo (decisión de Heriberto 2026-11-18, vista previa aprobada).
+// «+» / se cierran con «−», para que las listas no abarquen toda la
+// pantalla. Plegada solo se ve el encabezado (title + resumen `above`).
+// El control «+» / «−» va ARRIBA, dentro del encabezado, a la derecha del
+// título: solo el símbolo en blanco. El encabezado queda FIJO (sticky) bajo
+// la barra superior de la app mientras se baja por el contenido abierto,
+// con fondo sólido de la tarjeta, para que el contenido pase por debajo sin
+// transparentarse y el «−» nunca haya que buscarlo abajo (decisión de
+// Heriberto 2026-11-18, vista previa aprobada; el símbolo sustituye al
+// texto «Ver» / «Ver menos» por decisión de Heriberto 2026-11-18, en
+// todas las tarjetas).
 //
 // Uso:
 //   <CollapsibleCard title={<h2 …>Título</h2>}>…lista…</CollapsibleCard>
@@ -31,6 +33,13 @@ export function collapsibleToggleLabel(open: boolean): "Ver" | "Ver menos" {
   return open ? "Ver menos" : "Ver";
 }
 
+// Símbolo visible del control (decisión de Heriberto 2026-11-18, en todas
+// las tarjetas): «+» cerrada, «−» abierta. El texto «Ver» / «Ver menos»
+// se conserva solo en el aria-label, para lectores de pantalla.
+export function collapsibleToggleSymbol(open: boolean): "+" | "−" {
+  return open ? "−" : "+";
+}
+
 export function CollapsibleCard(p: {
   title: ReactNode;
   children: ReactNode;
@@ -48,6 +57,7 @@ export function CollapsibleCard(p: {
   const [innerOpen, setInnerOpen] = useState(p.defaultOpen ?? false);
   const open = controlled ? (p.open as boolean) : innerOpen;
   const label = collapsibleToggleLabel(open);
+  const symbol = collapsibleToggleSymbol(open);
   const ariaLabel = p.toggleLabel
     ? open
       ? `Ver menos ${p.toggleLabel}`
@@ -58,11 +68,11 @@ export function CollapsibleCard(p: {
     else setInnerOpen((v) => !v);
   };
   // Encabezado fijo: título + resumen (`above`) a la izquierda, control
-  // «Ver» / «Ver menos» arriba a la derecha. Queda pegado (sticky) justo
-  // bajo la barra superior de la app — 52 px en móvil / 56 px en escritorio
-  // más el área segura del iPhone — con fondo sólido, para que el contenido
-  // pase por debajo sin transparentarse. z-10: por debajo de la barra
-  // superior (z-20) y por encima del contenido de la tarjeta.
+  // «+» / «−» arriba a la derecha. Queda pegado (sticky) justo bajo la
+  // barra superior de la app — 52 px en móvil / 56 px en escritorio más el
+  // área segura del iPhone — con fondo sólido, para que el contenido pase
+  // por debajo sin transparentarse. z-10: por debajo de la barra superior
+  // (z-20) y por encima del contenido de la tarjeta.
   const stickyTop =
     "top-[calc(52px+env(safe-area-inset-top,0px))] sm:top-[calc(56px+env(safe-area-inset-top,0px))]";
   const headerEl = (bg: string) => (
@@ -76,10 +86,10 @@ export function CollapsibleCard(p: {
           type="button"
           aria-expanded={open}
           aria-label={ariaLabel}
-          className="text-sm font-semibold text-white shrink-0 pt-1"
+          className="text-2xl leading-none font-bold text-white shrink-0 w-9 h-9 flex items-center justify-center"
           onClick={toggle}
         >
-          {label}
+          {symbol}
         </button>
       </div>
     </div>
