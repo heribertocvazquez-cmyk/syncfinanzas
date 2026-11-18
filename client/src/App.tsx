@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaTopScrim } from "./components/SafeArea";
 import { readInviteToken, type InvitePreview } from "./components/AuthGate";
 import { fileToBase64 } from "./lib/file";
-import { matchRule, normText, parseReceiptText, parseVoiceText, resolveReceiptCategory, suggestCategoryId } from "./lib/smart";
+import { checkReceiptDate, matchRule, normText, parseReceiptText, parseVoiceText, resolveReceiptCategory, suggestCategoryId } from "./lib/smart";
+import type { ReceiptDateCheck } from "./lib/smart";
 import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText, ocrStatusText, OcrError } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
@@ -1295,17 +1296,22 @@ export function App(){
   // antes de confirmar. El importe leído se compara con el pago de la tanda;
   // la fecha leída se guarda como fecha de pago (si no se lee, queda hoy).
   // Nada se guarda sin revisar: el comprobante solo se sube al confirmar.
-  type TandaProofReview = { tandaId:number; participantId:number; participantName:string; quincenaIndex:number; file:File; preview:string; detail:ReceiptRead|null; paidDate:string; busy:boolean; error:string; notice:string };
+  type TandaProofReview = { tandaId:number; participantId:number; participantName:string; quincenaIndex:number; file:File; preview:string; detail:ReceiptRead|null; paidDate:string; busy:boolean; error:string; notice:string; dateCheck:ReceiptDateCheck|null };
   const [tandaProofReview,setTandaProofReview]=useState<TandaProofReview|null>(null);
   const pickTandaProof=async(v:{tandaId:number;participantId:number;participantName:string;quincenaIndex:number;file:File})=>{
     const preview=URL.createObjectURL(v.file);
-    setTandaProofReview({...v,preview,detail:null,paidDate:todayISO(),busy:true,error:"",notice:""});
+    setTandaProofReview({...v,preview,detail:null,paidDate:todayISO(),busy:true,error:"",notice:"",dateCheck:null});
     try{
       const jpeg=await imageFileToJpeg(v.file);
       const text=await readReceiptText(`data:${jpeg.mimeType};base64,${jpeg.dataBase64}`);
       const parsed=parseReceiptText(text);
       if(parsed.total==null){ setTandaProofReview(r=>r?{...r,busy:false,error:"No se pudo leer el total del comprobante. Puede confirmar el pago con la foto; el organizador lo verifica."}:r); return; }
-      setTandaProofReview(r=>r?{...r,detail:parsed,paidDate:parsed.date||todayISO(),busy:false,notice:`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de confirmar.`}:r);
+      // La fecha leída solo se aplica si es verosímil (de este año y no
+      // futura). Si es de otro año o futura, queda la fecha de hoy y se
+      // pide confirmar la fecha de origen del pago antes de confirmar.
+      const st=parsed.date?checkReceiptDate(parsed.date,todayISO()):{status:"none" as const};
+      const dateCheck=parsed.date&&st.status!=="ok"?{readDate:parsed.date,reason:st.status==="future"?"future" as const:"other-year" as const}:null;
+      setTandaProofReview(r=>r?{...r,detail:parsed,paidDate:dateCheck?todayISO():(parsed.date||todayISO()),dateCheck,busy:false,notice:`Leído del comprobante${parsed.store?` · ${parsed.store}`:""}${parsed.date?` · ${fmtDate(parsed.date)}`:""}. Revise antes de confirmar.`}:r);
     }catch(err){
       const detail=err instanceof OcrError?err.detail:"";
       setTandaProofReview(r=>r?{...r,busy:false,error:(err instanceof OcrError && err.code==="load" ? "No se pudo cargar el lector en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica." : "No se pudo leer el comprobante en este dispositivo. Puede confirmar el pago con la foto; el organizador lo verifica.")+(detail?` Detalle: ${detail}`:"")}:r);
@@ -1313,6 +1319,7 @@ export function App(){
   };
   const confirmTandaProof=()=>{
     const r=tandaProofReview; if(!r) return;
+    if(r.dateCheck) return;
     uploadProof.mutate({tandaId:r.tandaId,participantId:r.participantId,quincenaIndex:r.quincenaIndex,file:r.file,paidDate:r.paidDate},{onSuccess:()=>{ setTandaProofReview(null); setSavedNotice("Pago registrado con comprobante."); }});
   };
   const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
@@ -1363,6 +1370,12 @@ export function App(){
   // servidor): se llena el importe, el concepto y la categoría; la persona
   // revisa antes de guardar. El motor se carga solo al leer.
   const [ocrBusyMv,setOcrBusyMv]=useState(false); const [ocrProgressMv,setOcrProgressMv]=useState(""); const [ocrErrorMv,setOcrErrorMv]=useState(""); const [ocrNoticeMv,setOcrNoticeMv]=useState(""); const [ocrErrDetailMv,setOcrErrDetailMv]=useState("");
+  // Fecha leída del comprobante que está pendiente de confirmar: si el
+  // lector lee una fecha de otro año o futura (año mal leído: "2026" sale
+  // "2017"), no se aplica en silencio; la persona la confirma o corrige
+  // antes de guardar. Se limpia al confirmar, al corregir la fecha a mano
+  // o al reiniciar el formulario.
+  const [ocrDateCheckMv,setOcrDateCheckMv]=useState<ReceiptDateCheck|null>(null); const [ocrDateErrorMv,setOcrDateErrorMv]=useState("");
   const [ocrBusyPers,setOcrBusyPers]=useState(false); const [ocrProgressPers,setOcrProgressPers]=useState(""); const [ocrErrorPers,setOcrErrorPers]=useState(""); const [ocrNoticePers,setOcrNoticePers]=useState(""); const [ocrErrDetailPers,setOcrErrDetailPers]=useState("");
   const runOcr=async(target:"mv"|"pers",fileOverride?:File)=>{
     const file=fileOverride ?? (target==="mv"?receipt?.file:persReceipt?.file);
@@ -1385,7 +1398,15 @@ export function App(){
       if(target==="mv"){
         setMvAmount(String(parsed.total));
         if(parsed.store){ setMvConcept(parsed.store); applyRuleTo(parsed.store,"mv"); }
-        if(parsed.date) setMvDate(parsed.date);
+        // La fecha leída solo se aplica si es verosímil (de este año y no
+        // futura). Si es de otro año o futura, casi seguro el año salió
+        // mal leído: no se aplica, queda la fecha de hoy y se pide
+        // confirmar la fecha de origen del gasto antes de guardar.
+        if(parsed.date){
+          const st=checkReceiptDate(parsed.date,todayISO());
+          if(st.status==="ok"){ setMvDate(parsed.date); setOcrDateCheckMv(null); setOcrDateErrorMv(""); }
+          else setOcrDateCheckMv({readDate:parsed.date,reason:st.status==="future"?"future":"other-year"});
+        } else { setOcrDateCheckMv(null); setOcrDateErrorMv(""); }
         if(cat && "id" in cat){ if(mvCat==="") setMvCat(String(cat.id)); setOcrLabelMv(""); }
         else if(cat && "label" in cat){ setOcrLabelMv(cat.label); setOcrNewCatName(cat.label); }
         else setOcrLabelMv("");
@@ -1431,7 +1452,7 @@ export function App(){
   // limpiaban algunos campos y la nota «Leído del comprobante» (con el
   // nombre leído) y la fecha leída se quedaban, así que el siguiente gasto
   // heredaba el anterior.
-  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvAccountError(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); };
+  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvAccountError(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setOcrDateCheckMv(null); setOcrDateErrorMv(""); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); };
   const resetPersForm=()=>{ setPersAmt(""); setPersConcept(""); setPersReceipt(null); setPersCat(""); setPersAccount(""); setPersAccountError(""); setAppliedRulePers(null); setPersStep(1); setPersMore(false); setOcrDetailPers(null); setOcrLabelPers(""); setOcrNewCatName(""); setOcrNoticePers(""); setOcrErrorPers(""); setOcrErrDetailPers(""); setOcrProgressPers(""); setOcrBusyPers(false); setVoiceNoticePers(""); setVoiceErrorPers(""); setVoiceBusyPers(false); };
   // Registro rápido desde Inicio: se queda en Inicio y abre el formulario
   // de movimientos en un pop-up, sin ir a Movimientos. Al guardar, el
@@ -1825,11 +1846,21 @@ export function App(){
   // el JSX, y solo una instancia montada a la vez (el módulo y el pop-up
   // nunca se muestran juntos).
   const renderMvForm=()=>(
-<form id="mv-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(mvStep<3){ if(mvStep===1 && !mvAmount) return; setMvStep(mvStep+1); scrollFormTop("mv-form"); } else { const notice=requiredAccountNotice(mvType,mvAccount); if(notice){ setMvAccountError(notice); return; } saveMv.mutate(); }}}>
+<form id="mv-form" className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2 scroll-mt-28" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(mvStep<3){ if(mvStep===1 && !mvAmount) return; setMvStep(mvStep+1); scrollFormTop("mv-form"); } else { if(ocrDateCheckMv){ setOcrDateErrorMv(`Confirme la fecha de origen del gasto: la fecha leída es ${fmtDate(ocrDateCheckMv.readDate)}. Use esa fecha, use la de hoy o corrija la fecha.`); setMvMore(true); scrollFormTop("mv-form"); return; } const notice=requiredAccountNotice(mvType,mvAccount); if(notice){ setMvAccountError(notice); return; } saveMv.mutate(); }}}>
   <h2 className="font-display font-bold text-lg">{editingMv?"Editar movimiento":"Registrar movimiento"}</h2>
   <p className="text-xs text-[var(--dim)]">Paso {mvStep} de 3</p>
   <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden" aria-hidden="true"><div className="h-full bg-[var(--gold)] rounded-full" style={{width:`${mvStep*33.33}%`}} /></div>
   {ocrNoticeMv && <p className="text-xs text-[var(--green)]">{ocrNoticeMv}</p>}
+  {ocrDateCheckMv && <div className="border border-[var(--red)] rounded-2xl p-3 bg-[var(--surface2)]">
+    <p className="text-sm font-bold">Confirme la fecha de origen del gasto</p>
+    <p className="text-sm mt-1">La fecha leída del comprobante es <b>{fmtDate(ocrDateCheckMv.readDate)}</b>{ocrDateCheckMv.reason==="future"?" (una fecha futura)":" (de otro año)"}. ¿Es esa la fecha del gasto?</p>
+    <p className="text-xs text-[var(--dim)] mt-1">En el formulario quedó la fecha de hoy ({fmtDate(mvDate)}). Puede usar la fecha leída, dejar la de hoy o corregirla en «Más opciones» → Fecha.</p>
+    <div className="flex gap-2 mt-2">
+      <button type="button" aria-label={`Usar la fecha leída ${fmtDate(ocrDateCheckMv.readDate)}`} className={btnPrimary+" flex-1"} onClick={()=>{setMvDate(ocrDateCheckMv.readDate);setOcrDateCheckMv(null);setOcrDateErrorMv("");}}>Usar {fmtDate(ocrDateCheckMv.readDate)}</button>
+      <button type="button" aria-label="Usar la fecha de hoy" className={btnGhost+" flex-1"} onClick={()=>{setMvDate(todayISO());setOcrDateCheckMv(null);setOcrDateErrorMv("");}}>Usar hoy</button>
+    </div>
+  </div>}
+  {ocrDateErrorMv && <p className="text-sm text-[var(--red)]">{ocrDateErrorMv}</p>}
   {mvStep===1 && <>
   <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
     {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
@@ -1838,7 +1869,7 @@ export function App(){
     <p className="text-sm font-bold">¿Tiene el comprobante?</p>
     <p className="text-xs text-[var(--dim)]">Suba la foto y la app lee el importe, el concepto y la categoría. Puede revisar y corregir todo antes de guardar.</p>
     <label className={btnPrimary+" w-full mt-2 text-center cursor-pointer"} aria-label="Subir foto del comprobante al empezar">Subir foto del comprobante<input type="file" accept="image/*" className="hidden" aria-label="Archivo del comprobante" onChange={e=>{ const f=e.target.files?.[0]; void pickAndReadReceipt(f,"mv"); e.target.value=""; }} /></label>
-    {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");setOcrNoticeMv("");setOcrErrorMv("");setOcrErrDetailMv("");}}>Quitar foto</button></div>}
+    {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");setOcrNoticeMv("");setOcrErrorMv("");setOcrErrDetailMv("");setOcrDateCheckMv(null);setOcrDateErrorMv("");}}>Quitar foto</button></div>}
     {receipt && <div className="mt-2">
       <button type="button" aria-label="Leer el comprobante de nuevo y llenar el formulario" className={btnGhost+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante de nuevo"}</button>
       {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
@@ -1887,13 +1918,13 @@ export function App(){
     <button type="button" aria-expanded={mvMore} aria-label={mvMore?"Ocultar más opciones del movimiento":"Mostrar más opciones del movimiento"} onClick={()=>setMvMore(o=>!o)} className="w-full text-left text-sm font-bold text-[var(--dim)] border border-[var(--border)] rounded-xl px-3 py-2.5">{mvMore?"▾ Ocultar más opciones":"▸ Más opciones"}</button>
     {mvMore && (<div className="space-y-2 mt-3">
   <div className="grid grid-cols-2 gap-2">
-    <div><Label htmlFor="mv-date">Fecha</Label><input id="mv-date" aria-label="Fecha del movimiento" type="date" required className={inputCls} value={mvDate} onChange={e=>setMvDate(e.target.value)} /></div>
+    <div><Label htmlFor="mv-date">Fecha</Label><input id="mv-date" aria-label="Fecha del movimiento" type="date" required className={inputCls} value={mvDate} onChange={e=>{setMvDate(e.target.value); setOcrDateCheckMv(null); setOcrDateErrorMv("");}} /></div>
   </div>
   <div className="border border-dashed border-[var(--border)] rounded-2xl p-4 sm:p-5">
     <Label htmlFor="mv-receipt">Foto del comprobante (opcional)</Label>
     <input id="mv-receipt" aria-label="Adjuntar foto del comprobante" type="file" accept="image/*" className="w-full text-sm" onChange={e=>{ void pickReceipt(e.target.files?.[0], setReceipt); }} />
     <p className="text-xs text-[var(--dim)] mt-1">Se guarda como comprobante.</p>
-    {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");setOcrNoticeMv("");setOcrErrorMv("");setOcrErrDetailMv("");}}>Quitar foto</button></div>}
+    {receipt && <div className="flex items-center gap-2 mt-2"><img src={receipt.preview} alt="Vista previa de la foto del comprobante" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" /><button type="button" aria-label="Quitar foto del comprobante" className="text-xs underline text-[var(--red)]" onClick={()=>{setReceipt(null);setOcrDetailMv(null);setOcrLabelMv("");setOcrNoticeMv("");setOcrErrorMv("");setOcrErrDetailMv("");setOcrDateCheckMv(null);setOcrDateErrorMv("");}}>Quitar foto</button></div>}
     {receipt && (mvType==="expense"||mvType==="debt_payment") && <div className="mt-2">
       <button type="button" aria-label="Leer el comprobante y llenar el formulario" className={btnPrimary+" w-full"} disabled={ocrBusyMv} onClick={()=>void runOcr("mv")}>{ocrBusyMv?"Leyendo el comprobante…":"Leer el comprobante"}</button>
       {ocrProgressMv && <p className="text-xs text-[var(--dim)] mt-1">{ocrProgressMv}</p>}
@@ -2930,6 +2961,15 @@ export function App(){
                             {tandaProofReview.busy && <p className="text-xs text-[var(--dim)]">Leyendo el comprobante en su dispositivo…</p>}
                             {tandaProofReview.error && <p className="text-xs text-[var(--red)]">{tandaProofReview.error}</p>}
                             {tandaProofReview.notice && <p className="text-xs text-[var(--green)]">{tandaProofReview.notice}</p>}
+                            {tandaProofReview.dateCheck && <div className="border border-[var(--red)] rounded-xl p-3 bg-[var(--surface2)]">
+                              <p className="text-sm font-bold">Confirme la fecha de origen del pago</p>
+                              <p className="text-xs mt-1">La fecha leída del comprobante es <b>{fmtDate(tandaProofReview.dateCheck.readDate)}</b>{tandaProofReview.dateCheck.reason==="future"?" (una fecha futura)":" (de otro año)"}. ¿Es esa la fecha del pago?</p>
+                              <p className="text-xs text-[var(--dim)] mt-1">Quedó la fecha de hoy ({fmtDate(tandaProofReview.paidDate)}). Puede usar la fecha leída, dejar la de hoy o corregirla en «Fecha del pago».</p>
+                              <div className="flex gap-2 mt-2">
+                                <button type="button" aria-label={`Usar la fecha leída ${fmtDate(tandaProofReview.dateCheck.readDate)}`} className={btnPrimary+" flex-1"} onClick={()=>setTandaProofReview(r=>r?{...r,paidDate:r.dateCheck!.readDate,dateCheck:null}:r)}>Usar {fmtDate(tandaProofReview.dateCheck.readDate)}</button>
+                                <button type="button" aria-label="Usar la fecha de hoy" className={btnGhost+" flex-1"} onClick={()=>setTandaProofReview(r=>r?{...r,paidDate:todayISO(),dateCheck:null}:r)}>Usar hoy</button>
+                              </div>
+                            </div>}
                             {tandaProofReview.detail && <>
                               <div className="flex justify-between gap-2 text-sm"><span className="text-[var(--dim)]">Importe leído</span><b className="whitespace-nowrap">{money2(tandaProofReview.detail.total ?? 0)}</b></div>
                               {tandaProofReview.detail.total != null && Math.abs(tandaProofReview.detail.total - td.amountPerQuincena) > 0.51
@@ -2937,9 +2977,9 @@ export function App(){
                                 : <p className="text-xs text-[var(--green)]">El importe leído coincide con el pago de la tanda.</p>}
                               <OcrDetail detail={tandaProofReview.detail} />
                             </>}
-                            <div><Label htmlFor="tanda-proof-date">Fecha del pago</Label><input id="tanda-proof-date" aria-label="Fecha del pago de tanda" type="date" required className={inputCls} value={tandaProofReview.paidDate} onChange={e=>setTandaProofReview(r=>r?{...r,paidDate:e.target.value}:r)} /></div>
+                            <div><Label htmlFor="tanda-proof-date">Fecha del pago</Label><input id="tanda-proof-date" aria-label="Fecha del pago de tanda" type="date" required className={inputCls} value={tandaProofReview.paidDate} onChange={e=>setTandaProofReview(r=>r?{...r,paidDate:e.target.value,dateCheck:null}:r)} /></div>
                             <div className="flex gap-2">
-                              <button type="button" className={btnPrimary+" flex-1"} disabled={uploadProof.isPending || tandaProofReview.busy} onClick={confirmTandaProof}>{uploadProof.isPending?"Guardando…":"Confirmar pago"}</button>
+                              <button type="button" className={btnPrimary+" flex-1"} disabled={uploadProof.isPending || tandaProofReview.busy || !!tandaProofReview.dateCheck} onClick={confirmTandaProof}>{uploadProof.isPending?"Guardando…":"Confirmar pago"}</button>
                               <button type="button" className={btnGhost} onClick={()=>setTandaProofReview(null)}>Cancelar</button>
                             </div>
                             {uploadProof.error && <p className="text-xs text-[var(--red)]">{String(uploadProof.error)}</p>}

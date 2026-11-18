@@ -186,7 +186,49 @@ export function isCleanStoreName(line: string): boolean {
   return letters >= 3 && longTokens.length >= 1 && longLetters / letters >= 0.5 && singleLetters <= 1;
 }
 
-export function parseReceiptText(text: string): ReceiptRead {
+// Año de dos dígitos: el año más cercano a hoy (ventana de ±50 años).
+// Un ticket de hoy que dice "26" es 2026, no 1926; uno que dice "99" es
+// 1999. Antes se sumaba 2000 fijo, así que "99" salía 2099.
+export function resolveTwoDigitYear(yy: number, refYear: number): number {
+  const base = refYear - (refYear % 100);
+  let y = base + yy;
+  if (y >= refYear + 50) y -= 100;
+  if (y < refYear - 50) y += 100;
+  return y;
+}
+
+// Fecha de calendario real (el 31 de febrero no existe, ni el 29 de
+// febrero en un año no bisiesto). El lector antes aceptaba cualquier día
+// de 1 a 31.
+export function isValidCalendarDate(y: number, m: number, d: number): boolean {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+// Estado de una fecha leída de un comprobante frente a hoy. Una fecha de
+// otro año, o en el futuro, casi siempre es una lectura mal hecha del año
+// (en un ticket térmico el 6 se lee 7 y el 2 se lee 1: "2026" sale
+// "2017"), así que no se guarda en silencio: la app pide confirmar la
+// fecha de origen del gasto antes de guardar.
+export type ReceiptDateStatus = "ok" | "none" | "future" | "other-year" | "invalid";
+export function checkReceiptDate(dateIso: string | null, todayIso?: string): { status: ReceiptDateStatus; year: number | null } {
+  if (!dateIso) return { status: "none", year: null };
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateIso);
+  if (!m) return { status: "invalid", year: null };
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (!isValidCalendarDate(y, mo, d)) return { status: "invalid", year: y };
+  const today = todayIso ?? new Date().toISOString().slice(0, 10);
+  if (dateIso > today) return { status: "future", year: y };
+  if (y !== Number(today.slice(0, 4))) return { status: "other-year", year: y };
+  return { status: "ok", year: y };
+}
+
+// La fecha leída que está pendiente de confirmación: la fecha que leyó
+// el comprobante y el motivo por el que no se aplicó en silencio.
+export type ReceiptDateCheck = { readDate: string; reason: "future" | "other-year" };
+
+export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   let total: number | null = null;
   // La línea de total es la que dice "total" sin ser "subtotal".
@@ -211,23 +253,46 @@ export function parseReceiptText(text: string): ReceiptRead {
     }
     total = best > 0 ? best : null;
   }
-  let date: string | null = null;
+  // Fecha del comprobante: se juntan TODAS las fechas candidatas del
+  // texto, en orden. La fecha del ticket suele ser la primera, pero una
+  // fecha vieja (vigencia de una promoción, caducidad) puede ir antes, y
+  // el año puede venir mal leído ("2026" sale "2017" en un ticket
+  // térmico). Se prefiere la primera fecha verosímil (de este año y no
+  // futura); si ninguna lo es, queda la más cercana a hoy para que la
+  // app pida confirmar la fecha de origen en vez de guardarla en silencio.
+  const today = todayIso ?? new Date().toISOString().slice(0, 10);
+  const todayYear = Number(today.slice(0, 4));
+  const candidates: string[] = [];
+  const pushCandidate = (d: number, mo: number, y: number) => {
+    if (!isValidCalendarDate(y, mo, d)) return;
+    candidates.push(`${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+  };
   const dateRe = /(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})\b/;
-  const dateReEs = /(\d{1,2})\s*(?:de\s*)?(ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic)[a-z]*\.?\s*(?:de\s*)?(\d{4})/i;
+  const dateReEs = /(\d{1,2})\s*(?:de\s*)?(ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic)[a-z]*\.?\s*(?:de\s*)?(\d{4}|\d{2})/i;
   for (const l of lines) {
     const m = dateRe.exec(l);
     if (m) {
       let d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
-      if (y < 100) y += 2000;
+      if (y < 100) y = resolveTwoDigitYear(y, todayYear);
       if (mo > 12 && d <= 12) { const t = mo; mo = d; d = t; }
-      if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) { date = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`; break; }
+      pushCandidate(d, mo, y);
     }
     const m2 = dateReEs.exec(l);
     if (m2) {
-      const d = Number(m2[1]), mo = MONTHS_ES[m2[2]!.toLowerCase().slice(0, 3)], y = Number(m2[3]);
-      if (mo) { date = `${y}-${mo}-${String(d).padStart(2, "0")}`; break; }
+      const d = Number(m2[1]), mo = MONTHS_ES[m2[2]!.toLowerCase().slice(0, 3)], y0 = Number(m2[3]);
+      const y = y0 < 100 ? resolveTwoDigitYear(y0, todayYear) : y0;
+      if (mo) pushCandidate(d, Number(mo), y);
     }
   }
+  // Se prefiere la primera fecha verosímil (de este año y no futura); si
+  // ninguna lo es, queda la más cercana a hoy (un año mal leído de 2017
+  // queda a 9 años; una fecha futura por un día mal leído queda a días).
+  // En cualquier caso, la app pide confirmar la fecha de origen antes de
+  // guardarla, en vez de aplicarla en silencio.
+  const dayDiff = (iso: string) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+  const plausible = candidates.find((c) => checkReceiptDate(c, today).status === "ok");
+  const closest = [...candidates].sort((a, b) => Math.abs(dayDiff(a)) - Math.abs(dayDiff(b)) || (dayDiff(a) > 0 ? 1 : 0) - (dayDiff(b) > 0 ? 1 : 0))[0];
+  const date = plausible ?? closest ?? null;
   const skip = ["total", "gracias", "ticket", "folio", "fecha", "hora", "caja", "vendedor", "cajero", "cambio", "efectivo", "tarjeta", "subtotal", "iva", "descuento", "articulo", "cantidad", "precio", "importe", "cliente", "domicilio"];
   let store: string | null = null;
   for (const l of lines.slice(0, 6)) {
