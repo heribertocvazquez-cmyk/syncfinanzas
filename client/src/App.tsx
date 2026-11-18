@@ -24,6 +24,9 @@ import { OcrDetail } from "./components/OcrDetail";
 import { LoadingSplash } from "./components/LoadingSplash";
 import { TandasModule } from "./components/TandasModule";
 import { HomeTandasCard } from "./components/HomeTandasCard";
+import { GenericHouseholdInvite } from "./components/GenericHouseholdInvite";
+import { JoinRequestRow } from "./components/JoinRequestRow";
+import { GenericInviteRequest, type JoinRequestStatus } from "./components/GenericInviteRequest";
 import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview } from "./components/TandaDetail";
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
 import { DRAWER_GROUPS, orderDrawerTabs } from "./lib/drawerOrder";
@@ -866,17 +869,29 @@ export function App(){
     setTokenRaw(token);
     void fetch(`/api/invite?token=${encodeURIComponent(token)}`).then(r=>r.json()).then((j: InvitePreviewFull & { ok?: boolean })=>{ if (j && j.ok) setTokenInvite(j); }).catch(()=>{});
   },[]);
-  const acceptTokenInvite=useMutation({mutationFn:async()=>{
+  // Estado de la solicitud de ingreso con enlace genérico: se consulta al
+  // llegar con ese enlace, para mostrar «pendiente» en lugar del formulario.
+  const [joinStatus,setJoinStatus]=useState<JoinRequestStatus|null>(null);
+  useEffect(()=>{
+    if (!tokenInvite || tokenInvite.kind!=="household" || !tokenInvite.generic || !tokenRaw) { setJoinStatus(null); return; }
+    let alive=true;
+    void api.getJoinRequestStatus({token: tokenRaw}).then((r)=>{ if (alive) setJoinStatus(r.status); }).catch(()=>{ if (alive) setJoinStatus("none"); });
+    return ()=>{ alive=false; };
+  },[tokenInvite, tokenRaw]);
+  const acceptTokenInvite=useMutation({mutationFn:async(v?:{first?:string;last?:string})=>{
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
     if (tokenInvite.kind==="general") { if (!tokenRaw) throw new Error("Falta el enlace de invitación."); return await api.acceptGeneralInvite({token: tokenRaw}); }
+    if (tokenInvite.kind==="household" && tokenInvite.generic) { if (!tokenRaw) throw new Error("Falta el enlace de invitación."); return await api.requestHouseholdJoin({token: tokenRaw, firstName: v?.first || joinFirst, lastName: v?.last || joinLast || undefined}); }
     if (tokenInvite.kind==="household" && tokenInvite.invitationId) return await api.respondInvitation({id: tokenInvite.invitationId, accept: true, firstName: joinFirst||undefined, lastName: joinLast||undefined});
     if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: true, name: [joinFirst, joinLast].filter(Boolean).join(" ")||undefined});
     throw new Error("No se pudo identificar la invitación del enlace.");
-  },onSuccess:()=>{ setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); }});
+  },onSuccess:()=>{ if (tokenInvite?.kind==="household" && tokenInvite?.generic) { setJoinStatus("pending"); } else { setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} } inv(); }});
   const rejectTokenInvite=useMutation({mutationFn:async()=>{
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
     // La invitación general no crea nada: rechazarla es simplemente descartarla.
     if (tokenInvite.kind==="general") return { ok: true as const };
+    // La invitación genérica no se rechaza aquí: simplemente no se solicita entrar.
+    if (tokenInvite.kind==="household" && tokenInvite.generic) throw new Error("La invitación genérica no se rechaza aquí; simplemente no solicite entrar.");
     if (tokenInvite.kind==="household" && tokenInvite.invitationId) return await api.respondInvitation({id: tokenInvite.invitationId, accept: false});
     if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: false});
     throw new Error("No se pudo identificar la invitación del enlace.");
@@ -1084,7 +1099,7 @@ export function App(){
   const setCard=useMutation({mutationFn:async(v:{id:number;cardLast4:string})=>await api.setParticipantCard(v),onSuccess:inv});
   const drawTanda=useMutation({mutationFn:async(v:{id:number;mode:"random"|"weighted"})=>await api.drawTanda({tandaId:v.id,mode:v.mode}),onSuccess:inv});
   const setPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;status:"paid"|"pending"|"late"})=>await api.setTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
-  const uploadProof=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;file:File;paidDate?:string})=>{ const r=await fileToBase64(v.file); return await api.setTandaPayment({householdId:data!.household!.id,tandaId:v.tandaId,participantId:v.participantId,quincenaIndex:v.quincenaIndex,status:"paid",paidDate:v.paidDate,proof:{dataBase64:r.dataBase64,mimeType:r.mimeType}}); },onSuccess:inv});
+  const uploadProof=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;file:File;paidDate?:string;readAmount?:number|null})=>{ const r=await fileToBase64(v.file); return await api.setTandaPayment({householdId:data!.household!.id,tandaId:v.tandaId,participantId:v.participantId,quincenaIndex:v.quincenaIndex,status:"paid",paidDate:v.paidDate,readAmount:v.readAmount ?? undefined,proof:{dataBase64:r.dataBase64,mimeType:r.mimeType}}); },onSuccess:inv});
   // Revisión del comprobante de pago de tanda antes de guardar: se sube la
   // foto del depósito, la lectura llena importe y fecha, y la persona revisa
   // antes de confirmar. El importe leído se compara con el pago de la tanda;
@@ -1113,7 +1128,7 @@ export function App(){
   const confirmTandaProof=()=>{
     const r=tandaProofReview; if(!r) return;
     if(r.dateCheck) return;
-    uploadProof.mutate({tandaId:r.tandaId,participantId:r.participantId,quincenaIndex:r.quincenaIndex,file:r.file,paidDate:r.paidDate},{onSuccess:()=>{ setTandaProofReview(null); setSavedNotice("Pago registrado con comprobante."); }});
+    uploadProof.mutate({tandaId:r.tandaId,participantId:r.participantId,quincenaIndex:r.quincenaIndex,file:r.file,paidDate:r.paidDate,readAmount:r.detail?.total ?? null},{onSuccess:()=>{ setTandaProofReview(null); setSavedNotice("Pago registrado con comprobante."); }});
   };
   const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
   const createTandaInv=useMutation({mutationFn:async(v:{tandaId:number})=>await api.createTandaInvitation({householdId:data!.household!.id,tandaId:v.tandaId,email:tInvEmail[v.tandaId]||"",invitedName:tInvName[v.tandaId]||undefined}),onSuccess:(r,v)=>{inv();setTInvResult(p=>({...p,[v.tandaId]:{emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}}));setTInvEmail(p=>({...p,[v.tandaId]:""}));setTInvName(p=>({...p,[v.tandaId]:""}));}});
@@ -1167,6 +1182,9 @@ export function App(){
   const saveProfEdit=useMutation({mutationFn:async()=>{ const pr=data!.profiles.find(x=>x.id===editProfId); if(!pr) throw new Error("Perfil"); return await api.saveProfile({id:pr.id,householdId:data!.household!.id,name:editProfName,lastName:editProfLast,kind:pr.kind as "adult"|"dependent",dependentType:pr.dependentType||undefined,monthlyIncome:pr.monthlyIncome,fixedCommitments:pr.fixedCommitments,email:pr.email||undefined}); },onSuccess:()=>{inv();setEditProfId(null);}});
   const createInv=useMutation({mutationFn:async()=>await api.createInvitation({householdId:data!.household!.id,email:invEmail2,invitedName:invName2||undefined}),onSuccess:(r)=>{inv();setHhInvResult({emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl});setInvEmail2("");setInvName2("");}});
   const respondInv2=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:acceptFirst[v.id]||undefined,lastName:acceptLast[v.id]||undefined}),onSuccess:(r)=>{ inv(); if(r.profileId) pickProfile(r.profileId); }});
+  // Aprobar o rechazar una solicitud de ingreso (enlace genérico). Solo el
+  // administrador ve los botones; el servidor vuelve a verificar el rol.
+  const respondJoinReq=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondJoinRequest({id:v.id,accept:v.accept}),onSuccess:(r,v)=>{ inv(); setSavedNotice(v.accept ? (r.accepted ? "La persona ya es integrante del hogar." : "Aprobada. La persona debe aceptar la invitación desde su cuenta para entrar.") : "Solicitud rechazada."); }});
   const delInv=useMutation({mutationFn:async(id:number)=>await api.deleteInvitation({id}),onSuccess:inv});
 
   // subcategorías editables + lectura automática del comprobante
@@ -1430,19 +1448,30 @@ export function App(){
           </div>
           {tokenInvite && !tokenDone && (
             <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2" role="status">
-              <h2 className="font-display font-bold text-lg">Invitación recibida por correo</h2>
-              {tokenInvite.kind==="household" && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará a ese hogar.</p>}
+              <h2 className="font-display font-bold text-lg">{tokenInvite.kind==="household" && tokenInvite.generic ? "Invitación al hogar" : "Invitación recibida por correo"}</h2>
+              {tokenInvite.kind==="household" && tokenInvite.generic && <p className="text-sm">Le invitan al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Para entrar, solicite el acceso; el administrador del hogar debe aprobar su solicitud. El enlace por sí solo no le da acceso a los datos del hogar.</p>}
+              {tokenInvite.kind==="household" && !tokenInvite.generic && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará a ese hogar.</p>}
               {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante.</p>}
               {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
               {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Ya se usó o venció. Solicite una nueva.</p>}
-              {tokenInvite.usable && (
+              {tokenInvite.usable && tokenInvite.kind==="household" && tokenInvite.generic && (
+                <GenericInviteRequest
+                  householdName={tokenInvite.householdName}
+                  status={joinStatus ?? "none"}
+                  busy={acceptTokenInvite.isPending}
+                  error={acceptTokenInvite.error ? String(acceptTokenInvite.error) : null}
+                  onRequest={(first,last)=>acceptTokenInvite.mutate({first,last})}
+                  onAcceptApproved={async()=>{ try{ const r=await api.findInvitations({email: myEmail}); setInvFound(r.invitations); setInvSearched(true); setInvEmail(myEmail); }catch{ /* el error se muestra en la lista de invitaciones */ } }}
+                />
+              )}
+              {tokenInvite.usable && !(tokenInvite.kind==="household" && tokenInvite.generic) && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
                     <input aria-label="Su nombre al aceptar la invitación del enlace" placeholder="Nombre" className={inputCls} value={joinFirst} onChange={e=>setJoinFirst(e.target.value)} />
                     <input aria-label="Su apellido al aceptar la invitación del enlace" placeholder="Apellido" className={inputCls} value={joinLast} onChange={e=>setJoinLast(e.target.value)} />
                   </div>
                   <div className="flex gap-2">
-                    <button type="button" className={btnPrimary} onClick={()=>acceptTokenInvite.mutate()} disabled={acceptTokenInvite.isPending}>{tokenInvite.kind==="general"?"Aceptar y crear mi cuenta":"Aceptar invitación"}</button>
+                    <button type="button" className={btnPrimary} onClick={()=>acceptTokenInvite.mutate({})} disabled={acceptTokenInvite.isPending}>{tokenInvite.kind==="general"?"Aceptar y crear mi cuenta":"Aceptar invitación"}</button>
                     <button type="button" className={btnGhost} onClick={()=>rejectTokenInvite.mutate()} disabled={rejectTokenInvite.isPending}>Rechazar</button>
                   </div>
                   {(acceptTokenInvite.error || rejectTokenInvite.error) && <p className="text-sm text-[var(--red)]">{String(acceptTokenInvite.error || rejectTokenInvite.error)}</p>}
@@ -2454,6 +2483,7 @@ export function App(){
                   </div>
                 )}
                 {createInv.error && <p className="text-sm text-[var(--red)] mt-2">{String(createInv.error)}</p>}
+                <GenericHouseholdInvite householdId={hh.id} householdName={hh.name} isAdmin={isAdmin} api={api} copyLink={copyLink} copiedLink={copiedLink} />
                 <div className="divide-y divide-[var(--border)] mt-2">
                   <p className="text-sm text-[var(--dim)] py-2">Sin invitaciones registradas.</p>
                 </div>
@@ -2478,15 +2508,20 @@ export function App(){
                   </div>
                 )}
                 {createInv.error && <p className="text-sm text-[var(--red)] mt-2">{String(createInv.error)}</p>}
-                <p className="text-sm text-[var(--dim)] mt-1">{data.invitations.length} {data.invitations.length===1?"invitación":"invitaciones"} · {invitationCounts(data.invitations).pending} pendientes</p>
+                <GenericHouseholdInvite householdId={hh.id} householdName={hh.name} isAdmin={isAdmin} api={api} copyLink={copyLink} copiedLink={copiedLink} />
+                <p className="text-sm text-[var(--dim)] mt-1">{data.invitations.length} {data.invitations.length===1?"invitación":"invitaciones"} · {invitationCounts(data.invitations).pending} pendientes{data.invitations.filter(i=>i.requested&&i.status==="pending").length>0 && <> · {data.invitations.filter(i=>i.requested&&i.status==="pending").length} solicitudes</>}</p>
                 </>}
               >
                 <div className="divide-y divide-[var(--border)] mt-2">
                   {data.invitations.map(iv=>(
+                    iv.requested ? (
+                      <JoinRequestRow key={iv.id} inv={iv} isAdmin={isAdmin} busy={respondJoinReq.isPending} onRespond={(id,accept)=>respondJoinReq.mutate({id,accept})} onDelete={(id)=>delInv.mutate(id)} />
+                    ) : (
                     <div key={iv.id} className="py-2.5 text-sm">
                       <div className="flex justify-between gap-2 flex-wrap"><span><b>{iv.email}</b>{iv.invitedName?` · ${iv.invitedName}`:""}</span><span className={`text-xs font-bold rounded-full px-2 py-0.5 ${iv.status==="accepted"?"bg-green-100 text-green-800":iv.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{iv.status==="accepted"?"Aceptada":iv.status==="rejected"?"Rechazada":"Pendiente"}</span></div>
                       {iv.status==="pending" && <div className="mt-2 space-y-2"><div className="grid grid-cols-2 gap-2"><input aria-label={`Nombre de quien acepta ${iv.email}`} placeholder="Su nombre" className={inputCls} value={acceptFirst[iv.id]||iv.invitedName||""} onChange={e=>setAcceptFirst({...acceptFirst,[iv.id]:e.target.value})} /><input aria-label={`Apellido de quien acepta ${iv.email}`} placeholder="Su apellido" className={inputCls} value={acceptLast[iv.id]||""} onChange={e=>setAcceptLast({...acceptLast,[iv.id]:e.target.value})} /></div><div className="flex gap-2 flex-wrap"><button aria-label={`Aceptar invitación de ${iv.email}`} className={btnPrimary} onClick={()=>respondInv2.mutate({id:iv.id,accept:true})}>Aceptar y entrar</button><button aria-label={`Rechazar invitación de ${iv.email}`} className={btnGhost} onClick={()=>respondInv2.mutate({id:iv.id,accept:false})}>Rechazar</button>{isAdmin && <><button aria-label={`Reenviar invitación a ${iv.email}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"household",invitationId:iv.id})} disabled={resendInv.isPending}>{resendInv.isPending?"Reenviando…":"Reenviar invitación"}</button><button aria-label={`Borrar invitación de ${iv.email}`} className="text-xs underline text-[var(--red)]" onClick={()=>delInv.mutate(iv.id)}>Borrar</button></>}</div></div>}
                     </div>
+                    )
                   ))}
                 </div>
               </CollapsibleCard>

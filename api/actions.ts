@@ -56,6 +56,7 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   deleteAgreement: { table: "agreements", idField: "id" },
   deletePatrimony: { table: "patrimonyItems", idField: "id" },
   deleteInvitation: { table: "invitations", idField: "id" },
+  respondJoinRequest: { table: "invitations", idField: "id" },
   createMercadoPagoOrder: { table: "tandas", idField: "tandaId" },
   checkMercadoPagoOrder: { table: "tandas", idField: "tandaId" },
   deleteTanda: { table: "tandas", idField: "id" },
@@ -70,7 +71,7 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   deleteCategoryRule: { table: "categoryRules", idField: "id" },
 };
 
-const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation"]);
+const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation", "respondJoinRequest", "createGenericHouseholdInvite", "getGenericHouseholdInvite"]);
 
 async function householdIdForRow(
   db: ReturnType<typeof getDb>,
@@ -181,7 +182,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // La comprobación del correo invitado la hace la propia acción, que
       // además crea la membresía al aceptar. Aquí solo se verifica que la
       // invitación exista; el hogar se resuelve dentro de la acción.
-    } else if (actionName === "resolveInvite" || actionName === "acceptGeneralInvite") {
+    } else if (actionName === "resolveInvite" || actionName === "acceptGeneralInvite" || actionName === "requestHouseholdJoin" || actionName === "getJoinRequestStatus") {
       // Acciones por token de invitación: el hogar (si lo hay) se resuelve
       // dentro de la acción desde el token; no exigen membresía previa.
     } else if (actionName === "createGeneralInvitation") {

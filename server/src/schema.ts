@@ -322,13 +322,21 @@ export const testerFeedback = pgTable("tester_feedback", {
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   nombre: text("nombre"),
   correo: text("correo"),
-  calificacionGeneral: integer("calificacion_general").notNull(),
-  facilidadUso: integer("facilidad_uso").notNull(),
+  calificacionGeneral: integer("calificacion_general"),
+  facilidadUso: integer("facilidad_uso"),
   queFunciono: text("que_funciono"),
   queFallo: text("que_fallo"),
   sugerencia: text("sugerencia"),
   modulo: text("modulo"),
   dispositivo: text("dispositivo"),
+  // Canal de dudas y mejoras: tipo de mensaje (duda, error, mejora),
+  // descripción, estado de la evaluación del dueño y su respuesta.
+  // Las columnas se crean con supabase/feedback-canal.sql; la lectura es
+  // tolerante si aún no existen (listTesterFeedback usa los campos viejos).
+  tipo: text("tipo"),
+  descripcion: text("descripcion"),
+  estado: text("estado").notNull().default("por_revisar"),
+  respuesta: text("respuesta"),
 });
 
 // Plan de ahorro para una meta: cuánto aportar al mes, en qué fondo se
@@ -390,7 +398,7 @@ export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
   householdId: integer("household_id").notNull(),
   userId: uuid("user_id").notNull(),
-  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "presupuesto_80", "gasto_anomalo", "suscripcion_sube", "tarjeta_corte", "tarjeta_pago", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida", "ajuste_gasto", "ajuste_sobrante"] }).notNull(),
+  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "presupuesto_80", "gasto_anomalo", "suscripcion_sube", "tarjeta_corte", "tarjeta_pago", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida", "ajuste_gasto", "ajuste_sobrante", "pago_tanda", "nueva_opinion"] }).notNull(),
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   amount: doublePrecision("amount"),

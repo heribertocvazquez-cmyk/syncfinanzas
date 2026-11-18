@@ -7,7 +7,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { eq } from "drizzle-orm";
 import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
-import { resolveInviteToken, tokenIsUsable } from "../server/src/invites.js";
+import { resolveInviteToken, tokenIsUsable, isHouseholdGenericToken } from "../server/src/invites.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).json({ error: "Método no permitido." });
@@ -42,6 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       expiresAt: t.expiresAt.toISOString(),
       usable: tokenIsUsable(t),
       status: t.status,
+      generic: isHouseholdGenericToken(t),
     });
   } catch {
     return res.status(400).json({ error: "No se pudo verificar la invitación. Inténtelo de nuevo." });

@@ -7,10 +7,11 @@ import {
   parseMpExternalReference,
   requireMpToken,
 } from "./mercadopago.js";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import * as schema from "./schema.js";
+import { notifyTandaOrganizer } from "./tandaNotify.js";
 import { supabaseAdmin } from "./supabase.js";
-import { issueInviteToken, inviteUrl, markToken, markTokensForInvitation, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
+import { findHouseholdGenericToken, GENERIC_HOUSEHOLD_INVITE_TTL_DAYS, isHouseholdGenericToken, issueInviteToken, inviteUrl, markToken, markTokensForInvitation, replaceHouseholdGenericTokens, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
 import { mailConfigured, sendInviteEmail } from "./mail.js";
 
 const vis = z.enum(["private", "shared"]);
@@ -34,7 +35,7 @@ async function logActivity(ctx: Ctx, householdId: number, action: string, detail
 // la operación principal: si la tabla aún no existe (falta correr
 // supabase/notifications.sql), la inserción falla en silencio y la app
 // sigue funcionando sin avisos.
-type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante"; title: string; body: string; amount?: number | null; target: string };
+type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion"; title: string; body: string; amount?: number | null; target: string };
 async function notifyHousehold(ctx: Ctx, householdId: number, n: NotifInput, excludeUserId?: string | null) {
   try {
     const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
@@ -695,13 +696,30 @@ const EXPENSE_CATS: [string, string[]][] = [
   ["Otro gasto", ["Regalos", "Donación", "Otro"]],
 ];
 
+/** Resuelve el id de la cuenta de Supabase Auth por correo. Se usa al
+ *  aprobar una solicitud de ingreso: la membresía debe crearse con la
+ *  cuenta de quien solicitó, no con la del administrador que aprueba.
+ *  Devuelve null si no hay cuenta con ese correo (se borró) o si la
+ *  consulta falla: quien aprueba no se bloquea; la solicitud se convierte
+ *  en invitación normal. Solo lectura de auth.users. */
+async function findUserIdByEmail(db: Ctx["db"], email: string): Promise<string | null> {
+  try {
+    const res = await db.execute(sql`SELECT id FROM auth.users WHERE lower(email) = lower(${email.trim().toLowerCase()}) LIMIT 1`);
+    // postgres-js devuelve las filas directamente; node-postgres, { rows }.
+    const rows = (Array.isArray(res) ? res : (res as unknown as { rows?: unknown[] }).rows ?? []) as { id: string }[];
+    return rows[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export const Actions = {
   getOverview: defineAction({
     description: "Returns the full household state with computed totals that always reconcile.",
     request: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() }),
     response: z.object({
       household: z.object({ id: z.number(), name: z.string(), currency: z.string(), cutoffDay: z.number(), contributionRule: z.string(), approvalRule: z.string(), approvalThreshold: z.number(), mode: z.string() }).nullable(),
-      profiles: z.array(z.object({ id: z.number(), name: z.string(), lastName: z.string().nullable(), role: z.string(), email: z.string().nullable(), kind: z.string(), dependentType: z.string().nullable(), monthlyIncome: z.number(), fixedCommitments: z.number(), capacity: z.number() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string(), householdName: z.string() })),
+      profiles: z.array(z.object({ id: z.number(), name: z.string(), lastName: z.string().nullable(), role: z.string(), email: z.string().nullable(), kind: z.string(), dependentType: z.string().nullable(), monthlyIncome: z.number(), fixedCommitments: z.number(), capacity: z.number() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string(), householdName: z.string(), requested: z.boolean() })),
       accounts: z.array(z.object({ id: z.number(), name: z.string(), type: z.string(), visibility: z.string(), initialBalance: z.number(), balance: z.number(), ownerProfileId: z.number().nullable() })),
       categories: z.array(z.object({ id: z.number(), name: z.string(), kind: z.string(), isSystem: z.number(), isActive: z.number(), subcategories: z.array(z.string()) })),
       movements: z.array(z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), date: z.string(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() })),
@@ -714,7 +732,7 @@ export const Actions = {
       agreements: z.array(z.object({ id: z.number(), title: z.string(), description: z.string(), status: z.string(), votes: z.array(z.object({ profileId: z.number(), vote: z.string() })) })),
       patrimony: z.array(z.object({ id: z.number(), name: z.string(), kind: z.string(), category: z.string(), value: z.number(), owner: z.string().nullable() })),
       personal: z.object({ salary: z.number(), monthSpent: z.number(), remaining: z.number(), todaySpent: z.number(), todayCount: z.number(), byCategory: z.array(z.object({ categoryId: z.number().nullable(), name: z.string(), total: z.number(), pct: z.number() })), todayMovements: z.array(z.object({ id: z.number(), concept: z.string(), amount: z.number(), categoryId: z.number().nullable(), date: z.string() })) }),
-      tandas: z.array(z.object({ id: z.number(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), verified: z.number(), fineAmount: z.number() })) }) })),
+      tandas: z.array(z.object({ id: z.number(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) })),
       summary: z.object({
         totalBalance: z.number(), totalInFunds: z.number(), availableFree: z.number(),
         openingBalance: z.number(), priorMonthsNet: z.number(), fundsFromAccounts: z.number(), fundsReserved: z.number(),
@@ -770,7 +788,24 @@ export const Actions = {
       const tandasR = await db.select().from(schema.tandas).where(eq(schema.tandas.householdId, hid)).orderBy(desc(schema.tandas.id));
       const tandaPartsR = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.householdId, hid));
       const tandaPaysR = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.householdId, hid));
+      // Importe leído del comprobante por pago (columna proof_amount,
+      // supabase/add-tanda-proof-amount.sql): se lee aparte con SQL directo
+      // y en silencio si la columna aún no existe, para que getOverview no
+      // se rompa antes de correr el SQL — igual que safeRows con las tablas
+      // de Tandas v3. Sin la columna, la pantalla de verificación solo
+      // muestra el monto de la tanda.
+      const proofAmounts = new Map<number, number>();
+      try {
+        const res = (await db.execute(sql`SELECT id, proof_amount FROM tanda_payments WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; proof_amount: number | null }[] } | { id: number; proof_amount: number | null }[];
+        const rows = Array.isArray(res) ? res : (res.rows ?? []);
+        for (const row of rows) if (row.proof_amount != null) proofAmounts.set(row.id, row.proof_amount);
+      } catch { /* columna aún no creada */ }
       const invsR = await db.select().from(schema.invitations).where(eq(schema.invitations.householdId, hid));
+      // Qué invitaciones tienen enlace (por correo): las solicitudes de
+      // ingreso por enlace genérico NO tienen token; el cliente las muestra
+      // con Aprobar / Rechazar en lugar del formulario de aceptación.
+      const invTokRows = invsR.length > 0 ? await db.select({ invitationId: schema.invitationTokens.invitationId }).from(schema.invitationTokens).where(inArray(schema.invitationTokens.invitationId, invsR.map(i => i.id))) : [];
+      const invWithToken = new Set(invTokRows.map(r => r.invitationId));
       const tandaInvsR = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.householdId, hid)).orderBy(desc(schema.tandaInvitations.id));
       const orgRatingsR = await db.select().from(schema.organizerRatings).where(eq(schema.organizerRatings.householdId, hid)).orderBy(desc(schema.organizerRatings.id));
       // Tandas v3: las tablas nuevas existen solo si Heriberto ya ejecutó
@@ -983,8 +1018,8 @@ export const Actions = {
         const orgTandaIds = new Set(tandasR.filter(x=>((x.organizerName || profilesR.find(p=>p.id===x.organizerProfileId)?.name || profilesR.find(p=>p.role==="admin")?.name || "").trim().toLowerCase())===orgKey).map(x=>x.id));
         const ratingsAll = orgRatingsR.filter(r=>orgTandaIds.has(r.tandaId));
         const organizerRating = { avg: ratingsAll.length? Math.round(ratingsAll.reduce((s,r)=>s+r.stars,0)/ratingsAll.length*10)/10 : 0, count: ratingsAll.length };
-        const paysOut: {participantId:number;quincenaIndex:number;status:string;reminderSent:number;paidDate:string|null;proofUrl:string|null;verified:number;fineAmount:number}[] = [];
-        for (const x of tandaPaysR.filter(x=>x.tandaId===td.id)) { let url: string|null = null; if (x.proofBlobKey) { try { url = await ctx.blobs.getUrl(x.proofBlobKey); } catch { url = null; } } paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: url, verified: x.verified ?? 0, fineAmount: x.fineAmount ?? 0 }); }
+        const paysOut: {participantId:number;quincenaIndex:number;status:string;reminderSent:number;paidDate:string|null;proofUrl:string|null;proofAmount:number|null;verified:number;fineAmount:number}[] = [];
+        for (const x of tandaPaysR.filter(x=>x.tandaId===td.id)) { let url: string|null = null; if (x.proofBlobKey) { try { url = await ctx.blobs.getUrl(x.proofBlobKey); } catch { url = null; } } paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: url, proofAmount: proofAmounts.get(x.id) ?? null, verified: x.verified ?? 0, fineAmount: x.fineAmount ?? 0 }); }
         // ---- Tandas v3: roles, saldos separados, multas, votos, entregas y pase de lista ----
         const treasurerName = profilesR.find(p=>p.id===(td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId)?.name ?? null;
         const substituteName = profilesR.find(p=>p.id===(td as unknown as { substituteProfileId?: number | null }).substituteProfileId)?.name ?? null;
@@ -1008,7 +1043,7 @@ export const Actions = {
             const pay = paysOut.find(x=>x.participantId===pt.id && x.quincenaIndex===attIndex);
             let status = pay?.status || "pending";
             if (status === "pending" && attCal.date < todayStr) status = "late";
-            return { participantId: pt.id, name: pt.name, status, paidDate: pay?.paidDate ?? null, proofUrl: pay?.proofUrl ?? null, verified: pay?.verified ?? 0, fineAmount: pay?.fineAmount ?? 0 };
+            return { participantId: pt.id, name: pt.name, status, paidDate: pay?.paidDate ?? null, proofUrl: pay?.proofUrl ?? null, proofAmount: pay?.proofAmount ?? null, verified: pay?.verified ?? 0, fineAmount: pay?.fineAmount ?? 0 };
           }),
         };
         return { id: td.id, name: td.name, participantCount: td.participantCount, amountPerQuincena: td.amountPerQuincena, startDate: td.startDate, potPerQuincena: Math.round(td.amountPerQuincena*td.participantCount*100)/100, organizerName: orgName, organizerProfileId: td.organizerProfileId ?? null, frequency: td.frequency || "quincenal", cadenceDays: cadence, drawMode: td.drawMode || "random", coverageRule: (td as unknown as { coverageRule?: string }).coverageRule || "fondo", fineAmount: (td as unknown as { fineAmount?: number }).fineAmount ?? 0, meetingDay: (td as unknown as { meetingDay?: string }).meetingDay || "", treasurerProfileId: (td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId ?? null, treasurerName, substituteProfileId: (td as unknown as { substituteProfileId?: number | null }).substituteProfileId ?? null, substituteName, turnsLocked: (td as unknown as { turnsLocked?: number }).turnsLocked ?? 0, organizerRating, ratings: orgRatingsR.filter(r=>r.tandaId===td.id).map(r=>({ id: r.id, raterName: r.raterName, stars: r.stars, comment: r.comment ?? null })), invitations: tandaInvsR.filter(i=>i.tandaId===td.id).map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, status: i.status })), participants: parts.map(x=>({ id: x.id, name: x.name, email: x.email ?? null, drawOrder: x.drawOrder ?? null, cardLast4: x.cardLast4 ?? null, joinedDate: x.joinedDate ?? null, role: (x as unknown as { role?: string }).role || "participante", excluded: (x as unknown as { excluded?: number }).excluded ?? 0, stats: statsForName(x.name) })), calendar, payments: paysOut, fines: finesOut, votes: votesOut, deliveries: deliveriesOut, fundEntries: fundEntriesOut, balances, attendance };
@@ -1065,7 +1100,7 @@ export const Actions = {
         goalPlans: goalPlansOut,
         spendingAdjustments: spendingAdjustmentsOut,
         agreements: agR.map(a=>({ id:a.id, title:a.title, description:a.description, status:a.status, votes: votesR.filter(v=>v.agreementId===a.id).map(v=>({ profileId:v.profileId, vote:v.vote })) })),
-        personal, tandas, invitations: invsR.map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, status: i.status, householdName: hh.name })),
+        personal, tandas, invitations: invsR.map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, status: i.status, householdName: hh.name, requested: !invWithToken.has(i.id) })),
         patrimony: patrR.map(p=>({ id:p.id, name:p.name, kind:p.kind, category:p.category, value:p.value, owner:p.owner??null })),
         activity: activityR.map(a=>({ id: a.id, action: a.action, detail: a.detail, createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : new Date(Number(a.createdAt)).toISOString() })),
         summary: {
@@ -1744,7 +1779,12 @@ export const Actions = {
       const db = ctx.db;
       const email = args.email.trim().toLowerCase();
       const all = await db.select().from(schema.invitations);
-      const mine = all.filter(i=>i.email.toLowerCase()===email && i.status==="pending");
+      // Las solicitudes de ingreso por enlace genérico NO tienen token de
+      // invitación: no son invitaciones que se puedan aceptar desde aquí;
+      // las aprueba o rechaza el administrador en «Invitaciones al hogar».
+      const tokRows = await db.select({ invitationId: schema.invitationTokens.invitationId }).from(schema.invitationTokens);
+      const withToken = new Set(tokRows.map(r => r.invitationId));
+      const mine = all.filter(i=>i.email.toLowerCase()===email && i.status==="pending" && withToken.has(i.id));
       const tAll = await db.select().from(schema.tandaInvitations);
       const tMine = tAll.filter(i=>i.email.toLowerCase()===email && i.status==="pending");
       const hhs = await db.select().from(schema.households);
@@ -1772,6 +1812,9 @@ export const Actions = {
       tandaInvitationId: z.number().nullable(),
       expiresAt: z.string(),
       usable: z.boolean(),
+      /** Enlace genérico del hogar (sin correo ni invitación concreta):
+       *  solo identifica el hogar para solicitar entrar. */
+      generic: z.boolean(),
     }),
     async handler(ctx, args) {
       const db = ctx.db;
@@ -1801,6 +1844,7 @@ export const Actions = {
         tandaInvitationId: t.tandaInvitationId,
         expiresAt: t.expiresAt.toISOString(),
         usable: tokenIsUsable(t),
+        generic: isHouseholdGenericToken(t),
       };
     },
   }),
@@ -1845,6 +1889,10 @@ export const Actions = {
         const rows = await db.select().from(schema.invitations).where(eq(schema.invitations.id, args.invitationId));
         const inv = rows[0]; if (!inv) throw new Error("Invitación no encontrada.");
         if (inv.status !== "pending") throw new Error("Esta invitación ya fue respondida.");
+        // Una solicitud de ingreso (sin token) no se reenvía: la aprueba o
+        // rechaza el administrador en «Invitaciones al hogar».
+        const tokRows = await db.select().from(schema.invitationTokens).where(eq(schema.invitationTokens.invitationId, inv.id)).limit(1);
+        if (!tokRows[0]) throw new Error("Esta es una solicitud de ingreso; apruébela o rechácela en Invitaciones al hogar.");
         const hh = await db.select().from(schema.households).where(eq(schema.households.id, inv.householdId)).limit(1);
         const sent = await sendInviteForToken(ctx, "household", { email: inv.email, householdId: inv.householdId, invitationId: inv.id, invitedName: inv.invitedName }, {
           subject: `Invitación para unirse al hogar ${hh[0]?.name || "su hogar"} en SyncFinanzas`,
@@ -1892,6 +1940,12 @@ export const Actions = {
       const rows = await db.select().from(schema.invitations).where(eq(schema.invitations.id, args.id));
       const inv = rows[0]; if (!inv) throw new Error("Invitación no encontrada.");
       if (inv.status !== "pending") throw new Error("Esta invitación ya fue respondida.");
+      // Una solicitud de ingreso por enlace genérico (sin token) no se
+      // acepta ni se rechaza desde aquí: solo el administrador del hogar
+      // la aprueba o rechaza en «Invitaciones al hogar». Sin este freno,
+      // quien solicita podría aprobarse solo.
+      const tokRows = await db.select().from(schema.invitationTokens).where(eq(schema.invitationTokens.invitationId, inv.id)).limit(1);
+      if (!tokRows[0]) throw new Error("Esta solicitud la aprueba el administrador del hogar. Pídale que la apruebe en Invitaciones al hogar.");
       if (inv.email.toLowerCase() !== ctx.user.email.toLowerCase()) throw new Error("Esta invitación fue enviada a otro correo electrónico. Inicie sesión con el correo invitado.");
       if (!args.accept) { await db.update(schema.invitations).set({ status: "rejected" }).where(eq(schema.invitations.id, args.id)); await markTokensForInvitation(db, inv.id, null, "rejected"); await logActivity(ctx, inv.householdId, "Invitación al hogar rechazada", inv.email); ctx.invalidateQueries(); return { ok: true, householdId: inv.householdId }; }
       const first = (args.firstName || inv.invitedName || "").trim();
@@ -1918,6 +1972,167 @@ export const Actions = {
     },
   }),
   deleteInvitation: defineAction({ description: "Deletes an invitation record (admin housekeeping).", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await markTokensForInvitation(db, args.id, null, "revoked"); await db.delete(schema.invitations).where(eq(schema.invitations.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
+
+  // ---- Invitación genérica al hogar (con aprobación del administrador) ----
+  // Un solo enlace reutilizable por hogar (sin correo): quien lo abre crea
+  // su cuenta y solicita entrar; el enlace por sí solo NO da acceso a nada.
+  // Solo la aprobación del administrador crea la membresía, verificada en
+  // el servidor. Sin SQL nuevo: el token genérico vive en
+  // invitation_tokens (kind "household", email "", sin invitationId) y la
+  // solicitud en invitations (sin token; getOverview la marca requested).
+  createGenericHouseholdInvite: defineAction({
+    description: "Creates (or regenerates) the reusable generic household invite link. Only the household admin can do it. The previous link is invalidated when regenerating. The raw link is returned only at creation/regeneration time: it is never stored in plain text, so it cannot be shown again later.",
+    request: z.object({ householdId: z.number(), regenerate: z.boolean().optional() }),
+    response: z.object({ ok: z.literal(true), inviteUrl: z.string().nullable(), hasActive: z.boolean(), reused: z.boolean(), expiresAt: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ ok: true; inviteUrl: string | null; hasActive: boolean; reused: boolean; expiresAt: string | null }> {
+      await rateLimit(`createGenericHouseholdInvite:${ctx.user.id}`, 10, 60_000);
+      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede crear el enlace genérico.");
+      const db = ctx.db;
+      const hhRows = await db.select().from(schema.households).where(eq(schema.households.id, args.householdId)).limit(1);
+      if (!hhRows[0]) throw new Error("Hogar no encontrado.");
+      const existing = await findHouseholdGenericToken(db, args.householdId);
+      if (existing && !args.regenerate) {
+        // El enlace ya existe y el token en texto plano no se guarda: no se
+        // puede volver a mostrar. El administrador lo comparte desde donde
+        // lo guardó, o genera uno nuevo.
+        return { ok: true, inviteUrl: null, hasActive: true, reused: true, expiresAt: existing.expiresAt.toISOString() };
+      }
+      await replaceHouseholdGenericTokens(db, args.householdId);
+      const issued = await issueInviteToken(db, {
+        kind: "household",
+        email: "",
+        householdId: args.householdId,
+        ttlDays: GENERIC_HOUSEHOLD_INVITE_TTL_DAYS,
+        inviterName: await inviterDisplayName(ctx, args.householdId),
+        createdByUserId: ctx.user.id,
+      });
+      await logActivity(ctx, args.householdId, "Enlace genérico de invitación creado", `Vence ${issued.expiresAt.toISOString().slice(0, 10)}`);
+      ctx.invalidateQueries();
+      return { ok: true, inviteUrl: inviteUrl(ctx.appUrl, issued.raw), hasActive: true, reused: false, expiresAt: issued.expiresAt.toISOString() };
+    },
+  }),
+  getGenericHouseholdInvite: defineAction({
+    description: "Returns whether the household has an active generic invite link and when it expires. It never returns the link itself (the raw token is not stored). Admin only.",
+    request: z.object({ householdId: z.number() }),
+    response: z.object({ ok: z.literal(true), hasActive: z.boolean(), expiresAt: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ ok: true; hasActive: boolean; expiresAt: string | null }> {
+      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede consultar el enlace genérico.");
+      const t = await findHouseholdGenericToken(ctx.db, args.householdId);
+      return { ok: true, hasActive: !!t, expiresAt: t ? t.expiresAt.toISOString() : null };
+    },
+  }),
+  requestHouseholdJoin: defineAction({
+    description: "Requests to join a household through its generic invite link. Creates a pending join request (an invitations row WITHOUT a token). The requester sees nothing of the household until an admin approves it.",
+    request: z.object({ token: z.string().min(10), firstName: z.string().min(1), lastName: z.string().optional() }),
+    response: z.object({ ok: z.literal(true), id: z.number(), reused: z.boolean() }),
+    async handler(ctx, args): Promise<{ ok: true; id: number; reused: boolean }> {
+      await rateLimit(`requestHouseholdJoin:${ctx.user.id}`, 10, 60_000);
+      const db = ctx.db;
+      const t = await resolveInviteToken(db, args.token.trim());
+      if (!t || !isHouseholdGenericToken(t)) throw new Error("El enlace de invitación no es válido. Solicite una invitación nueva.");
+      if (!tokenIsUsable(t)) throw new Error("Este enlace ya venció. Pida al administrador que genere uno nuevo.");
+      if (t.householdId == null) throw new Error("El enlace de invitación no es válido.");
+      const hhRows = await db.select().from(schema.households).where(eq(schema.households.id, t.householdId)).limit(1);
+      if (!hhRows[0]) throw new Error("El hogar de este enlace ya no existe.");
+      const members = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, t.householdId));
+      if (members.some(m => m.userId === ctx.user.id)) throw new Error("Ya es integrante de este hogar.");
+      const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, t.householdId));
+      if (profs.some(pr => (pr.email || "").toLowerCase() === ctx.user.email.toLowerCase())) throw new Error("Ya es integrante de este hogar.");
+      const email = ctx.user.email.trim().toLowerCase();
+      const name = [args.firstName.trim(), (args.lastName || "").trim()].filter(Boolean).join(" ");
+      const existing = await db.select().from(schema.invitations).where(eq(schema.invitations.householdId, t.householdId));
+      const pending = existing.find(i => i.email.toLowerCase() === email && i.status === "pending");
+      if (pending) {
+        const toks = await db.select().from(schema.invitationTokens).where(eq(schema.invitationTokens.invitationId, pending.id)).limit(1);
+        if (toks[0]) throw new Error("Usted ya tiene una invitación pendiente para este hogar. Acéptela para entrar.");
+        return { ok: true, id: pending.id, reused: true };
+      }
+      const [r] = await db.insert(schema.invitations).values({ householdId: t.householdId, email, invitedName: name || null, status: "pending" }).returning({ id: schema.invitations.id });
+      await logActivity(ctx, t.householdId, "Solicitud para entrar al hogar", `${name || email} · ${email}`);
+      ctx.invalidateQueries();
+      return { ok: true, id: r?.id ?? 0, reused: false };
+    },
+  }),
+  getJoinRequestStatus: defineAction({
+    description: "Returns the requester's join-request status for a household generic invite link: none (no request yet), pending, approved (admin approved; the requester still has to accept the invitation), rejected, or member.",
+    request: z.object({ token: z.string().min(10) }),
+    response: z.object({ ok: z.literal(true), status: z.enum(["none", "pending", "approved", "rejected", "member"]), householdName: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ ok: true; status: "none" | "pending" | "approved" | "rejected" | "member"; householdName: string | null }> {
+      const db = ctx.db;
+      const t = await resolveInviteToken(db, args.token.trim());
+      if (!t || !isHouseholdGenericToken(t)) throw new Error("El enlace de invitación no es válido. Solicite una invitación nueva.");
+      if (t.householdId == null) throw new Error("El enlace de invitación no es válido.");
+      const hhRows = await db.select().from(schema.households).where(eq(schema.households.id, t.householdId)).limit(1);
+      const householdName = hhRows[0]?.name ?? null;
+      const members = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, t.householdId));
+      if (members.some(m => m.userId === ctx.user.id)) return { ok: true, status: "member", householdName };
+      const email = ctx.user.email.trim().toLowerCase();
+      const rows = await db.select().from(schema.invitations).where(eq(schema.invitations.householdId, t.householdId));
+      const mine = rows.filter(i => i.email.toLowerCase() === email).sort((a, b) => b.id - a.id)[0];
+      if (!mine) return { ok: true, status: "none", householdName };
+      if (mine.status === "accepted") return { ok: true, status: "member", householdName };
+      if (mine.status === "rejected") return { ok: true, status: "rejected", householdName };
+      const toks = await db.select().from(schema.invitationTokens).where(eq(schema.invitationTokens.invitationId, mine.id)).limit(1);
+      // Si la solicitud ya tiene token, el administrador la aprobó y la
+      // convirtió en invitación normal: falta que la persona la acepte.
+      if (toks[0]) return { ok: true, status: "approved", householdName };
+      return { ok: true, status: "pending", householdName };
+    },
+  }),
+  respondJoinRequest: defineAction({
+    description: "Approves or rejects a pending household join request (generic invite link). Admin only. Approving adds the requester to the household as a member, exactly like accepting a normal invitation; rejecting removes the request.",
+    request: z.object({ id: z.number(), accept: z.boolean() }),
+    response: z.object({ ok: z.literal(true), id: z.number(), accepted: z.boolean() }),
+    async handler(ctx, args): Promise<{ ok: true; id: number; accepted: boolean }> {
+      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede aprobar o rechazar solicitudes de ingreso.");
+      const db = ctx.db;
+      const rows = await db.select().from(schema.invitations).where(eq(schema.invitations.id, args.id));
+      const inv = rows[0]; if (!inv) throw new Error("Solicitud no encontrada.");
+      if (inv.status !== "pending") throw new Error("Esta solicitud ya fue respondida.");
+      const toks = await db.select().from(schema.invitationTokens).where(eq(schema.invitationTokens.invitationId, inv.id)).limit(1);
+      if (toks[0]) throw new Error("Esta invitación ya tiene enlace; la persona la acepta desde su cuenta.");
+      if (!args.accept) {
+        await db.update(schema.invitations).set({ status: "rejected" }).where(eq(schema.invitations.id, args.id));
+        await logActivity(ctx, inv.householdId, "Solicitud de ingreso rechazada", inv.email);
+        ctx.invalidateQueries();
+        return { ok: true, id: inv.id, accepted: false };
+      }
+      // La membresía se crea con la cuenta de QUIEN SOLICITÓ, no con la del
+      // administrador que aprueba: se resuelve por correo en auth.users.
+      const requesterId = await findUserIdByEmail(db, inv.email);
+      if (!requesterId) {
+        // La cuenta ya no existe (se borró entre la solicitud y la
+        // aprobación): la solicitud se convierte en invitación normal con
+        // enlace; si la persona vuelve a crear su cuenta, la acepta.
+        await issueInviteToken(db, { kind: "household", email: inv.email, householdId: inv.householdId, invitationId: inv.id, invitedName: inv.invitedName, createdByUserId: ctx.user.id });
+        await logActivity(ctx, inv.householdId, "Solicitud de ingreso aprobada (falta aceptar)", inv.email);
+        ctx.invalidateQueries();
+        return { ok: true, id: inv.id, accepted: false };
+      }
+      const [first, ...rest] = (inv.invitedName || "").trim().split(/\s+/);
+      const firstName = first || inv.email.split("@")[0] || "Integrante";
+      const lastName = rest.join(" ") || null;
+      const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, inv.householdId));
+      const already = profs.find(pr => (pr.email || "").toLowerCase() === inv.email.toLowerCase());
+      let profileId = already?.id;
+      if (!already) {
+        const [r] = await db.insert(schema.profiles).values({ householdId: inv.householdId, userId: requesterId, name: firstName, lastName, role: "member", email: inv.email, kind: "adult", monthlyIncome: 0, fixedCommitments: 0 }).returning({ id: schema.profiles.id });
+        profileId = r?.id;
+      }
+      await db.update(schema.invitations).set({ status: "accepted" }).where(eq(schema.invitations.id, args.id));
+      if (profileId) {
+        await db.update(schema.profiles).set({ userId: requesterId }).where(eq(schema.profiles.id, profileId));
+        const existingMember = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, inv.householdId));
+        if (!existingMember.some(m => m.userId === requesterId)) {
+          await db.insert(schema.householdMembers).values({ householdId: inv.householdId, userId: requesterId, profileId, role: "member" });
+        }
+      }
+      await logActivity(ctx, inv.householdId, "Solicitud de ingreso aprobada", `${firstName} · ${inv.email}`);
+      await notifyHousehold(ctx, inv.householdId, { type: "nuevo_integrante", title: "Nuevo integrante en el hogar", body: `${firstName} se unió al hogar.`, target: "hogar" }, requesterId);
+      ctx.invalidateQueries();
+      return { ok: true, id: inv.id, accepted: true };
+    },
+  }),
 
   updatePersonalSalary: defineAction({
     description: "Sets the monthly salary/income used by Personal mode.",
@@ -2019,8 +2234,8 @@ export const Actions = {
   }),
 
   setTandaPayment: defineAction({
-    description: "Marks a participant's payment for one period as paid or pending, optionally attaching the deposit/transfer proof photo (stored as a blob, key only in DB). Marking paid with a proof still requires organizer verification before it displays as verified. No real charge is made.",
-    request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), quincenaIndex: z.number().int().min(0), status: z.enum(["paid","pending","late"]), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), proof: z.object({ dataBase64: z.string(), mimeType: z.string() }).optional() }),
+    description: "Marks a participant's payment for one period as paid or pending, optionally attaching the deposit/transfer proof photo (stored as a blob, key only in DB). Marking paid with a proof still requires organizer verification before it displays as verified. When a proof is uploaded, the organizer (owner of the tanda) gets a bell notification with the amount read from the proof and whether it matches the tanda amount. No real charge is made.",
+    request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), quincenaIndex: z.number().int().min(0), status: z.enum(["paid","pending","late"]), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), readAmount: z.number().nullable().optional(), proof: z.object({ dataBase64: z.string(), mimeType: z.string() }).optional() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
@@ -2037,9 +2252,30 @@ export const Actions = {
       // se guarda; si no, se conserva la anterior o se usa hoy.
       const paidDateArg = args.paidDate && !Number.isNaN(new Date(args.paidDate + "T00:00:00").getTime()) ? args.paidDate : null;
       const status = proofBlobKey ? "paid" as const : args.status;
-      if (mine) { await db.update(schema.tandaPayments).set({ status, paidDate: status==="paid"? (paidDateArg ?? mine.paidDate ?? todayStr) : null, ...(proofBlobKey?{ proofBlobKey, verified: 0 }:{}), ...(status==="pending"?{ verified: 0 }:{}) }).where(eq(schema.tandaPayments.id, mine.id)); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
-      const [r] = await db.insert(schema.tandaPayments).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: args.participantId, quincenaIndex: args.quincenaIndex, status, paidDate: status==="paid"? (paidDateArg ?? todayStr) : null, proofBlobKey: proofBlobKey ?? null, verified: 0 }).returning({ id: schema.tandaPayments.id });
-      ctx.invalidateQueries(); return { ok: true, id: r?.id };
+      // Importe leído del comprobante (opcional): solo se usa para el aviso
+      // al organizador y para la comparación en la pantalla de verificación.
+      const readAmount = typeof args.readAmount === "number" && Number.isFinite(args.readAmount) && args.readAmount > 0 ? args.readAmount : null;
+      let paymentId: number | undefined;
+      if (mine) { await db.update(schema.tandaPayments).set({ status, paidDate: status==="paid"? (paidDateArg ?? mine.paidDate ?? todayStr) : null, ...(proofBlobKey?{ proofBlobKey, verified: 0 }:{}), ...(status==="pending"?{ verified: 0 }:{}) }).where(eq(schema.tandaPayments.id, mine.id)); paymentId = mine.id; }
+      else { const [r] = await db.insert(schema.tandaPayments).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: args.participantId, quincenaIndex: args.quincenaIndex, status, paidDate: status==="paid"? (paidDateArg ?? todayStr) : null, proofBlobKey: proofBlobKey ?? null, verified: 0 }).returning({ id: schema.tandaPayments.id }); paymentId = r?.id; }
+      if (proofBlobKey) {
+        // Guardar el importe leído para la comparación en la verificación.
+        // SQL directo y tolerante: la columna proof_amount existe solo si ya
+        // se corrió supabase/add-tanda-proof-amount.sql; sin ella el pago
+        // sigue y el aviso lleva el importe en el texto.
+        if (readAmount != null && paymentId != null) { try { await db.execute(sql`UPDATE tanda_payments SET proof_amount = ${readAmount} WHERE id = ${paymentId}`); } catch { /* columna aún no creada */ } }
+        // Avisar solo al dueño de la tanda para que valide el pago. Nunca
+        // bloquea el pago: cualquier fallo se traga para que el pago siga.
+        try {
+          const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
+          const payerName = parts.find(p=>p.id===args.participantId)?.name ?? "Un participante";
+          const [sy = 2026, sm = 1, sd = 1] = acc.tanda.startDate.split("-").map(Number);
+          const dt = new Date(sy, (sm||1)-1, (sd||1) + args.quincenaIndex * (acc.tanda.cadenceDays || 15));
+          const periodDate = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+          await notifyTandaOrganizer(db, { householdId: args.householdId, organizerProfileId: acc.tanda.organizerProfileId ?? null, payerName, tandaName: acc.tanda.name, quincenaIndex: args.quincenaIndex, quincenaDate: periodDate, readAmount, tandaAmount: acc.tanda.amountPerQuincena, excludeUserId: ctx.user.id });
+        } catch { /* el aviso nunca bloquea el pago */ }
+      }
+      ctx.invalidateQueries(); return { ok: true, id: paymentId };
     },
   }),
   // ---- Pago de tanda con Mercado Pago (Checkout Pro, API de Orders,
@@ -2461,18 +2697,54 @@ export const Actions = {
     },
   }),
 
-  // Opiniones de los testers (segunda etapa): solo el administrador del hogar
-  // las revisa, en la pestaña Hogar. Lee la tabla tester_feedback (creada con
-  // supabase/feedback.sql). Sin edición ni borrado por ahora. El despachador
-  // (api/actions.ts) ya exige membresía por householdId y rol de administrador.
+  // Opiniones de los testers (segunda etapa + canal de dudas y mejoras):
+  // solo el administrador del hogar las revisa, en la pestaña Hogar. Lee la
+  // tabla tester_feedback (creada con supabase/feedback.sql; las columnas
+  // del canal —tipo, descripción, estado, respuesta— con
+  // supabase/feedback-canal.sql). Si esas columnas aún no existen, la lista
+  // sale con los campos viejos y estado «Por revisar», sin romperse.
+  // El despachador (api/actions.ts) ya exige membresía por householdId y
+  // rol de administrador.
   listTesterFeedback: defineAction({
-    description: "Lists the testers' feedback for the app owner, newest first.",
+    description: "Lists the testers' feedback for the app owner, newest first, with the evaluation state and the owner's reply.",
     request: z.object({ householdId: z.number() }),
-    response: z.object({ feedback: z.array(z.object({ id: z.number(), createdAt: z.string(), nombre: z.string().nullable(), correo: z.string().nullable(), calificacionGeneral: z.number(), facilidadUso: z.number(), queFunciono: z.string().nullable(), queFallo: z.string().nullable(), sugerencia: z.string().nullable(), modulo: z.string().nullable(), dispositivo: z.string().nullable() })) }),
+    response: z.object({ feedback: z.array(z.object({ id: z.number(), createdAt: z.string(), nombre: z.string().nullable(), correo: z.string().nullable(), calificacionGeneral: z.number().nullable(), facilidadUso: z.number().nullable(), queFunciono: z.string().nullable(), queFallo: z.string().nullable(), sugerencia: z.string().nullable(), modulo: z.string().nullable(), dispositivo: z.string().nullable(), tipo: z.string().nullable(), descripcion: z.string().nullable(), estado: z.string(), respuesta: z.string().nullable() })) }),
     async handler(ctx) {
       if (!isAppOwner(ctx)) throw new Error("Solo el dueño de la app puede revisar las opiniones de los testers.");
-      const rows = await ctx.db.select().from(schema.testerFeedback).orderBy(desc(schema.testerFeedback.createdAt)).limit(100);
-      return { feedback: rows.map(r => ({ id: r.id, createdAt: r.createdAt.toISOString(), nombre: r.nombre, correo: r.correo, calificacionGeneral: r.calificacionGeneral, facilidadUso: r.facilidadUso, queFunciono: r.queFunciono, queFallo: r.queFallo, sugerencia: r.sugerencia, modulo: r.modulo, dispositivo: r.dispositivo })) };
+      try {
+        const rows = await ctx.db.select().from(schema.testerFeedback).orderBy(desc(schema.testerFeedback.createdAt)).limit(100);
+        return { feedback: rows.map(r => ({ id: r.id, createdAt: r.createdAt.toISOString(), nombre: r.nombre, correo: r.correo, calificacionGeneral: r.calificacionGeneral, facilidadUso: r.facilidadUso, queFunciono: r.queFunciono, queFallo: r.queFallo, sugerencia: r.sugerencia, modulo: r.modulo, dispositivo: r.dispositivo, tipo: r.tipo, descripcion: r.descripcion, estado: r.estado ?? "por_revisar", respuesta: r.respuesta })) };
+      } catch {
+        // Columnas del canal aún no creadas (falta feedback-canal.sql):
+        // se leen solo los campos viejos; el estado nace «Por revisar».
+        const rows = await ctx.db.select({ id: schema.testerFeedback.id, createdAt: schema.testerFeedback.createdAt, nombre: schema.testerFeedback.nombre, correo: schema.testerFeedback.correo, calificacionGeneral: schema.testerFeedback.calificacionGeneral, facilidadUso: schema.testerFeedback.facilidadUso, queFunciono: schema.testerFeedback.queFunciono, queFallo: schema.testerFeedback.queFallo, sugerencia: schema.testerFeedback.sugerencia, modulo: schema.testerFeedback.modulo, dispositivo: schema.testerFeedback.dispositivo }).from(schema.testerFeedback).orderBy(desc(schema.testerFeedback.createdAt)).limit(100);
+        return { feedback: rows.map(r => ({ id: r.id, createdAt: r.createdAt.toISOString(), nombre: r.nombre, correo: r.correo, calificacionGeneral: r.calificacionGeneral, facilidadUso: r.facilidadUso, queFunciono: r.queFunciono, queFallo: r.queFallo, sugerencia: r.sugerencia, modulo: r.modulo, dispositivo: r.dispositivo, tipo: null, descripcion: null, estado: "por_revisar", respuesta: null })) };
+      }
+    },
+  }),
+
+  // Evaluación de una opinión de tester (canal de dudas y mejoras): solo
+  // el dueño de la app cambia el estado y escribe la respuesta que ve el
+  // tester al consultar con su correo. Nada se construye desde aquí: el
+  // estado es solo la evaluación; la decisión de construir se toma aparte.
+  // Si las columnas del canal aún no existen (falta
+  // supabase/feedback-canal.sql), se responde con el mensaje claro en vez
+  // de fallar.
+  setFeedbackStatus: defineAction({
+    description: "Sets the evaluation state and the owner's reply for one tester feedback entry. App owner only.",
+    request: z.object({ id: z.number(), estado: z.enum(["por_revisar", "ya_existe", "error_confirmado", "mejora_aprobada", "descartado"]), respuesta: z.string().trim().max(2000).optional().nullable() }),
+    response: okRes,
+    async handler(ctx, args) {
+      if (!isAppOwner(ctx)) throw new Error("Solo el dueño de la app puede evaluar las opiniones de los testers.");
+      let updated: { id: number }[];
+      try {
+        updated = await ctx.db.update(schema.testerFeedback).set({ estado: args.estado, respuesta: args.respuesta?.trim() || null }).where(eq(schema.testerFeedback.id, args.id)).returning({ id: schema.testerFeedback.id });
+      } catch {
+        throw new Error("Para evaluar opiniones, ejecute supabase/feedback-canal.sql en Supabase.");
+      }
+      if (updated.length === 0) throw new Error("Opinión no encontrada.");
+      ctx.invalidateQueries();
+      return { ok: true };
     },
   }),
   // Registro de usuarios de la app (para revisar cuántos usuarios hay):

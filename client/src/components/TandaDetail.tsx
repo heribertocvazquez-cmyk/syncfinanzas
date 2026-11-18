@@ -98,7 +98,7 @@ function parseISODate(iso:string){ const [y=2026,m=1,d=1]=iso.split("-").map(Num
 function daysFromToday(iso:string){ const t=new Date(); t.setHours(0,0,0,0); return Math.round((parseISODate(iso).getTime()-t.getTime())/86400000); }
 function capFirst(s:string){ return s.charAt(0).toUpperCase()+s.slice(1); }
 
-function TandaMonthCalendar({td}:{td:Tanda}){
+function TandaMonthCalendar({td, p, pickTandaProof}:{td:Tanda; p:TandaPerms; pickTandaProof: TandaDetailDeps["pickTandaProof"]}){
   const now = new Date();
   const [view,setView] = useState({y:now.getFullYear(), m:now.getMonth()});
   const [selected,setSelected] = useState<string|null>(null);
@@ -139,6 +139,9 @@ function TandaMonthCalendar({td}:{td:Tanda}){
       <div className="bg-[#FBF6E9] dark:bg-[#2E2617] border border-[var(--gold)] rounded-2xl p-4 sm:p-5 space-y-1 mt-2">
         <p className="text-sm font-bold text-[#6B4E0A] dark:text-[#E3C078]">{payLine}</p>
         <p className="text-sm font-bold text-[#1D5A75]">{recLine}</p>
+        {(()=>{ const myId=p.myParticipantId; if(myId==null||!nextPay) return null; const myPay=td.payments.find(x=>x.participantId===myId&&x.quincenaIndex===nextPay.index); if(myPay?.status==="paid") return null; const me=td.participants.find(x=>x.id===myId); return (
+          <label className={btnPrimary+" mt-2 inline-flex cursor-pointer"} aria-label={`Subir comprobante de su pago del periodo ${nextPay.index+1} de ${td.name}`}>Subir comprobante · {money(td.amountPerQuincena)}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de su pago del periodo ${nextPay.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) void pickTandaProof({tandaId:td.id,participantId:myId,participantName:me?.name||"Participante",quincenaIndex:nextPay.index,file:f}); e.target.value=""; }} /></label>
+        ); })()}
       </div>
       <div className="grid grid-cols-7 gap-1 mt-2">
         {CAL_WEEKDAYS.map(wd=><div key={wd} className="text-xs font-bold text-[var(--dim)] text-center py-1">{wd}</div>)}
@@ -183,6 +186,57 @@ function TandaMonthCalendar({td}:{td:Tanda}){
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Revisión del comprobante de pago de tanda antes de guardar. Vive en un
+// solo sitio — justo después del calendario, siempre visible — tanto si el
+// participante sube el comprobante desde el botón directo del encabezado
+// como desde la fila de «Pagos por participante»: el flujo es el mismo
+// (pickTandaProof → revisión con importe leído y aviso si no coincide con
+// el monto de la tanda → «Confirmar pago»). Antes vivía dentro de la
+// sección plegada de pagos, donde quedaba enterrado.
+function TandaProofReviewPanel({ td, review, setReview, uploadProof, confirm }: {
+  td: Tanda;
+  review: TandaProofReview;
+  setReview: Dispatch<SetStateAction<TandaProofReview | null>>;
+  uploadProof: { isPending: boolean; error: Error | null };
+  confirm: () => void;
+}) {
+  const periodDate = td.calendar.find(c=>c.index===review.quincenaIndex)?.date ?? null;
+  return (
+    <div className="border border-[var(--gold)] rounded-2xl p-4 bg-[var(--surface2)] space-y-2">
+      <p className="font-display font-bold text-sm">Revisar comprobante · {review.participantName} · Periodo {review.quincenaIndex+1}{periodDate?` · ${fmtDate(periodDate)}`:""}</p>
+      <div className="flex items-center gap-2">
+        <img src={review.preview} alt="Foto del comprobante del depósito" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" />
+        <p className="text-sm">Pago de la tanda: <b className="whitespace-nowrap">{money(td.amountPerQuincena)}</b></p>
+      </div>
+      {review.busy && <p className="text-xs text-[var(--dim)]">Leyendo el comprobante en su dispositivo…</p>}
+      {review.error && <p className="text-xs text-[var(--red)]">{review.error}</p>}
+      {review.notice && <p className="text-xs text-[var(--green)]">{review.notice}</p>}
+      {review.dateCheck && <div className="border border-[var(--red)] rounded-xl p-3 bg-[var(--surface2)]">
+        <p className="text-sm font-bold">Confirme la fecha de origen del pago</p>
+        <p className="text-xs mt-1">La fecha leída del comprobante es <b>{fmtDate(review.dateCheck.readDate)}</b>{review.dateCheck.reason==="future"?" (una fecha futura)":" (de otro año)"}. ¿Es esa la fecha del pago?</p>
+        <p className="text-xs text-[var(--dim)] mt-1">Quedó la fecha de hoy ({fmtDate(review.paidDate)}). Puede usar la fecha leída, dejar la de hoy o corregirla en «Fecha del pago».</p>
+        <div className="flex gap-2 mt-2">
+          <button type="button" aria-label={`Usar la fecha leída ${fmtDate(review.dateCheck.readDate)}`} className={btnPrimary+" flex-1"} onClick={()=>setReview(r=>r?{...r,paidDate:r.dateCheck!.readDate,dateCheck:null}:r)}>Usar {fmtDate(review.dateCheck.readDate)}</button>
+          <button type="button" aria-label="Usar la fecha de hoy" className={btnGhost+" flex-1"} onClick={()=>setReview(r=>r?{...r,paidDate:todayISO(),dateCheck:null}:r)}>Usar hoy</button>
+        </div>
+      </div>}
+      {review.detail && <>
+        <div className="flex justify-between gap-2 text-sm"><span className="text-[var(--dim)]">Importe leído</span><b className="whitespace-nowrap">{money2(review.detail.total ?? 0)}</b></div>
+        {review.detail.total != null && Math.abs(review.detail.total - td.amountPerQuincena) > 0.51
+          ? <p className="text-xs font-bold text-[var(--red)]">El importe leído no coincide con el pago de la tanda ({money(td.amountPerQuincena)}). Revise antes de confirmar.</p>
+          : <p className="text-xs text-[var(--green)]">El importe leído coincide con el pago de la tanda.</p>}
+        <OcrDetail detail={review.detail} />
+      </>}
+      <div><Label htmlFor="tanda-proof-date">Fecha del pago</Label><input id="tanda-proof-date" aria-label="Fecha del pago de tanda" type="date" required className={inputCls} value={review.paidDate} onChange={e=>setReview(r=>r?{...r,paidDate:e.target.value,dateCheck:null}:r)} /></div>
+      <div className="flex gap-2">
+        <button type="button" className={btnPrimary+" flex-1"} disabled={uploadProof.isPending || review.busy || !!review.dateCheck} onClick={confirm}>{uploadProof.isPending?"Guardando…":"Confirmar pago"}</button>
+        <button type="button" className={btnGhost} onClick={()=>setReview(null)}>Cancelar</button>
+      </div>
+      {uploadProof.error && <p className="text-xs text-[var(--red)]">{String(uploadProof.error)}</p>}
     </div>
   );
 }
@@ -241,7 +295,7 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
             {meetingItems.map(it=>{
               return (
               <div key={it.participantId} className="flex flex-wrap items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-2xl px-3 py-2">
-                <span className="text-sm flex-1 min-w-[120px]"><b>{it.name}</b> <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${it.status==="paid"?"bg-green-100 text-green-900":it.status==="late"?"bg-red-100 text-red-900":"bg-amber-100 text-amber-900"}`}>{it.status==="paid"?"Pagado":it.status==="late"?"Atrasado":"Pendiente"}</span>{it.paidDate && <span className="text-xs text-[var(--dim)]"> · pagó el {fmtDate(it.paidDate)}</span>}{it.verified===1 && <span className="text-xs text-[var(--green)]"> · Verificado</span>}{it.fineAmount>0 && <span className="text-xs text-[var(--red)]"> · Multa {money(it.fineAmount)}</span>}</span>
+                <span className="text-sm flex-1 min-w-[120px]"><b>{it.name}</b> <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${it.status==="paid"?"bg-green-100 text-green-900":it.status==="late"?"bg-red-100 text-red-900":"bg-amber-100 text-amber-900"}`}>{it.status==="paid"?"Pagado":it.status==="late"?"Atrasado":"Pendiente"}</span>{it.paidDate && <span className="text-xs text-[var(--dim)]"> · pagó el {fmtDate(it.paidDate)}</span>}{it.verified===1 && <span className="text-xs text-[var(--green)]"> · Verificado</span>}{it.fineAmount>0 && <span className="text-xs text-[var(--red)]"> · Multa {money(it.fineAmount)}</span>}{it.status==="paid" && it.proofAmount!=null && <span className="text-xs text-[var(--dim)]"> · Comprobante {money2(it.proofAmount)} · Tanda {money(td.amountPerQuincena)}{Math.abs(it.proofAmount-td.amountPerQuincena)>0.51?" · No coincide":""}</span>}</span>
                 <span className="flex flex-wrap gap-1">
                   {it.status!=="paid" && (p.canTreasury || p.isOwn(it.participantId)) && <button aria-label={`Marcar pagado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"paid"})}>Marcar pagado</button>}
                   {it.status==="pending" && p.canTreasury && <button aria-label={`Marcar atrasado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"late"})}>Marcar atrasado</button>}
@@ -351,7 +405,10 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
           {td.invitations.filter(iv=>iv.status!=="pending").length>0 && <p className="text-xs text-[var(--dim)] mt-2">{td.invitations.filter(iv=>iv.status==="accepted").length} aceptada(s) · {td.invitations.filter(iv=>iv.status==="rejected").length} rechazada(s).</p>}
         </div>
       </div>
-      <TandaMonthCalendar td={td} />
+      <TandaMonthCalendar td={td} p={p} pickTandaProof={pickTandaProof} />
+      {tandaProofReview && tandaProofReview.tandaId===td.id && (
+        <TandaProofReviewPanel td={td} review={tandaProofReview} setReview={setTandaProofReview} uploadProof={uploadProof} confirm={confirmTandaProof} />
+      )}
       <div>
         <CollapsibleCard
           asSection
@@ -404,6 +461,7 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
                   return (
                     <span key={pt.id} className={`rounded-2xl px-3 py-2 text-xs font-semibold ${verified?"bg-green-100 text-green-900":paid?"bg-amber-100 text-amber-900":"bg-[var(--surface2)]"}`}>
                       <span className="block">{pt.name}: {verified?`Pago verificado${pay?.paidDate?` · pagó el ${fmtDate(pay.paidDate)}`:""}`:paid?`Pagado, en revisión${pay?.proofUrl?" (con comprobante)":" (sin comprobante)"}${pay?.paidDate?` · ${fmtDate(pay.paidDate)}`:""}`:"Pendiente"}</span>
+                      {paid && pay?.proofUrl && pay.proofAmount != null && <span className="block">Comprobante {money2(pay.proofAmount)} · Tanda {money(td.amountPerQuincena)}{Math.abs(pay.proofAmount-td.amountPerQuincena)>0.51?" · No coincide con el monto":" · Coincide con el monto"}</span>}
                       <span className="flex flex-wrap gap-1 mt-1.5">
                         {pay?.proofUrl && <span className="flex items-center gap-1"><img src={pay.proofUrl} alt={`Comprobante de pago de ${pt.name} periodo ${c.index+1}`} className="w-8 h-8 object-cover rounded-md border border-[var(--border)]" /><button aria-label={`Ver comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setReceiptView(pay.proofUrl)}>Ver comprobante</button></span>}
                         {(p.canTreasury || p.isOwn(pt.id)) && <label className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)] cursor-pointer" aria-label={`Subir comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`}>{pay?.proofUrl?"Cambiar comprobante":"Subir comprobante"}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de ${pt.name} periodo ${c.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) void pickTandaProof({tandaId:td.id,participantId:pt.id,participantName:pt.name,quincenaIndex:c.index,file:f}); e.target.value=""; }} /></label>}
@@ -418,40 +476,6 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
                 })}
                 {td.participants.length===0 && <span className="text-xs text-[var(--dim)]">Agregue participantes.</span>}
               </div>
-              {tandaProofReview && tandaProofReview.tandaId===td.id && tandaProofReview.quincenaIndex===c.index && (
-                <div className="mt-3 border border-[var(--gold)] rounded-2xl p-4 bg-[var(--surface2)] space-y-2">
-                  <p className="font-display font-bold text-sm">Revisar comprobante · {tandaProofReview.participantName} · Periodo {c.index+1}</p>
-                  <div className="flex items-center gap-2">
-                    <img src={tandaProofReview.preview} alt="Foto del comprobante del depósito" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" />
-                    <p className="text-sm">Pago de la tanda: <b className="whitespace-nowrap">{money(td.amountPerQuincena)}</b></p>
-                  </div>
-                  {tandaProofReview.busy && <p className="text-xs text-[var(--dim)]">Leyendo el comprobante en su dispositivo…</p>}
-                  {tandaProofReview.error && <p className="text-xs text-[var(--red)]">{tandaProofReview.error}</p>}
-                  {tandaProofReview.notice && <p className="text-xs text-[var(--green)]">{tandaProofReview.notice}</p>}
-                  {tandaProofReview.dateCheck && <div className="border border-[var(--red)] rounded-xl p-3 bg-[var(--surface2)]">
-                    <p className="text-sm font-bold">Confirme la fecha de origen del pago</p>
-                    <p className="text-xs mt-1">La fecha leída del comprobante es <b>{fmtDate(tandaProofReview.dateCheck.readDate)}</b>{tandaProofReview.dateCheck.reason==="future"?" (una fecha futura)":" (de otro año)"}. ¿Es esa la fecha del pago?</p>
-                    <p className="text-xs text-[var(--dim)] mt-1">Quedó la fecha de hoy ({fmtDate(tandaProofReview.paidDate)}). Puede usar la fecha leída, dejar la de hoy o corregirla en «Fecha del pago».</p>
-                    <div className="flex gap-2 mt-2">
-                      <button type="button" aria-label={`Usar la fecha leída ${fmtDate(tandaProofReview.dateCheck.readDate)}`} className={btnPrimary+" flex-1"} onClick={()=>setTandaProofReview(r=>r?{...r,paidDate:r.dateCheck!.readDate,dateCheck:null}:r)}>Usar {fmtDate(tandaProofReview.dateCheck.readDate)}</button>
-                      <button type="button" aria-label="Usar la fecha de hoy" className={btnGhost+" flex-1"} onClick={()=>setTandaProofReview(r=>r?{...r,paidDate:todayISO(),dateCheck:null}:r)}>Usar hoy</button>
-                    </div>
-                  </div>}
-                  {tandaProofReview.detail && <>
-                    <div className="flex justify-between gap-2 text-sm"><span className="text-[var(--dim)]">Importe leído</span><b className="whitespace-nowrap">{money2(tandaProofReview.detail.total ?? 0)}</b></div>
-                    {tandaProofReview.detail.total != null && Math.abs(tandaProofReview.detail.total - td.amountPerQuincena) > 0.51
-                      ? <p className="text-xs font-bold text-[var(--red)]">El importe leído no coincide con el pago de la tanda ({money(td.amountPerQuincena)}). Revise antes de confirmar.</p>
-                      : <p className="text-xs text-[var(--green)]">El importe leído coincide con el pago de la tanda.</p>}
-                    <OcrDetail detail={tandaProofReview.detail} />
-                  </>}
-                  <div><Label htmlFor="tanda-proof-date">Fecha del pago</Label><input id="tanda-proof-date" aria-label="Fecha del pago de tanda" type="date" required className={inputCls} value={tandaProofReview.paidDate} onChange={e=>setTandaProofReview(r=>r?{...r,paidDate:e.target.value,dateCheck:null}:r)} /></div>
-                  <div className="flex gap-2">
-                    <button type="button" className={btnPrimary+" flex-1"} disabled={uploadProof.isPending || tandaProofReview.busy || !!tandaProofReview.dateCheck} onClick={confirmTandaProof}>{uploadProof.isPending?"Guardando…":"Confirmar pago"}</button>
-                    <button type="button" className={btnGhost} onClick={()=>setTandaProofReview(null)}>Cancelar</button>
-                  </div>
-                  {uploadProof.error && <p className="text-xs text-[var(--red)]">{String(uploadProof.error)}</p>}
-                </div>
-              )}
             </div>
           );})}
           </div>
