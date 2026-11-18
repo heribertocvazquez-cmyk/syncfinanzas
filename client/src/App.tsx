@@ -9,9 +9,10 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText, ocrStatusText, OcrError } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice } from "./lib/movementsList";
+import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
 import { buildBalanceBreakdown } from "./lib/balanceBreakdown";
 import { MoneyLocationModal } from "./components/MoneyLocationModal";
+import { IncExpDetailModal } from "./components/IncExpDetailModal";
 import { HomeMovementsCard } from "./components/HomeMovementsCard";
 import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
@@ -1119,6 +1120,9 @@ export function App(){
   const [goalName,setGoalName]=useState(""); const [goalTarget,setGoalTarget]=useState(""); const [goalDate,setGoalDate]=useState(""); const [goalSaved,setGoalSaved]=useState("0"); const [goalAdd,setGoalAdd]=useState<Record<number,string>>({}); const [quickBud,setQuickBud]=useState<number|null>(null); const [quickBudAmt,setQuickBudAmt]=useState(""); const [quickBudAcc,setQuickBudAcc]=useState(""); const [quickGoal,setQuickGoal]=useState<number|null>(null); const [quickGoalAmt,setQuickGoalAmt]=useState(""); const [quickGoalAcc,setQuickGoalAcc]=useState(""); const [quickPat,setQuickPat]=useState<number|null>(null); const [quickPatVal,setQuickPatVal]=useState("");
   // Detalle de la gráfica de ingresos vs gastos: tipo y mes tocados.
   const [incExpDetail,setIncExpDetail]=useState<{kind:"income"|"expense";month:string;label:string}|null>(null);
+  // Vista del detalle de ingresos/gastos: «Por cuenta» (grupos por cuenta,
+  // la vista por defecto) o «Por fecha» (una sola lista cronológica).
+  const [incExpView,setIncExpView]=useState<IncExpDetailView>("cuenta");
   const [catDetail,setCatDetail]=useState<{categoryId:number|null;name:string;total:number;month:string}|null>(null);
   const [showMoneyLocation,setShowMoneyLocation]=useState(false);
   const [showSummary,setShowSummary]=useState(false);
@@ -3212,31 +3216,22 @@ export function App(){
           <p className="px-3 py-2.5 border-t border-[var(--border)] text-xs text-[var(--dim)]">Cierre con la ×.</p>
         </div>
       </div>}
-      {incExpDetail && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`${incExpDetail.kind==="income"?"Ingresos":"Gastos"} de ${incExpDetail.label}`} onClick={()=>setIncExpDetail(null)}>
-        <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4" onClick={e=>e.stopPropagation()}>
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">{incExpDetail.kind==="income"?"INGRESOS":"GASTOS"} · {incExpDetail.label.toUpperCase()}</p>
-              <p className="font-display font-bold text-lg leading-tight">{incExpDetail.kind==="income"?"¿De dónde vienen los ingresos?":"¿De dónde salieron los gastos?"}</p>
-              <p className="text-sm text-[var(--dim)] mt-1">{incExpBase.length} movimiento(s) · {incExpByAcc.length} cuenta(s)</p>
-            </div>
-            <button type="button" aria-label="Cerrar el detalle de ingresos y gastos" onClick={()=>setIncExpDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
-          </div>
-          <p className="font-display text-2xl font-extrabold mt-2 whitespace-nowrap">{incExpDetail.kind==="income"?"+":"−"}{money2(incExpBase.reduce((a,m)=>a+m.amount,0))}</p>
-          {incExpHiddenCount>0 && <p className="text-xs text-[var(--dim)] mt-1">No se muestran {incExpHiddenCount} movimiento(s) privado(s) de otros integrantes del hogar.</p>}
-          <div className="mt-2">
-            {incExpBase.length===0 && <p className="text-sm text-[var(--dim)]">{incExpDetail.kind==="income"?"Sin ingresos registrados este mes.":"Sin gastos registrados este mes."}</p>}
-            {incExpByAcc.map(g=><div key={g.key} className="mt-3">
-              <div className="flex justify-between gap-2 text-sm"><span className="font-bold">{g.name}</span><b className="whitespace-nowrap">{money2(g.total)}</b></div>
-              {g.movs.map(m=><div key={m.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span className="min-w-0">{m.concept}<span className="text-[var(--dim)] block text-xs">{fmtDate(m.date)}{m.subcategory?` · ${m.subcategory}`:""} · {getCatName(m.categoryId)} · {m.visibility==="shared"?"Compartido":"Privado"}</span></span><b className="shrink-0 whitespace-nowrap">{incExpDetail.kind==="income"?"+":"−"}{money(m.amount)}</b></div>)}
-            </div>)}
-          </div>
-          <div className="flex gap-2 mt-4">
-            <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setIncExpDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
-            <button type="button" className={btnGhost} onClick={()=>setIncExpDetail(null)}>Cerrar</button>
-          </div>
-        </div>
-      </div>}
+      {incExpDetail && <IncExpDetailModal
+        kind={incExpDetail.kind}
+        label={incExpDetail.label}
+        movementCount={incExpBase.length}
+        accountCount={incExpByAcc.length}
+        total={incExpBase.reduce((a,m)=>a+m.amount,0)}
+        hiddenCount={incExpHiddenCount}
+        view={incExpView}
+        onViewChange={setIncExpView}
+        groups={incExpByAcc}
+        flatMovs={sortMovementsByDate(incExpMovs)}
+        getCatName={getCatName}
+        getAccName={getAccName}
+        onClose={()=>setIncExpDetail(null)}
+        onGoMovements={()=>{setIncExpDetail(null); goTab("movimientos");}}
+      />}
       {catDetail && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Gastos de ${catDetail.name} de ${fmtMonth(catDetail.month)}`} onClick={()=>setCatDetail(null)}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4" onClick={e=>e.stopPropagation()}>
           <div className="flex items-start justify-between gap-2">

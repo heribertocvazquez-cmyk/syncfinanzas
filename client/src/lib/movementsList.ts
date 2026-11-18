@@ -146,6 +146,41 @@ export function groupMovementsByAccount<
     .sort((a, b) => b.total - a.total);
 }
 
+// --- Detalle de ingresos/gastos: «Por cuenta» / «Por fecha» ---
+// El detalle agrupa por cuenta (grupos por total descendente, dentro de
+// cada grupo por fecha descendente). Con «Por fecha» se ve una sola lista
+// cronológica: el movimiento más reciente primero, aunque sea de otra
+// cuenta. La vista por defecto es «Por cuenta».
+
+/** Vista del detalle de ingresos/gastos. */
+export type IncExpDetailView = "cuenta" | "fecha";
+
+/**
+ * Lista plana del detalle, ordenada por fecha descendente (desempate por
+ * id descendente, el mismo orden base del detalle). Devuelve una copia:
+ * no muta la lista recibida.
+ */
+export function sortMovementsByDate<T extends { date: string; id: number }>(
+  movs: T[],
+): T[] {
+  return [...movs].sort(
+    (a, b) => b.date.localeCompare(a.date) || b.id - a.id,
+  );
+}
+
+/**
+ * Línea de resumen por cuenta para la vista «Por fecha», con los mismos
+ * totales de los grupos («Efectivo $2,505.50 · Marcado Libre $70.00»),
+ * para que la información de dónde salió el dinero no se pierda al
+ * aplanar la lista. El formato de importe lo pone quien llama.
+ */
+export function accountTotalsLine(
+  groups: { name: string; total: number }[],
+  fmt: (n: number) => string,
+): string {
+  return groups.map((g) => `${g.name} ${fmt(g.total)}`).join(" · ");
+}
+
 // --- Tarjeta Movimientos de Inicio: mes compacto y control «Ver» ---
 // El selector de mes de la tarjeta es un icono pequeño de calendario con
 // el mes corto («nov 2026»); el control para ver todos los movimientos
