@@ -4,6 +4,10 @@ import { fmtMonthShort, MONTH_SHORT_ES } from "../lib/movementsList";
 // Selector de mes y año (tarjeta Movimientos): el mes elegido es el mes
 // que muestra el tablero. La ventanita se cierra al elegir un mes, con
 // Escape o al tocar fuera.
+// Solo se habilitan los meses de `enabledMonths` (cuando se pasa): los
+// meses sin movimientos quedan atenuados y no se pueden elegir, para que
+// no se pueda dejar el tablero en blanco. El mes visto siempre queda
+// habilitado, aunque ya no tenga movimientos (por ejemplo, si se borraron).
 // Anclaje: la ventanita se ancla a la cabecera de la tarjeta Movimientos
 // (alineada a su derecha, no al botón). El botón cambia de sitio según haya
 // movimientos o no —a la izquierda en la segunda fila con movimientos, a la
@@ -29,10 +33,13 @@ function todayISO() {
 export function MonthPicker({
   value,
   onChange,
+  enabledMonths,
   defaultOpen,
 }: {
   value: string;
   onChange: (ym: string) => void;
+  /** Meses «YYYY-MM» que se pueden elegir; sin él, todos habilitados. */
+  enabledMonths?: Set<string> | null;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(!!defaultOpen);
@@ -135,22 +142,27 @@ export function MonthPicker({
               {MONTH_SHORT_ES.map((label, m) => {
                 const ym = `${year}-${String(m + 1).padStart(2, "0")}`;
                 const selected = ym === value;
+                const enabled =
+                  !enabledMonths || enabledMonths.has(ym) || selected;
                 return (
                   <button
                     key={label}
                     type="button"
                     aria-label={`${label} de ${year}`}
                     aria-pressed={selected}
+                    aria-disabled={!enabled}
+                    disabled={!enabled}
                     autoFocus={selected}
                     onClick={() => pick(m)}
-                    className={`rounded-xl py-2 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${selected ? "bg-[#E8B84A] text-[#13262E]" : "bg-[var(--surface2)]"}`}
+                    className={`rounded-xl py-2 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${selected ? "bg-[#E8B84A] text-[#13262E]" : "bg-[var(--surface2)]"} ${enabled ? "" : "opacity-40"}`}
                   >
                     {label}
                   </button>
                 );
               })}
             </div>
-            {value !== todayMonth && (
+            {value !== todayMonth &&
+              (!enabledMonths || enabledMonths.has(todayMonth)) && (
               <button
                 type="button"
                 className="text-[13px] font-bold underline mt-3"

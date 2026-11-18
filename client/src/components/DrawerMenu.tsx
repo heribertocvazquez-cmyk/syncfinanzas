@@ -4,15 +4,16 @@ import type { Tab } from "../App";
 // Cajón lateral del menú: la navegación por módulos, con sus grupos
 // plegables (solo queda abierto el del módulo actual). Se extrajo de
 // App.tsx para poder probar el orden y los iconos de las filas.
-// Hogar va sin icono: en su lugar queda un espaciador del mismo tamaño,
-// para que el texto quede alineado con los demás módulos.
+// Hogar lleva casita (decisión de Heriberto 2026-11-18) e Inicio lleva
+// un icono de tablero (cuadrícula), no la casita.
 const tabIcon = (children: ReactNode) => (
   <svg aria-hidden="true" className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
 );
-// Icono de cada módulo. Hogar no tiene entrada: su fila no lleva icono
-// (ver rowIcon) y el espaciador mantiene la alineación del texto.
-const TAB_ICONS: Partial<Record<Tab, ReactNode>> = {
-  inicio: tabIcon(<><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>),
+// Icono de cada módulo. Hogar lleva la casita; Inicio lleva un icono de
+// tablero (cuadrícula de 2×2), para no repetir la casita.
+const TAB_ICONS: Record<Tab, ReactNode> = {
+  inicio: tabIcon(<><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></>),
+  hogar: tabIcon(<><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>),
   personal: tabIcon(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>),
   movimientos: tabIcon(<><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></>),
   cuentas: tabIcon(<><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></>),
@@ -29,9 +30,8 @@ const TAB_ICONS: Partial<Record<Tab, ReactNode>> = {
   desarrollador: tabIcon(<><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></>),
 };
 
-/** Icono de la fila de un módulo; Hogar no lleva icono, solo el espaciador. */
-const rowIcon = (tid: Tab): ReactNode =>
-  TAB_ICONS[tid] ?? <span aria-hidden="true" className="w-5 h-5 shrink-0" />;
+/** Icono de la fila de un módulo. */
+const rowIcon = (tid: Tab): ReactNode => TAB_ICONS[tid];
 
 export type DrawerMenuTab = { id: Tab; label: string };
 export type DrawerMenuSection = { title: string; tabs: DrawerMenuTab[]; config?: boolean };
