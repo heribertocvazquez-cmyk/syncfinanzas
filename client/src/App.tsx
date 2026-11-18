@@ -8,7 +8,7 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, moneyTip, pickHelpNudge, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
+import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
@@ -528,20 +528,22 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
 // responde dudas de uso con una base de respuestas preparadas por palabras
 // clave (sin claves ni servicios de pago) y preguntas dinámicas calculadas
 // en el dispositivo con los datos del hogar (en qué se gasta de más, dónde
-// ahorrar, cómo va la meta, cuánto queda). Al abrir, el chat abre limpio:
-// solo la caja de texto y, mientras el usuario escribe, las preguntas
-// predictivas que coinciden ("Preguntas relacionadas"). La presentación de
-// Mike vive en la burbuja arriba de la estrella, no dentro del chat. Al
-// abrir, Mike también da un tip corto de dinero con datos reales. Cada
-// respuesta es corta, en tono formal de usted, y trae un botón que lleva
-// directo al lugar cuando la vista ya tiene navegación (onGo). La lógica
-// vive en ./lib/helpDynamic. Sin `open`/`onOpenChange` se maneja solo (así
-// lo usa el asistente de creación de espacio). Con `open`/`onOpenChange` lo
+// ahorrar, cómo va la meta, cuánto queda). Al abrir, el chat abre con un
+// solo mensaje que cambia cada vez: ofrece ayuda o da un tip o una solución
+// con datos reales, sin repetir el anterior; al cerrar, la conversación se
+// borra para que al abrir de nuevo no se repita ni se apile el mismo. La
+// presentación de Mike vive en la burbuja arriba de la estrella, no dentro
+// del chat: la burbuja es crema (#F7F1E7) con letra oscura para que se
+// diferencie del fondo, y dice solo «Hola, soy Mike.». Cada respuesta es
+// corta, en tono formal de usted, y trae un botón que lleva directo al
+// lugar cuando la vista ya tiene navegación (onGo). La lógica vive en
+// ./lib/helpDynamic. Sin `open`/`onOpenChange` se maneja solo (así lo usa
+// el asistente de creación de espacio). Con `open`/`onOpenChange` lo
 // controla la app.
-// Con `greeting`, al entrar a la app aparece una burbujita de saludo arriba
-// de la estrella una vez por sesión, que se puede descartar; al tocarla se
-// abre el chat. Nunca bloquea la pantalla. Con `hidden` (menú abierto) el
-// botón se oculta, porque el cajón ya tiene su entrada a Mike.
+// Con `greeting`, al entrar a la app aparece una burbujita crema de saludo
+// arriba de la estrella una vez por sesión, que se puede descartar; al
+// tocarla se abre el chat. Nunca bloquea la pantalla. Con `hidden` (menú
+// abierto) el botón se oculta, porque el cajón ya tiene su entrada a Mike.
 // Además Mike es un asistente de ahorro conversacional: si el usuario
 // pregunta cómo ahorrar más, no contesta de una vez, pregunta el motivo (con
 // sus metas como opciones), el monto y el plazo, y piensa con sus datos
@@ -578,20 +580,27 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const tipAddedRef = useRef(false);
-  const setOpen = (v: boolean) => { if (!v) tipAddedRef.current = false; if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
+  // Al cerrar, la conversación se borra (mensajes, asistente de ahorro y
+  // caja de texto): así, al abrir de nuevo, Mike dice un mensaje distinto
+  // y nunca se repite ni se apila el mismo. Antes los mensajes se quedaban
+  // y cada apertura agregaba el mismo tip, por eso salía 3 veces seguidas.
+  const setOpen = (v: boolean) => { if (!v) { tipAddedRef.current = false; setMsgs([]); setWizard(null); setInput(""); } if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
   const [input, setInput] = useState("");
   // El chat abre limpio, sin mensaje de presentación ni preguntas listadas:
   // la presentación de Mike vive en la burbuja arriba de la estrella. Solo
   // la caja de texto y, mientras el usuario escribe, las predicciones.
   const [msgs, setMsgs] = useState<HelpMsg[]>([]);
-  // Al abrir el chat, Mike da un tip corto de dinero con datos reales (una
-  // sola vez por apertura; al cerrar se reinicia para la próxima vez).
+  // Al abrir el chat, Mike dice UN mensaje que cambia cada vez: ofrece ayuda
+  // o da un tip o una solución con datos reales (ver pickOpeningMessage en
+  // ./lib/helpDynamic, que nunca repite el mensaje anterior). Se agrega
+  // como único mensaje de apertura: aunque el efecto volviera a correr, no
+  // se apila otro encima.
   useEffect(() => {
     if (!open || !overview || tipAddedRef.current) return;
-    const tip = moneyTip(overview);
-    if (!tip) return;
+    const msg = pickOpeningMessage(overview);
+    if (!msg) return;
     tipAddedRef.current = true;
-    setMsgs(m => [...m, { from: "bot", text: tip }]);
+    setMsgs([{ from: "bot", text: msg }]);
   }, [open, overview]);
   const [freq, setFreq] = useState<Record<string, number>>(() => frequentQuestions(loadHelpLearning()));
   // Asistente de ahorro conversacional: recuerda el motivo, el monto y el
@@ -708,17 +717,17 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
       {!open && !hidden && (
         <div className="fixed z-40 w-12 h-12" style={fabPos ? { left: fabPos.x, top: fabPos.y } : { right: 16, bottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
           {bubble && controlledOpen !== undefined && (
-            <div data-help-bubble role="status" className="absolute z-10 w-[min(240px,calc(100vw-24px))] rounded-2xl bg-[var(--surface)] text-[var(--text)] border border-[var(--border)] shadow-lg px-3 py-2 cursor-pointer" style={bubbleBelow ? { top: "calc(100% + 10px)", ...(bubbleRight ? { right: 0 } : { left: 0 }) } : { bottom: "calc(100% + 10px)", ...(bubbleRight ? { right: 0 } : { left: 0 }) }} onClick={()=>{ setOpen(true); dismissBubble(); }}>
-              <span aria-hidden="true" className="absolute w-3 h-3 rotate-45 bg-[var(--surface)]" style={bubbleBelow ? { top: -6, ...(bubbleRight ? { right: 14 } : { left: 14 }) } : { bottom: -6, ...(bubbleRight ? { right: 14 } : { left: 14 }) }} />
+            <div data-help-bubble role="status" className="absolute z-10 w-[min(240px,calc(100vw-24px))] rounded-2xl bg-[#F7F1E7] text-[#1A2A3A] border border-[#E0CBA8] shadow-lg px-3 py-2 cursor-pointer" style={bubbleBelow ? { top: "calc(100% + 10px)", ...(bubbleRight ? { right: 0 } : { left: 0 }) } : { bottom: "calc(100% + 10px)", ...(bubbleRight ? { right: 0 } : { left: 0 }) }} onClick={()=>{ setOpen(true); dismissBubble(); }}>
+              <span aria-hidden="true" className="absolute w-3 h-3 rotate-45 bg-[#F7F1E7]" style={bubbleBelow ? { top: -6, ...(bubbleRight ? { right: 14 } : { left: 14 }) } : { bottom: -6, ...(bubbleRight ? { right: 14 } : { left: 14 }) }} />
               <div className="flex items-start gap-1.5">
                 <p className="text-sm font-semibold flex-1">{bubble.text}</p>
-                <button type="button" aria-label={bubble.kind === "greeting" ? "Descartar el saludo de Mike" : "Descartar el aviso de Mike"} onClick={(e)=>{ e.stopPropagation(); dismissBubble(); }} className="shrink-0 w-6 h-6 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-base leading-none font-bold">×</button>
+                <button type="button" aria-label={bubble.kind === "greeting" ? "Descartar el saludo de Mike" : "Descartar el aviso de Mike"} onClick={(e)=>{ e.stopPropagation(); dismissBubble(); }} className="shrink-0 w-6 h-6 rounded-full bg-white/70 border border-[#D8C9A8] text-[#1A2A3A] text-base leading-none font-bold">×</button>
               </div>
-              {bubble.personal && <p className="text-xs text-[var(--dim)] mt-0.5">{bubble.personal}</p>}
+              {bubble.personal && <p className="text-xs text-[#5A6B7A] mt-0.5">{bubble.personal}</p>}
               {bubble.actions.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {bubble.actions.map(a=>(
-                    <button key={a.label} type="button" className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-semibold" onClick={(e)=>{ e.stopPropagation(); if (a.ask) { setOpen(true); ask(a.ask); } else if (a.go && onGo) { setOpen(false); onGo(a.go); } dismissBubble(); }}>{a.label}</button>
+                    <button key={a.label} type="button" className="rounded-full border border-[#B9A77E] text-[#1A2A3A] px-2.5 py-1 text-xs font-semibold" onClick={(e)=>{ e.stopPropagation(); if (a.ask) { setOpen(true); ask(a.ask); } else if (a.go && onGo) { setOpen(false); onGo(a.go); } dismissBubble(); }}>{a.label}</button>
                   ))}
                 </div>
               )}
@@ -1212,13 +1221,12 @@ export function App(){
   // ni servicios externos). Las respuestas usan solo los movimientos que el
   // usuario ya ve en pantalla (en Familiar, compartidos más sus privados).
   const dynamicFaqs = useMemo(() => data ? dynamicHelpFaqs(data) : [], [data]);
-  const helpLearning = useMemo(() => loadHelpLearning(), [data]);
   const [greetingDismissed, setGreetingDismissed] = useState(false);
   const greeting = useMemo(() => {
     if (!data?.household || greetingDismissed) return null;
     try { if (sessionStorage.getItem(HELP_GREETED_KEY)) return null; } catch {}
-    return buildGreeting(data, helpLearning);
-  }, [data, helpLearning, greetingDismissed]);
+    return buildGreeting(data);
+  }, [data, greetingDismissed]);
   const dismissGreeting = () => { try { sessionStorage.setItem(HELP_GREETED_KEY, "1"); } catch {} setGreetingDismissed(true); };
   // Avisos proactivos de Mike: al abrir Movimientos o Gasto del día
   // pregunta qué quiere registrar; si un presupuesto está cerca de su

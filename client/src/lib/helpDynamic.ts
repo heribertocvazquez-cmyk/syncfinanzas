@@ -7,8 +7,11 @@
 // - localStorage "sf-help-learn": preguntas más frecuentes (por texto de
 //   pregunta), meses en que cada categoría se pasó de presupuesto y
 //   conceptos recurrentes (cuántas veces, último importe, última fecha).
-//   Sirve para ordenar las preguntas sugeridas por frecuencia, personalizar
-//   el saludo proactivo y avisar de categorías que se pasan una y otra vez.
+//   Sirve para ordenar las preguntas sugeridas por frecuencia y avisar de
+//   categorías que se pasan una y otra vez.
+// - localStorage "sf-help-last-opening": el último mensaje de apertura del
+//   chat, para que al abrir de nuevo salga otro distinto y nunca se repita
+//   dos veces seguidas ni se apile el mismo.
 // - sessionStorage "sf-help-greeted": "1" cuando el saludo proactivo ya se
 //   mostró en esta sesión (un aviso suave por sesión, que se puede
 //   descartar, nunca un popup que bloquee).
@@ -276,6 +279,54 @@ export function moneyTip(ov: OverviewData): string | null {
   return "Tip: su gasto está dentro de lo planeado. Apartar un poco cada mes es la mejor forma de llegar a su meta.";
 }
 
+// ---- Mensaje de apertura del chat: aleatorio, sin repetir ----
+// Al abrir el chat, Mike dice UN solo mensaje, distinto cada vez: ofrece
+// ayuda o da un tip o una solución con datos reales de los gastos (el mayor
+// exceso del mes, dónde ahorrar, el avance de una meta, el resumen del mes).
+// Siempre da más información y soluciones sobre lo que la app ve en los
+// gastos. El último mensaje mostrado se guarda en el dispositivo
+// (localStorage "sf-help-last-opening") y nunca se repite dos veces
+// seguidas; al cerrar y abrir, el mensaje cambia y nunca se apila el mismo.
+export const HELP_LAST_OPENING_KEY = "sf-help-last-opening";
+export const HELP_OFFER = "¿En qué le puedo ayudar?";
+export function openingCandidates(ov: OverviewData): string[] {
+  if (!ov.household) return [];
+  const out: string[] = [];
+  const add = (s: string | null | undefined) => { if (s && !out.includes(s)) out.push(s); };
+  add(HELP_OFFER);
+  add(moneyTip(ov));
+  const month = ov.summary.currentMonth;
+  const monthLabel = fmtMonth(month);
+  // Dónde ahorrar: el mayor exceso del mes, con el ahorro que deja recortarlo.
+  const excess = new Map<number | null, { name: string; excess: number }>();
+  for (const o of overBudgetCats(ov, month)) excess.set(o.id, { name: o.name, excess: o.over });
+  for (const a of aboveAvgCats(ov, month)) { const cur = excess.get(a.id); const e = Math.round((a.spent - a.avg) * 100) / 100; if (!cur || e > cur.excess) excess.set(a.id, { name: a.name, excess: e }); }
+  const top = Array.from(excess.values()).sort((a, b) => b.excess - a.excess)[0];
+  if (top) add(`Si recorta ${money(top.excess)} en ${top.name}, ahorraría ${money(top.excess)} al mes.`);
+  const goals = goalLines(ov);
+  if (goals.length > 0) {
+    const g = goals[0]!;
+    if (g.monthlyAmount != null && g.monthsLeft != null) add(`Su meta «${g.name}» va al ${g.pct}%. Aportando ${money(g.monthlyAmount)} al mes, llega en ${g.monthsLeft} meses.`);
+    else add(`Su meta «${g.name}» va al ${g.pct}%.`);
+  }
+  const avail = ov.summary.availableFree;
+  add(avail >= 0
+    ? `En ${monthLabel} entraron ${money(ov.summary.monthIncome)} y gastó ${money(ov.summary.monthExpense)}. Le quedan ${money(avail)} disponibles.`
+    : `En ${monthLabel} entraron ${money(ov.summary.monthIncome)} y gastó ${money(ov.summary.monthExpense)}. Ya no queda disponible este mes.`);
+  return out;
+}
+export function pickOpeningMessage(ov: OverviewData): string | null {
+  const cands = openingCandidates(ov);
+  if (cands.length === 0) return null;
+  let last: string | null = null;
+  try { last = localStorage.getItem(HELP_LAST_OPENING_KEY); } catch { /* sin almacenamiento, el mensaje puede repetirse */ }
+  const pool = cands.filter(c => c !== last);
+  const usable = pool.length > 0 ? pool : cands;
+  const pick = usable[Math.floor(Math.random() * usable.length)]!;
+  try { localStorage.setItem(HELP_LAST_OPENING_KEY, pick); } catch { /* sin almacenamiento, el mensaje puede repetirse */ }
+  return pick;
+}
+
 // ---- Revisión en vivo al capturar un movimiento ----
 // Avisos que no bloquean: el usuario siempre puede guardar. Se revisa el
 // importe contra el presupuesto restante de la categoría en el mes de la
@@ -377,16 +428,12 @@ export function topHelpQuestion(l: HelpLearning): string | null {
   for (const [q, n] of Object.entries(l.questions)) if (n > bestN) { bestN = n; best = q; }
   return bestN >= 2 ? best : null;
 }
-// Línea personal del saludo proactivo: primero una categoría que se pasa de
-// presupuesto mes tras mes; si no hay, la pregunta que más se ha hecho.
-export function buildGreeting(ov: OverviewData, l: HelpLearning): { text: string; personal: string | null } | null {
+// Saludo proactivo: corto, solo el nombre. La burbuja arriba de la
+// estrella dice «Hola, soy Mike.» y nada más; lo que Mike puede hacer y
+// los tips viven en el mensaje de apertura del chat y en sus respuestas.
+export function buildGreeting(ov: OverviewData): { text: string; personal: string | null } | null {
   if (!ov.household) return null;
-  const text = "Hola, soy Mike. ¿Le digo en qué gasta de más o le doy un tip para su dinero?";
-  const repeat = repeatOverBudgetCats(l);
-  if (repeat.length > 0) return { text, personal: `${repeat[0]!.name} se ha pasado de presupuesto ${repeat[0]!.months} meses. ¿Quiere revisarlo?` };
-  const top = topHelpQuestion(l);
-  if (top) return { text, personal: `Usted suele preguntar por «${top}».` };
-  return { text, personal: null };
+  return { text: "Hola, soy Mike.", personal: null };
 }
 
 // ---- Asistente de ahorro conversacional (el «mago») ----
