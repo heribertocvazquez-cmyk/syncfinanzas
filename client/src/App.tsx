@@ -10,6 +10,7 @@ import { readReceiptText, ocrStatusText, OcrError } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
 import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
+import { categoryCounts, guideCounts, invitationCounts, sumBudgets, sumCashCounts, sumContributions, sumGoals, sumMonthMovements, tandaCalendarSummary, tandaFinesSummary, tandaMeetingSummary, tandaPaymentsSummary, tandaPendingCount } from "./lib/cardSummaries";
 import { MovementsFilter } from "./components/MovementsFilter";
 import { DEFAULT_MOVEMENTS_FILTER, filterMovements, type MovementsFilterValue } from "./lib/movementsFilter";
 import { buildBalanceBreakdown } from "./lib/balanceBreakdown";
@@ -1754,6 +1755,14 @@ export function App(){
   // Movimientos de la tarjeta de Inicio: solo los del mes que muestra el
   // tablero (los 5 más recientes de ese mes).
   const homeMovs = monthMovements(visibleMovs, s.currentMonth);
+  // Totales del mes para el resumen visible de la tarjeta Movimientos
+  // (misma lista y misma regla: sin reversados ni reversiones).
+  const homeMovTotals = sumMonthMovements(homeMovs);
+  const homeMovSummary = `Entradas ${money(homeMovTotals.income)} · Salidas ${money(homeMovTotals.expense)}`;
+  // Presupuestos y metas del mes para sus resúmenes visibles.
+  const monthBudgets = data.budgets.filter(b=>b.month===s.currentMonth);
+  const monthBudgetsSum = sumBudgets(monthBudgets);
+  const goalsSum = sumGoals(data.goals);
   // Meses con al menos un movimiento visible: el selector de mes solo
   // habilita esos meses, para que no se pueda elegir un mes en blanco.
   const monthsWithMovs = new Set(visibleMovs.map(m=>m.date.slice(0,7)));
@@ -2052,6 +2061,7 @@ export function App(){
               monthLabel={fmtMonth(s.currentMonth)}
               onMonthChange={setViewMonth}
               monthsWithMovements={monthsWithMovs}
+              summary={homeMovSummary}
               rows={homeMovs.map(m=>({key:m.id,title:movTitle(m),detail:`${fmtDate(m.date)} · ${TYPE_LABEL[m.type]||m.type} · ${getCatName(m.categoryId)} · ${getAccName(m.accountId)}${m.isReversed?" · Reversado (fuera de los totales)":""}${m.reversalOfId?" · Reversión (fuera de los totales)":""}`,amount:`${m.type==="income"?"+":"−"}${money(m.amount)}`,isIncome:m.type==="income",struck:!!(m.isReversed||m.reversalOfId)}))}
               hasAnyMovements={data.movements.length>0}
               showAll={showAllHomeMovs}
@@ -2065,7 +2075,7 @@ export function App(){
                 <p className="text-sm text-[var(--dim)] mt-2">Sin presupuestos este mes.</p><button type="button" aria-label="Agregar presupuesto" className={btnPrimary+" mt-2"} onClick={()=>goToForm("presupuestos","bud-amount")}>+ Agregar presupuesto</button>
               </div>
               ) : (
-              <CollapsibleCard title={<h2 className="font-display font-bold text-lg">Presupuestos</h2>}>
+              <CollapsibleCard title={<h2 className="font-display font-bold text-lg">Presupuestos</h2>} above={<p className="text-sm text-[var(--dim)] mt-1">Total {money(monthBudgetsSum.total)} · Gastado {money(monthBudgetsSum.spent)}</p>}>
                 {data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
                   <div key={b.id} className="mt-3"><button type="button" aria-label={`Pagar del presupuesto de ${getCatName(b.categoryId)}`} className="w-full text-left" onClick={()=>{setQuickBud(quickBud===b.id?null:b.id);setQuickBudAmt("");setQuickBudAcc("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><span className="flex items-center gap-1 shrink-0"><b className="text-base whitespace-nowrap">{money(b.spent)} / {money(b.amount)}</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--accent)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-[13px] font-bold text-[var(--red)]">Sobrepasado por {money(-b.remaining)} · {b.pct}% usado</p>:<p className="text-[13px] text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p>}</button>{quickBud===b.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickBudAmt||Number(quickBudAmt)<=0) return; payBudget.mutate({categoryId:b.categoryId,categoryName:getCatName(b.categoryId),visibility:b.visibility,amount:Number(quickBudAmt),accountId:quickBudAcc?Number(quickBudAcc):null});}}><p className="font-display font-bold text-sm">Pagar · {getCatName(b.categoryId)}</p><div><Label htmlFor={`qb-amt-${b.id}`}>Importe ($)</Label><input id={`qb-amt-${b.id}`} autoFocus aria-label={`Importe a pagar del presupuesto de ${getCatName(b.categoryId)}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickBudAmt} onChange={e=>setQuickBudAmt(e.target.value)} /></div><div><Label htmlFor={`qb-acc-${b.id}`}>¿De dónde se descuenta?</Label><select id={`qb-acc-${b.id}`} aria-label="Cuenta de donde se descuenta el pago del presupuesto" className={inputCls} value={quickBudAcc} onChange={e=>setQuickBudAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{payBudget.error && <p className="text-sm text-[var(--red)]">{String(payBudget.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={payBudget.isPending||!quickBudAmt}>{payBudget.isPending?"Guardando…":"Guardar pago"}</button><button type="button" className={btnGhost} onClick={()=>setQuickBud(null)}>Cancelar</button></div></form>)}
                   </div>
@@ -2086,6 +2096,7 @@ export function App(){
                 above={<>
                 <div className="border-t border-[var(--border)] mt-3 pt-3 flex justify-between gap-2"><span className="text-sm">Patrimonio neto</span>{/* Mismas clases que las cifras de Entradas, Salidas y Neto de la tarjeta principal (font-display text-base font-bold): decisión visual deliberada 2026-11-17, para que se lea igual de grande que esas; shrink-0 es solo para que no se apriete en la fila. */}<b className="font-display text-base font-bold whitespace-nowrap shrink-0">{money2(s.netWorth)}</b></div>
                 <p className="text-xs text-[var(--dim)]">Activos {money(s.totalAssets)} − Pasivos {money(s.totalLiabilities)}.</p>
+                {data.goals.length>0 && <p className="text-xs text-[var(--dim)]">Metas: {money(goalsSum.saved)} ahorrado de {money(goalsSum.target)} · {data.goals.length} {data.goals.length===1?"meta":"metas"}</p>}
                 </>}
                 below={<>
                 {data.patrimony.length>3 && <button type="button" aria-label="Ver todo el patrimonio" className="text-sm font-bold underline mt-2" onClick={()=>goTab("patrimonio")}>Ver todos</button>}
@@ -2227,7 +2238,7 @@ export function App(){
                 <p className="text-sm text-[var(--dim)] mt-2">Sin arqueos guardados todavía.</p>
               </div>
               ) : (
-              <CollapsibleCard className="mt-3" title={<h3 className="font-display font-bold text-lg">Historial de arqueos</h3>}>
+              <CollapsibleCard className="mt-3" title={<h3 className="font-display font-bold text-lg">Historial de arqueos</h3>} above={(()=>{ const cs = sumCashCounts(ccQuery.data.counts); return <p className="text-sm text-[var(--dim)] mt-1">{cs.total} {cs.total===1?"arqueo":"arqueos"} · {cs.withDiff} con diferencia{cs.netDiff===0 ? "" : cs.netDiff<0 ? ` · Faltan ${money2(-cs.netDiff)}` : ` · Sobran ${money2(cs.netDiff)}`}</p>; })()}>
                 <div className="space-y-2 mt-2">
                   {ccQuery.data.counts.map(c=>(
                     <div key={c.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
@@ -2291,6 +2302,7 @@ export function App(){
               above={<>
               <p className="text-sm text-[var(--dim)] mt-1">Base del reparto: <b className="whitespace-nowrap text-[var(--text)]">{money2(s.sharedExpenseMonth)}</b> · Regla: {hh.contributionRule==="equal"?"Partes iguales":"Proporcional al ingreso"}</p>
               <div className="bg-[var(--surface2)] rounded-2xl p-4 sm:p-5 mt-3 text-sm">{s.contributionsNote}</div>
+              <p className="text-sm mt-1">Total a repartir: <b className="whitespace-nowrap">{money2(sumContributions(s.contributions).total)}</b> · {s.contributions.length} {s.contributions.length===1?"persona":"personas"}</p>
               </>}
               below={<Help><b>Capacidad</b> = ingreso − compromisos.</Help>}
             >
@@ -2431,7 +2443,7 @@ export function App(){
                   <p className="font-display font-bold mt-2 text-right">Total: <span className="whitespace-nowrap">{money2(k==="asset"?s.totalAssets:s.totalLiabilities)}</span></p>
                 </div>
                 ) : (
-                <CollapsibleCard key={k} title={<h3 className="font-display font-bold text-lg">{k==="asset"?"Activos":"Pasivos"}</h3>} below={<p className="font-display font-bold mt-2 text-right">Total: <span className="whitespace-nowrap">{money2(k==="asset"?s.totalAssets:s.totalLiabilities)}</span></p>}>
+                <CollapsibleCard key={k} title={<h3 className="font-display font-bold text-lg">{k==="asset"?"Activos":"Pasivos"}</h3>} below={<p className="font-display font-bold mt-2 text-right">{data.patrimony.filter(p=>p.kind===k).length} {data.patrimony.filter(p=>p.kind===k).length===1?"partida":"partidas"} · Total: <span className="whitespace-nowrap">{money2(k==="asset"?s.totalAssets:s.totalLiabilities)}</span></p>}>
                   {data.patrimony.filter(p=>p.kind===k).map(p=><div key={p.id} className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"><span>{p.name}<span className="block text-xs text-[var(--dim)]">{p.category}{p.owner?` · ${p.owner}`:""}</span></span><span className="text-right"><b className="whitespace-nowrap">{money2(p.value)}</b><br/><button aria-label={`Eliminar ${p.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>delPat.mutate(p.id)}>Eliminar</button></span></div>)}
                 </CollapsibleCard>
                 )
@@ -2455,7 +2467,7 @@ export function App(){
                 <div key={k} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><h3 className="font-display font-bold text-lg">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>
                 </div>
                 ) : (
-                <CollapsibleCard key={k} title={<h3 className="font-display font-bold text-lg">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>}>
+                <CollapsibleCard key={k} title={<h3 className="font-display font-bold text-lg">{k==="income"?`Ingresos (${data.categories.filter(c=>c.kind==="income").length})`:`Gastos (${data.categories.filter(c=>c.kind==="expense").length})`}</h3>} above={<p className="text-sm text-[var(--dim)] mt-1">{categoryCounts(data.categories,k).subCount} subcategorías</p>}>
                   {data.categories.filter(c=>c.kind===k).map(c=><div key={c.id} className="py-2.5 border-b border-[var(--border)] last:border-0"><p className="text-sm font-semibold">{c.name} {c.isSystem===1 && <span className="text-xs text-[var(--dim)] font-normal">· del sistema</span>}</p>
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
                       {c.subcategories.map(sb=><span key={sb} className="inline-flex items-center gap-1 bg-[var(--surface2)] rounded-full pl-2.5 pr-1 py-1 text-xs font-semibold">{sb}<button type="button" aria-label={`Eliminar subcategoría ${sb} de ${c.name}`} className="w-5 h-5 rounded-full bg-[var(--surface)] border border-[var(--border)] leading-none" onClick={()=>removeSub.mutate({categoryId:c.id,name:sb})}>×</button></span>)}
@@ -2505,6 +2517,7 @@ export function App(){
                   <button className={btnPrimary} disabled={saveRule.isPending || !ruleKeyword.trim() || !ruleCat}>Agregar regla</button>
                 </form>
                 {saveRule.error && <p className="text-sm text-[var(--red)] mt-2">{String(saveRule.error)}</p>}
+                <p className="text-sm text-[var(--dim)] mt-1">{rules.length} {rules.length===1?"regla":"reglas"}</p>
               </>}
             >
               <div className="divide-y divide-[var(--border)] mt-2">{rules.map(r=>(<div key={r.id} className="py-2 flex justify-between gap-2 text-sm"><span>Si el concepto contiene «<b>{r.keyword}</b>» → <b>{r.categoryName}</b></span><button type="button" aria-label={`Eliminar la regla ${r.keyword}`} className="text-xs underline text-[var(--red)] shrink-0" disabled={delRule.isPending} onClick={()=>delRule.mutate(r.id)}>Eliminar</button></div>))}</div>
@@ -2594,6 +2607,7 @@ export function App(){
                   </div>
                 )}
                 {createInv.error && <p className="text-sm text-[var(--red)] mt-2">{String(createInv.error)}</p>}
+                <p className="text-sm text-[var(--dim)] mt-1">{data.invitations.length} {data.invitations.length===1?"invitación":"invitaciones"} · {invitationCounts(data.invitations).pending} pendientes</p>
                 </>}
               >
                 <div className="divide-y divide-[var(--border)] mt-2">
@@ -2719,6 +2733,7 @@ export function App(){
                 ) : (
                 <CollapsibleCard
                   title={<h2 className="font-display font-bold text-lg">Mis tandas</h2>}
+                  above={<p className="text-sm text-[var(--dim)] mt-1">{data.tandas.length} {data.tandas.length===1?"tanda":"tandas"} · {tandaPendingCount(data.tandas)} pagos pendientes</p>}
                   below={<>                  <button type="button" aria-label="Ir a la pestaña Tandas desde Personal" className={btnPrimary+" mt-3"} onClick={()=>goTab("tandas")}>Ir a Tandas</button></>}
                 >
                   {data.tandas.map(td=>{
@@ -2806,6 +2821,7 @@ export function App(){
                     title={<h4 className="font-display font-bold text-sm">Reunión del grupo · Ronda {td.attendance.index+1} de {td.participantCount}</h4>}
                     above={<>
                     <p className="text-xs text-[var(--dim)] mt-0.5">Ficha: <b>TANDA-{td.id}-R{td.attendance.index+1}</b> · Monto {money(td.amountPerQuincena)} por persona · Fecha límite {fmtDate(td.attendance.date)} · Se entrega {money(td.attendance.amount)}{td.attendance.receiverName?` a ${td.attendance.receiverName}`:""}</p>
+                    {(()=>{ const ms = tandaMeetingSummary(td.attendance.items, td.participants); return <p className="text-xs text-[var(--dim)] mt-0.5">{ms.paid} pagaron · {ms.late} atrasados · {ms.pending} pendientes</p>; })()}
                     </>}
                   >
                     <div className="space-y-1.5 mt-2">
@@ -2845,6 +2861,7 @@ export function App(){
                   <CollapsibleCard
                     asSection
                     title={<h4 className="font-display font-bold text-sm">Multas</h4>}
+                    above={(()=>{ const fs = tandaFinesSummary(td.fines); return <p className="text-xs text-[var(--dim)] mt-0.5">{td.fines.length} {td.fines.length===1?"multa":"multas"} · Pendientes {money(fs.pendingAmount)} · Pagadas {money(fs.paidAmount)}</p>; })()}
                   >
                     <div className="space-y-1.5 mt-2">
                       {td.fines.map(f=>{ const pn = td.participants.find(p=>p.id===f.participantId)?.name || "Participante"; return (
@@ -2925,6 +2942,7 @@ export function App(){
                   <CollapsibleCard
                     asSection
                     title={<h4 className="font-display font-bold text-sm">Calendario de entregas</h4>}
+                    above={(()=>{ const cs = tandaCalendarSummary(td.calendar, td.deliveries); return <p className="text-xs text-[var(--dim)] mt-0.5">{cs.periods} periodos · {cs.assigned} con receptor · {cs.confirmed} entregas confirmadas</p>; })()}
                   >
                     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mt-4">
                     {td.calendar.map(c=>(
@@ -2953,6 +2971,7 @@ export function App(){
                     title={<h4 className="font-display font-bold text-sm">Pagos por participante</h4>}
                     above={<>
                   <p className="text-xs text-[var(--dim)]">Comprobante verificado por el organizador.</p>
+                  {(()=>{ const ps = tandaPaymentsSummary(td.calendar, td.participants, td.payments); return <p className="text-xs text-[var(--dim)]">{ps.verified} pagos verificados · {ps.unverified} por verificar · {ps.pending} pendientes</p>; })()}
                     </>}
                   >
                     <div className="space-y-2 mt-2">
@@ -3065,7 +3084,7 @@ export function App(){
             <CollapsibleCard
               title={<h2 className="font-display font-bold text-lg">Guías por segmento</h2>}
               above={<>
-              <p className="text-sm text-[var(--dim)] mt-1">Una guía por segmento.</p>
+              <p className="text-sm text-[var(--dim)] mt-1">Una guía por segmento · {guideCounts(MODULE_GROUPS).guides} guías en {guideCounts(MODULE_GROUPS).segments} segmentos</p>
               </>}
             >
               <div className="space-y-3 mt-3">
@@ -3166,6 +3185,7 @@ export function App(){
               onToggle={()=>setQuickGuideOpen(v=>!v)}
               toggleLabel="la guía rápida"
               title={<span className="font-display font-bold text-lg">Guía rápida</span>}
+              above={<p className="text-sm text-[var(--dim)] mt-1">5 pasos</p>}
             >
               <ol className="list-decimal ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
                 <li>Cree sus cuentas en <b>Cuentas</b>, con el saldo actual.</li>

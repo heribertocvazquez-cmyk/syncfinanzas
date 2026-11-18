@@ -32,6 +32,8 @@ export function HomeMovementsCard(p: {
   onMonthChange: (ym: string) => void;
   /** Meses «YYYY-MM» con movimientos; el selector solo habilita esos. */
   monthsWithMovements?: Set<string> | null;
+  /** Resumen visible sin abrir la tarjeta, p. ej. «Entradas $5,500 · Salidas $2,576». */
+  summary?: string;
   rows: HomeMovRow[];
   hasAnyMovements: boolean;
   showAll: boolean;
@@ -110,6 +112,7 @@ export function HomeMovementsCard(p: {
       onToggle={p.onToggleShowAll}
       toggleLabel="movimientos del mes"
       title={header}
+      above={p.summary ? <p className="text-sm text-[var(--dim)] mt-1">{p.summary}</p> : undefined}
       below={buttons}
     >
       {rows}
