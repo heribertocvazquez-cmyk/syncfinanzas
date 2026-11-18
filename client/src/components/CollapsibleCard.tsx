@@ -73,10 +73,20 @@ export function CollapsibleCard(p: {
   // área segura del iPhone — con fondo sólido, para que el contenido pase
   // por debajo sin transparentarse. z-10: por debajo de la barra superior
   // (z-20) y por encima del contenido de la tarjeta.
+  // Apilamiento de pop-ups: un pop-up abierto dentro del encabezado (el
+  // calendario MonthPicker) lleva `data-popover-open` en su raíz; mientras
+  // esté abierto, `has-[[data-popover-open]]:z-30` sube ESTE encabezado
+  // por encima de los demás encabezados fijos (z-10) y de la barra superior
+  // (z-20), para que el pop-up (z-50) y su fondo (z-40) no queden tapados
+  // por la cabecera de la tarjeta de abajo (reporte de Heriberto
+  // 2026-11-18). Sin pop-up abierto el encabezado sigue en z-10, así que
+  // no pinta por encima de la barra superior. El encabezado nunca se
+  // solapa con la barra (se pega justo debajo de ella), así que subirlo a
+  // z-30 no la tapa.
   const stickyTop =
     "top-[calc(52px+env(safe-area-inset-top,0px))] sm:top-[calc(56px+env(safe-area-inset-top,0px))]";
   const headerEl = (bg: string) => (
-    <div className={`sticky ${stickyTop} z-10 ${bg}`}>
+    <div className={`sticky ${stickyTop} z-10 has-[[data-popover-open]]:z-30 ${bg}`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           {p.title}

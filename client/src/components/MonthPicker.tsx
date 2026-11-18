@@ -14,6 +14,15 @@ import { fmtMonthShort, MONTH_SHORT_ES } from "../lib/movementsList";
 // derecha del título sin ellos—, y anclada al botón se salía por un lado o
 // por el otro. Anclada a la cabecera, con ancho acotado al ancho de la
 // cabecera, cabe completa en los dos casos a 390 px.
+// Apilamiento: la ventanita vive dentro del encabezado fijo (sticky z-10)
+// de la tarjeta, y sin nada más su z-50 quedaría atrapado en ese contexto:
+// la cabecera fija de la tarjeta de abajo (también z-10, posterior en el
+// DOM) pintaba por encima y tapaba la rejilla de meses (reporte de
+// Heriberto 2026-11-18). Por eso la raíz lleva `data-popover-open` cuando
+// la ventanita está abierta: el encabezado de CollapsibleCard sube a z-30
+// con `has-[[data-popover-open]]` solo mientras hay un pop-up abierto,
+// así la ventanita (z-50) y su fondo (z-40) quedan por encima de los demás
+// encabezados fijos (z-10) y de la barra superior (z-20).
 // El botón es compacto: un icono pequeño de calendario con el mes corto
 // («nov 2026»), sin la píldora grande de antes. `defaultOpen` solo existe
 // para poder probar la ventanita en un render estático; la app no lo usa.
@@ -64,7 +73,7 @@ export function MonthPicker({
     setOpen(false);
   };
   return (
-    <div className="shrink-0">
+    <div className="shrink-0" data-popover-open={open ? "" : undefined}>
       <button
         type="button"
         aria-label={`Cambiar el mes, actualmente ${fmtMonth(value)}`}
