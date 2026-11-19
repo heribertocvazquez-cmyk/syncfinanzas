@@ -3020,6 +3020,35 @@ export const Actions = {
     },
   }),
 
+  // Avisos de nuevo participante en una tanda (campanita): cuando el
+  // organizador abre el detalle de la tanda, los avisos «Nuevo
+  // participante en la tanda» de ESA tanda se marcan como leídos en el
+  // servidor y ya no aparecen en la campanilla (ver
+  // client/src/lib/notifications.ts). Solo ese tipo, ese destino
+  // (tandas) y esa tanda: los avisos de otra tanda, de nuevo
+  // integrante en el hogar (destino hogar) y de pagos quedan sin tocar.
+  // La tanda se busca por id dentro del hogar; si no está (se borró),
+  // no hace nada y responde ok. Sin SQL nuevo.
+  markTandaParticipantNotificationsRead: defineAction({
+    description: "Marks the current user's unread 'new tanda participant' notifications (nuevo_integrante, target tandas) for one tanda as read.",
+    request: z.object({ householdId: z.number(), tandaId: z.number() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      try {
+        const td = (await ctx.db.select().from(schema.tandas).where(and(eq(schema.tandas.id, args.tandaId), eq(schema.tandas.householdId, args.householdId))).limit(1))[0];
+        if (!td) return { ok: true };
+        const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id), eq(schema.notifications.type, "nuevo_integrante"), eq(schema.notifications.target, "tandas"), eq(schema.notifications.isRead, 0)));
+        // El aviso no guarda el id de la tanda; el cuerpo lleva su
+        // nombre con la frase fija que pone el servidor al aceptar
+        // («{nombre} se unió a la tanda {tanda}.»).
+        const marker = `se unió a la tanda ${td.name}.`;
+        const ids = rows.filter((r) => r.body.includes(marker)).map((r) => r.id);
+        if (ids.length > 0) await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(inArray(schema.notifications.id, ids));
+      } catch { /* tabla aún no creada */ }
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+
   // ---- Reglas de auto-categorización y avisos periódicos ----
   listCategoryRules: defineAction({
     description: "Lists the household's auto-categorisation rules (if the concept contains the word, the category is filled automatically). Returns an empty list if the table has not been created yet.",

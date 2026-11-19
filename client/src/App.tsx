@@ -704,7 +704,8 @@ export function App(){
   const notifQuery=useQuery({queryKey:["notifications"],queryFn:()=>api.listNotifications({householdId:data!.household!.id}),enabled:!!data?.household});
   const unreadCount=notifQuery.data?.unreadCount??0;
   // Avisos que se pintan en la campanilla: las opiniones de testers ya
-  // revisadas no se listan (ver lib/notifications.ts); los demás avisos
+  // revisadas no se listan, ni los avisos «Nuevo participante en la
+  // tanda» ya leídos (ver lib/notifications.ts); los demás avisos
   // leídos siguen visibles como historial.
   const visibleNotifs=visibleNotifications(notifQuery.data?.notifications ?? []);
   // La campanilla también avisa de una versión nueva en espera: cuenta como
@@ -724,6 +725,11 @@ export function App(){
   // y ya no aparecen en la campanilla. Solo ese tipo; los demás avisos no
   // se tocan.
   const markOpinionNotifRead=useMutation({mutationFn:async()=>await api.markOpinionNotificationsRead({householdId:data!.household!.id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
+  // Avisos de nuevo participante en una tanda: al abrir el detalle de
+  // la tanda, sus avisos se marcan como leídos en el servidor y ya no
+  // aparecen en la campanilla. Solo ese tipo y esa tanda; los demás
+  // avisos no se tocan.
+  const markTandaPartNotifRead=useMutation({mutationFn:async(v:{householdId:number;tandaId:number})=>await api.markTandaParticipantNotificationsRead(v),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
   const openNotif=(n:{id:number;target:string})=>{ void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); goTab(n.target as Tab); };
   // Reglas de auto-categorización: si el concepto contiene la palabra, la
   // app pone sola esa categoría. Si la tabla aún no existe (falta correr
@@ -1101,6 +1107,17 @@ export function App(){
   const [partName,setPartName]=useState<Record<number,string>>({}); const [partCard,setPartCard]=useState<Record<number,string>>({}); const [cardInput,setCardInput]=useState<Record<number,string>>({});
   const [drawSel,setDrawSel]=useState<Record<number,"random"|"weighted">>({});
   const [tandaDetailId,setTandaDetailId]=useState<number|null>(null);
+  // Al abrir el detalle de una tanda se marcan como leídos sus avisos
+  // «Nuevo participante en la tanda» (una vez por apertura; la marca
+  // es idempotente en el servidor). Así entrar a Tandas limpia el
+  // aviso aunque no se haya tocado en la campanilla.
+  const markedTandaDetailRef=useRef<number|null>(null);
+  useEffect(()=>{
+    if(tandaDetailId==null || !data?.household){ markedTandaDetailRef.current=null; return; }
+    if(markedTandaDetailRef.current===tandaDetailId) return;
+    markedTandaDetailRef.current=tandaDetailId;
+    void markTandaPartNotifRead.mutateAsync({householdId:data.household.id,tandaId:tandaDetailId}).catch(()=>{});
+  },[tandaDetailId, data?.household?.id]);
   const [tInvEmail,setTInvEmail]=useState<Record<number,string>>({}); const [tInvName,setTInvName]=useState<Record<number,string>>({}); const [tJoinName,setTJoinName]=useState<Record<number,string>>({});
   const [rateName,setRateName]=useState<Record<number,string>>({}); const [rateStars,setRateStars]=useState<Record<number,string>>({}); const [rateComment,setRateComment]=useState<Record<number,string>>({});
   const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined,coverageRule:tandaCoverage,fineAmount:Number(tandaFine)||0,meetingDay:tandaMeeting,treasurerProfileId:tandaTreasurer?Number(tandaTreasurer):null,substituteProfileId:tandaSubstitute?Number(tandaSubstitute):null}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");setTandaFine("");setTandaMeeting("");setTandaTreasurer("");setTandaSubstitute("");setSavedNotice("Tanda creada.");}});

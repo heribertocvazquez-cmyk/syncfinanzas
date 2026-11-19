@@ -1,16 +1,25 @@
 // Avisos visibles en la campanilla, en función pura para poder probarla
-// en Node. Regla (reporte de Heriberto 2026-11-18 19:57): una vez que el
-// dueño entra a revisar las opiniones de testers, la notificación «Nueva
-// opinión de tester» ya no debe aparecer en la campanilla. La marca como
-// leída (al abrir la cola o al guardar una evaluación) ya funciona; lo que
-// faltaba es que el panel listaba también las leídas, como historial. Por
-// eso las opiniones ya leídas se excluyen del listado; los demás avisos
-// leídos (pago de tanda, actualización, etc.) siguen visibles como
-// historial, y las opiniones sin leer siguen apareciendo.
+// en Node. Reglas:
+// - Opiniones de testers (reporte de Heriberto 2026-11-18 19:57): una
+//   vez revisadas, la notificación «Nueva opinión de tester» ya no debe
+//   aparecer. La marca como leída (al abrir la cola o al guardar una
+//   evaluación) ya funciona; lo que faltaba es que el panel listaba
+//   también las leídas, como historial.
+// - Nuevo participante en una tanda (reporte de Heriberto 2026-11-19
+//   11:01): una vez que el organizador ya vio que alguien se unió, el
+//   aviso «Nuevo participante en la tanda» tampoco debe quedarse en la
+//   campanilla: al tocarlo se marca leído (openNotif) y al abrir el
+//   detalle de la tanda se marcan leídos sus avisos; en ambos casos
+//   desaparece del panel. Solo ese tipo con destino «tandas»: el aviso
+//   «Nuevo integrante en el hogar» (mismo tipo, destino «hogar») y los
+//   demás avisos leídos (pago de tanda, actualización, etc.) siguen
+//   visibles como historial, y los avisos sin leer siguen apareciendo.
 
 /** Avisos que se pintan en el panel de la campanilla. */
-export function visibleNotifications<T extends { type: string; isRead: number }>(
+export function visibleNotifications<T extends { type: string; target: string; isRead: number }>(
   notifications: T[],
 ): T[] {
-  return notifications.filter((n) => !(n.type === "nueva_opinion" && n.isRead));
+  return notifications.filter(
+    (n) => !((n.type === "nueva_opinion" || (n.type === "nuevo_integrante" && n.target === "tandas")) && n.isRead),
+  );
 }
