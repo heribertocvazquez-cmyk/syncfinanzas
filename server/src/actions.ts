@@ -2537,6 +2537,23 @@ export const Actions = {
       ctx.invalidateQueries(); return { ok: true, participantId, profileId, tandaId: inv.tandaId, householdId: inv.householdId };
     },
   }),
+  cancelTandaInvitation: defineAction({
+    description: "Cancels a pending tanda invitation (organizer only). The invitation is marked cancelled and its tokens revoked, so the old link stops working and the invitation disappears from the organizer's pending list. Accepted or rejected invitations cannot be cancelled.",
+    request: z.object({ id: z.number() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      await rateLimit(`cancelTandaInvitation:${ctx.user.id}`, 20, 60_000);
+      const db = ctx.db;
+      const rows = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.id, args.id));
+      const inv = rows[0]; if (!inv) throw new Error("Invitación de tanda no encontrada.");
+      const acc = await tandaAccess(ctx, inv.tandaId); requireTandaRank(acc, 3);
+      if (inv.status !== "pending") throw new Error("Esta invitación ya fue respondida.");
+      await db.update(schema.tandaInvitations).set({ status: "cancelled" }).where(eq(schema.tandaInvitations.id, args.id));
+      await markTokensForInvitation(db, null, inv.id, "revoked");
+      await logActivity(ctx, inv.householdId, "Invitación de tanda cancelada", inv.email);
+      ctx.invalidateQueries(); return { ok: true, id: inv.id };
+    },
+  }),
   rateOrganizer: defineAction({
     description: "Rates a tanda organizer 1-5 stars for trust/administration. Ratings aggregate across all tandas of the same organizer in the space.",
     request: z.object({ householdId: z.number(), tandaId: z.number(), raterName: z.string().min(1), stars: z.number().int().min(1).max(5), comment: z.string().optional() }),

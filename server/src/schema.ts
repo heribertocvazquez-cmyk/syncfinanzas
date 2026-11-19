@@ -196,7 +196,7 @@ export const tandaInvitations = pgTable("tanda_invitations", {
   householdId: integer("household_id").notNull(),
   email: text("email").notNull(),
   invitedName: text("invited_name"),
-  status: text("status", { enum: ["pending", "accepted", "rejected"] }).notNull().default("pending"),
+  status: text("status", { enum: ["pending", "accepted", "rejected", "cancelled"] }).notNull().default("pending"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 export const organizerRatings = pgTable("organizer_ratings", {

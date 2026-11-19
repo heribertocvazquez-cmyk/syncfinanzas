@@ -1149,6 +1149,7 @@ export function App(){
   const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
   const createTandaInv=useMutation({mutationFn:async(v:{tandaId:number})=>await api.createTandaInvitation({householdId:data!.household!.id,tandaId:v.tandaId,email:tInvEmail[v.tandaId]||"",invitedName:tInvName[v.tandaId]||undefined}),onSuccess:(r,v)=>{inv();setTInvResult(p=>({...p,[v.tandaId]:{emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}}));setTInvEmail(p=>({...p,[v.tandaId]:""}));setTInvName(p=>({...p,[v.tandaId]:""}));}});
   const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:(r)=>{ inv(); if(r.profileId) pickProfile(r.profileId); }});
+  const cancelTandaInv=useMutation({mutationFn:async(id:number)=>await api.cancelTandaInvitation({id}),onSuccess:inv});
   const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:data!.household!.id,tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
   const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:data!.household!.id,...v}),onSuccess:inv});
   // Pago de tanda con Mercado Pago (Checkout Pro, PRUEBA): crea la orden
@@ -1188,7 +1189,7 @@ export function App(){
     copiedLink, copyLink, tandaInviteMessage, setReceiptView,
     pickTandaProof, confirmTandaProof,
     delTanda, drawTanda, setPay, addFine, verifyPay, addFundEntry, payFine, setRole,
-    voteExclude, removePart, setCard, addPart, createTandaInv, respondTandaInv, resendInv,
+    voteExclude, removePart, setCard, addPart, createTandaInv, respondTandaInv, resendInv, cancelTandaInv,
     confirmDelivery, uploadProof, remindPay, createMpOrder, checkMpOrder, rateOrg,
   };
   const pickReceipt=async(file:File|undefined,set:(v:{dataBase64:string;mimeType:string;preview:string;file?:File}|null)=>void)=>{ if(!file) return; const r=await fileToBase64(file); set({dataBase64:r.dataBase64,mimeType:r.mimeType,preview:URL.createObjectURL(file),file}); };

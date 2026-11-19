@@ -87,6 +87,7 @@ export type TandaDetailDeps = {
   createTandaInv: TandaMutation<{ tandaId: number }>;
   respondTandaInv: TandaMutation<{ id: number; accept: boolean }>;
   resendInv: TandaMutation<{ kind: "tanda"; invitationId: number; tandaId: number }>;
+  cancelTandaInv: TandaMutation<number>;
   confirmDelivery: TandaMutation<{ tandaId: number; quincenaIndex: number; receiverId: number | null; by: "organizador" | "receptor" }>;
   uploadProof: TandaMutation<{ tandaId: number; participantId: number; quincenaIndex: number; file: File; paidDate: string }>;
   remindPay: TandaMutation<{ tandaId: number; participantId: number; quincenaIndex: number }>;
@@ -256,9 +257,12 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
     copiedLink, copyLink, tandaInviteMessage, setReceiptView,
     pickTandaProof, confirmTandaProof,
     delTanda, drawTanda, setPay, addFine, verifyPay, addFundEntry, payFine, setRole,
-    voteExclude, removePart, setCard, addPart, createTandaInv, respondTandaInv, resendInv,
+    voteExclude, removePart, setCard, addPart, createTandaInv, respondTandaInv, resendInv, cancelTandaInv,
     confirmDelivery, uploadProof, remindPay, createMpOrder, checkMpOrder, rateOrg,
   } = deps;
+  // Confirmación en línea para eliminar una invitación pendiente (mismo
+  // patrón que el borrado de movimientos): solo se ejecuta al confirmar.
+  const [confirmCancelTInvId, setConfirmCancelTInvId] = useState<number|null>(null);
   const meetingItems = td.attendance.items.filter(
     (it) => !(td.participants.find((pp) => pp.id === it.participantId)?.excluded === 1),
   );
@@ -416,12 +420,15 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
               <p className="text-sm">Invitación enviada a {iv.invitedName?`${iv.invitedName} (${iv.email})`:iv.email} — pendiente de aceptar.</p>
               {p.canManage && <div className="flex gap-2 flex-wrap">
                 <button aria-label={`Reenviar invitación de ${iv.email} a ${td.name}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"tanda",invitationId:iv.id,tandaId:td.id})}>Reenviar invitación</button>
+                <button aria-label={`Eliminar invitación de ${iv.email} a ${td.name}`} className="text-xs underline text-[var(--red)]" onClick={()=>setConfirmCancelTInvId(confirmCancelTInvId===iv.id?null:iv.id)}>Eliminar invitación</button>
               </div>}
+              {p.canManage && confirmCancelTInvId===iv.id && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Está seguro de eliminar esta invitación?</p><p className="text-xs text-[var(--dim)] mt-1">El enlace dejará de funcionar. Esta acción no se puede deshacer.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la eliminación de la invitación de ${iv.email} a ${td.name}`} className={btnPrimary} disabled={cancelTandaInv.isPending} onClick={()=>cancelTandaInv.mutate(iv.id)}>{cancelTandaInv.isPending?"Eliminando…":"Eliminar"}</button><button type="button" aria-label="Cancelar la eliminación de la invitación" className={btnGhost} onClick={()=>setConfirmCancelTInvId(null)}>Cancelar</button></div></div>}
               </>)}
             </div>
             );
           })}
           {respondTandaInv.error && <p className="text-sm text-[var(--red)] mt-1">{String(respondTandaInv.error)}</p>}
+          {cancelTandaInv.error && <p className="text-sm text-[var(--red)] mt-1">{String(cancelTandaInv.error)}</p>}
           {td.invitations.filter(iv=>iv.status!=="pending").length>0 && <p className="text-xs text-[var(--dim)] mt-2">{td.invitations.filter(iv=>iv.status==="accepted").length} aceptada(s) · {td.invitations.filter(iv=>iv.status==="rejected").length} rechazada(s).</p>}
         </div>
       </div>
