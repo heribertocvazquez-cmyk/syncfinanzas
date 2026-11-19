@@ -1208,7 +1208,7 @@ export function App(){
   const createMpOrder=useMutation({
     mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.createMercadoPagoOrder({householdId:tandaHouseholdId(v.tandaId),...v}),
     onMutate:()=>{ try{ mpTabRef.current=window.open("about:blank","_blank"); }catch{ mpTabRef.current=null; } },
-    onSuccess:(r,v)=>{ mpSaveOrder(v.tandaId,v.quincenaIndex,r.orderId); const tab=mpTabRef.current; mpTabRef.current=null; if(tab && !tab.closed) tab.location.href=r.checkoutUrl; else window.open(r.checkoutUrl,"_blank","noopener"); inv(); setSavedNotice("Se abrió el pago de Mercado Pago (PRUEBA) en otra pestaña. Al volver, pulse Verificar pago."); },
+    onSuccess:(r,v)=>{ mpSaveOrder(v.tandaId,v.quincenaIndex,r.orderId); const tab=mpTabRef.current; mpTabRef.current=null; if(tab && !tab.closed) tab.location.href=r.checkoutUrl; else window.open(r.checkoutUrl,"_blank","noopener"); inv(); setSavedNotice("Se abrió el pago de Mercado Pago (PRUEBA) en otra pestaña. En PRUEBA, pague con una cuenta compradora de prueba de Mercado Pago, no con su cuenta real; si tiene una sesión abierta, ciérrela o use una ventana de incógnito. Al volver, el organizador verifica el pago."); },
     onError:()=>{ const tab=mpTabRef.current; mpTabRef.current=null; try{ tab?.close(); }catch{} },
   });
   const checkMpOrder=useMutation({

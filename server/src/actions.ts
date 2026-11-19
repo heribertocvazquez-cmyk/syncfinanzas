@@ -754,7 +754,7 @@ export async function isTandaOnlyMember(db: Ctx["db"], userId: string, userEmail
 }
 
 // Esquema de la vista de una tanda (lo comparten getOverview y listMyTandas).
-const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAdmin: z.boolean(), myProfileId: z.number().nullable(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) });
+const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAdmin: z.boolean(), myProfileId: z.number().nullable(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), mpOrderId: z.string().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) });
 
 // ---- Vista de una tanda (la misma que getOverview arma por hogar) ----
 // Se extrae para reutilizarla en listMyTandas: el invitado de una tanda
@@ -768,6 +768,7 @@ type TandaRows = {
   tandaPartsR: (typeof schema.tandaParticipants.$inferSelect)[];
   tandaPaysR: (typeof schema.tandaPayments.$inferSelect)[];
   proofAmounts: Map<number, number>;
+  mpOrderIds: Map<number, string>;
   tandaFinesR: (typeof schema.tandaFines.$inferSelect)[];
   tandaVotesR: (typeof schema.tandaVotes.$inferSelect)[];
   tandaDeliveriesR: (typeof schema.tandaDeliveries.$inferSelect)[];
@@ -777,7 +778,7 @@ type TandaRows = {
   todayStr: string;
 };
 async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect, rows: TandaRows, opts: { isAdmin: boolean; myProfileId: number | null }) {
-  const { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr } = rows;
+  const { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr } = rows;
   const statsForName = (name:string) => {
     const key = name.trim().toLowerCase();
     const myParts = tandaPartsR.filter(x=>x.name.trim().toLowerCase()===key);
@@ -835,8 +836,8 @@ async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect
   const orgTandaIds = new Set(tandasR.filter(x=>((x.organizerName || profilesR.find(p=>p.id===x.organizerProfileId)?.name || profilesR.find(p=>p.role==="admin")?.name || "").trim().toLowerCase())===orgKey).map(x=>x.id));
   const ratingsAll = orgRatingsR.filter(r=>orgTandaIds.has(r.tandaId));
   const organizerRating = { avg: ratingsAll.length? Math.round(ratingsAll.reduce((s,r)=>s+r.stars,0)/ratingsAll.length*10)/10 : 0, count: ratingsAll.length };
-  const paysOut: {participantId:number;quincenaIndex:number;status:string;reminderSent:number;paidDate:string|null;proofUrl:string|null;proofAmount:number|null;verified:number;fineAmount:number}[] = [];
-  for (const x of tandaPaysR.filter(x=>x.tandaId===td.id)) { let url: string|null = null; if (x.proofBlobKey) { try { url = await ctx.blobs.getUrl(x.proofBlobKey); } catch { url = null; } } paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: url, proofAmount: proofAmounts.get(x.id) ?? null, verified: x.verified ?? 0, fineAmount: x.fineAmount ?? 0 }); }
+  const paysOut: {participantId:number;quincenaIndex:number;status:string;reminderSent:number;paidDate:string|null;proofUrl:string|null;proofAmount:number|null;mpOrderId:string|null;verified:number;fineAmount:number}[] = [];
+  for (const x of tandaPaysR.filter(x=>x.tandaId===td.id)) { let url: string|null = null; if (x.proofBlobKey) { try { url = await ctx.blobs.getUrl(x.proofBlobKey); } catch { url = null; } } paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: url, proofAmount: proofAmounts.get(x.id) ?? null, mpOrderId: mpOrderIds.get(x.id) ?? null, verified: x.verified ?? 0, fineAmount: x.fineAmount ?? 0 }); }
   // ---- Tandas v3: roles, saldos separados, multas, votos, entregas y pase de lista ----
   const treasurerName = profilesR.find(p=>p.id===(td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId)?.name ?? null;
   const substituteName = profilesR.find(p=>p.id===(td as unknown as { substituteProfileId?: number | null }).substituteProfileId)?.name ?? null;
@@ -864,6 +865,50 @@ async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect
     }),
   };
   return { id: td.id, householdId: td.householdId, isAdmin: opts.isAdmin, myProfileId: opts.myProfileId, name: td.name, participantCount: td.participantCount, amountPerQuincena: td.amountPerQuincena, startDate: td.startDate, potPerQuincena: Math.round(td.amountPerQuincena*td.participantCount*100)/100, organizerName: orgName, organizerProfileId: td.organizerProfileId ?? null, frequency: td.frequency || "quincenal", cadenceDays: cadence, drawMode: td.drawMode || "random", coverageRule: (td as unknown as { coverageRule?: string }).coverageRule || "fondo", fineAmount: (td as unknown as { fineAmount?: number }).fineAmount ?? 0, meetingDay: (td as unknown as { meetingDay?: string }).meetingDay || "", treasurerProfileId: (td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId ?? null, treasurerName, substituteProfileId: (td as unknown as { substituteProfileId?: number | null }).substituteProfileId ?? null, substituteName, turnsLocked: (td as unknown as { turnsLocked?: number }).turnsLocked ?? 0, organizerRating, ratings: orgRatingsR.filter(r=>r.tandaId===td.id).map(r=>({ id: r.id, raterName: r.raterName, stars: r.stars, comment: r.comment ?? null })), invitations: tandaInvsR.filter(i=>i.tandaId===td.id).map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, status: i.status })), participants: parts.map(x=>({ id: x.id, name: x.name, email: x.email ?? null, drawOrder: x.drawOrder ?? null, cardLast4: x.cardLast4 ?? null, joinedDate: x.joinedDate ?? null, role: (x as unknown as { role?: string }).role || "participante", excluded: (x as unknown as { excluded?: number }).excluded ?? 0, stats: statsForName(x.name) })), calendar, payments: paysOut, fines: finesOut, votes: votesOut, deliveries: deliveriesOut, fundEntries: fundEntriesOut, balances, attendance };
+}
+
+// El organizador de una tanda también participa en ella: paga cada
+// periodo y recibe un periodo en el sorteo. Al crear la tanda el
+// formulario solo pide el número de participantes, así que el organizador
+// no quedaba como fila de participante: la tanda mostraba «2
+// participantes» (el objetivo) con una sola fila real, el botón «Hacer
+// sorteo» quedaba deshabilitado sin explicar por qué y el sorteo no podía
+// correr (caso «Tanda Smoke», 2026-11-19). Esta función agrega la fila
+// del organizador (rol «organizador») cuando falta y hay un hueco libre;
+// nunca supera participantCount ni duplica una fila existente. Devuelve
+// las filas de participantes actualizadas.
+async function ensureOrganizerParticipant(
+  db: Ctx["db"],
+  td: { id: number; householdId: number; participantCount: number; organizerProfileId?: number | null; organizerName?: string | null },
+) {
+  const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, td.id));
+  if (parts.length >= td.participantCount) return parts;
+  let orgName: string | null = (td.organizerName || "").trim() || null;
+  let orgEmail: string | null = null;
+  if (td.organizerProfileId != null) {
+    const prs = await db.select().from(schema.profiles).where(eq(schema.profiles.id, td.organizerProfileId));
+    if (prs[0]) {
+      orgName = `${prs[0].name} ${prs[0].lastName || ""}`.trim() || orgName;
+      orgEmail = (prs[0].email || "").trim().toLowerCase() || null;
+    }
+  }
+  if (!orgName) return parts;
+  const key = orgName.trim().toLowerCase();
+  const exists = parts.some(
+    (p) => (orgEmail && (p.email || "").trim().toLowerCase() === orgEmail) || p.name.trim().toLowerCase() === key,
+  );
+  if (exists) return parts;
+  const nowD = new Date();
+  const joined = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, "0")}-${String(nowD.getDate()).padStart(2, "0")}`;
+  await db.insert(schema.tandaParticipants).values({
+    householdId: td.householdId,
+    tandaId: td.id,
+    name: orgName.trim(),
+    email: orgEmail,
+    role: "organizador",
+    joinedDate: joined,
+  });
+  return await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, td.id));
 }
 
 export const Actions = {
@@ -969,6 +1014,16 @@ export const Actions = {
         const res = (await db.execute(sql`SELECT id, proof_amount FROM tanda_payments WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; proof_amount: number | null }[] } | { id: number; proof_amount: number | null }[];
         const rows = Array.isArray(res) ? res : (res.rows ?? []);
         for (const row of rows) if (row.proof_amount != null) proofAmounts.set(row.id, row.proof_amount);
+      } catch { /* columna aún no creada */ }
+      // Orden de Mercado Pago por pago (columna mp_order_id,
+      // supabase/add-tanda-mp-order-id.sql): se lee igual de tolerante.
+      // El organizador la necesita para verificar el pago desde su propio
+      // teléfono, donde no existe el localStorage del invitado que pagó.
+      const mpOrderIds = new Map<number, string>();
+      try {
+        const res = (await db.execute(sql`SELECT id, mp_order_id FROM tanda_payments WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; mp_order_id: string | null }[] } | { id: number; mp_order_id: string | null }[];
+        const rows = Array.isArray(res) ? res : (res.rows ?? []);
+        for (const row of rows) if (row.mp_order_id != null) mpOrderIds.set(row.id, row.mp_order_id);
       } catch { /* columna aún no creada */ }
       const invsR = await db.select().from(schema.invitations).where(eq(schema.invitations.householdId, hid));
       // Qué invitaciones tienen enlace (por correo): las solicitudes de
@@ -1130,7 +1185,7 @@ export const Actions = {
       const personal = { salary: Math.round(salary*100)/100, monthSpent: Math.round(monthSpentP*100)/100, remaining: Math.round((salary-monthSpentP)*100)/100, todaySpent: Math.round(todayMovs.reduce((s,m)=>s+m.amount,0)*100)/100, todayCount: todayMovs.length, byCategory, todayMovements: todayMovs.filter(canSeeMovement).map(m=>({ id:m.id, concept:m.concept, amount:m.amount, categoryId:m.categoryId??null, date:m.date })) };
 
       // ---- Tandas v2: organizador con estrellas, invitados, comprobantes y cumplimiento ----
-      const tandas = await Promise.all(tandasR.map(td => assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: ctx.userRole === "admin", myProfileId })));
+      const tandas = await Promise.all(tandasR.map(td => assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: ctx.userRole === "admin", myProfileId })));
 
       // ---- Plan de ahorro por meta: avance y ritmo, calculados del fondo ligado ----
       // Los avisos del plan se revisan en cada carga; si toca avisar, el aviso
@@ -1235,6 +1290,12 @@ export const Actions = {
           const rows = Array.isArray(res) ? res : (res.rows ?? []);
           for (const row of rows) if (row.proof_amount != null) proofAmounts.set(row.id, row.proof_amount);
         } catch { /* columna aún no creada */ }
+        const mpOrderIds = new Map<number, string>();
+        try {
+          const res = (await db.execute(sql`SELECT id, mp_order_id FROM tanda_payments WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; mp_order_id: string | null }[] } | { id: number; mp_order_id: string | null }[];
+          const rows = Array.isArray(res) ? res : (res.rows ?? []);
+          for (const row of rows) if (row.mp_order_id != null) mpOrderIds.set(row.id, row.mp_order_id);
+        } catch { /* columna aún no creada */ }
         const tandaInvsR = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.householdId, hid)).orderBy(desc(schema.tandaInvitations.id));
         const orgRatingsR = await db.select().from(schema.organizerRatings).where(eq(schema.organizerRatings.householdId, hid)).orderBy(desc(schema.organizerRatings.id));
         const safeRows = async <T>(fn: () => Promise<T[]>): Promise<T[]> => { try { return await fn(); } catch { return []; } };
@@ -1244,7 +1305,7 @@ export const Actions = {
         const tandaFundEntriesR = await safeRows(() => db.select().from(schema.tandaFundEntries).where(eq(schema.tandaFundEntries.householdId, hid)));
         const myProfileId = profilesR.find(p => p.userId === ctx.user.id)?.id ?? null;
         for (const td of htds) {
-          out.push(await assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: false, myProfileId }));
+          out.push(await assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: false, myProfileId }));
         }
       }
       return { tandas: out };
@@ -2349,6 +2410,11 @@ export const Actions = {
       let orgName = (args.organizerName||"").trim() || null;
       if (!orgName && args.organizerProfileId) { const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.id, args.organizerProfileId)); orgName = profs[0] ? `${profs[0].name} ${profs[0].lastName||""}`.trim() : null; }
       const [r] = await db.insert(schema.tandas).values({ householdId: args.householdId, name: args.name, participantCount: args.participantCount, amountPerQuincena: args.amountPerQuincena, startDate: args.startDate, organizerProfileId: args.organizerProfileId ?? null, organizerName: orgName, frequency: args.frequency, cadenceDays, drawMode: args.drawMode, coverageRule: args.coverageRule, fineAmount: args.fineAmount, meetingDay: args.meetingDay, treasurerProfileId: args.treasurerProfileId ?? null, substituteProfileId: args.substituteProfileId ?? null, turnsLocked: 0 }).returning({ id: schema.tandas.id });
+      if (r?.id) {
+        // El organizador también participa: su fila cuenta en el número de
+        // participantes y sin ella el sorteo no puede correr.
+        await ensureOrganizerParticipant(db, { id: r.id, householdId: args.householdId, participantCount: args.participantCount, organizerProfileId: args.organizerProfileId ?? null, organizerName: orgName });
+      }
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
     },
   }),
@@ -2386,7 +2452,10 @@ export const Actions = {
       const db = ctx.db;
       const acc = await tandaAccess(ctx, args.tandaId); requireTandaRank(acc, 3);
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, args.tandaId)); const td = tdRows[0]; if (!td) throw new Error("Tanda no encontrada");
-      const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
+      // Tandas creadas antes de este arreglo no tienen la fila del
+      // organizador: se agrega aquí (si hay hueco) para que el sorteo
+      // pueda correr sin pedirle nada al organizador.
+      const parts = await ensureOrganizerParticipant(db, td);
       if (parts.length < 2) throw new Error("Se necesitan al menos 2 participantes para el sorteo.");
       if ((td as unknown as { turnsLocked?: number }).turnsLocked === 1) throw new Error("Los turnos ya están fijados. El sorteo no se puede repetir.");
       const mode = args.mode || td.drawMode || "random";
@@ -2502,6 +2571,18 @@ export const Actions = {
       const payerEmail = (part.email || "").trim() || ctx.user.email;
       const externalReference = mpExternalReference(args.tandaId, args.quincenaIndex, ctx.user.id);
       const { orderId, checkoutUrl } = await mpCreateOrder(token, { amount, externalReference, title: `Tanda ${td.name} ronda ${args.quincenaIndex + 1}`, payerEmail });
+      // Guardar la orden en el pago (tolerante, como proof_amount): el
+      // organizador la necesita para verificar el pago desde su propio
+      // teléfono, donde no existe el localStorage del invitado que pagó.
+      // Sin la columna (supabase/add-tanda-mp-order-id.sql aún no corrido)
+      // se ignora y el flujo sigue con el localStorage del que paga.
+      try {
+        if (mine) {
+          await db.execute(sql`UPDATE tanda_payments SET mp_order_id = ${orderId} WHERE id = ${mine.id}`);
+        } else {
+          await db.execute(sql`INSERT INTO tanda_payments (household_id, tanda_id, participant_id, quincena_index, status, mp_order_id) VALUES (${args.householdId}, ${args.tandaId}, ${args.participantId}, ${args.quincenaIndex}, 'pending', ${orderId})`);
+        }
+      } catch { /* columna aún no creada */ }
       return { ok: true, orderId, checkoutUrl, amount, externalReference };
     },
   }),
@@ -2512,7 +2593,11 @@ export const Actions = {
     async handler(ctx, args): Promise<{ ok: true; status: string; paid: boolean }> {
       await rateLimit("checkMercadoPagoOrder", 10, 60_000);
       const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId);
-      if (!acc.isAdmin && acc.rank < 3 && acc.participantId !== args.participantId) throw new Error("No tiene permiso para esta acción.");
+      // Solo el lado del organizador verifica un pago en Mercado Pago
+      // (mismo criterio que verifyTandaPayment): el invitado no debe ver
+      // «Verificar pago» ni poder marcar su propio pago como aprobado
+      // consultando Mercado Pago; el organizador verifica el pago.
+      requireTandaRank(acc, 2);
       const token = requireMpToken();
       const order = await mpGetOrder(token, args.orderId);
       // La orden debe ser la de este pago de tanda (misma tanda y mismo
@@ -2684,6 +2769,10 @@ export const Actions = {
       let raterName = args.raterName.trim();
       const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
       const myPart = acc.participantId != null ? parts.find(p=>p.id===acc.participantId) : null;
+      // El organizador no se califica a sí mismo: desde que su fila de
+      // participante existe (sorteo con 2 personas), el formulario ya no
+      // se le muestra y el servidor rechaza el intento.
+      if ((acc.profileId != null && acc.tanda.organizerProfileId != null && acc.profileId === acc.tanda.organizerProfileId) || (myPart && (myPart.role as string) === "organizador")) throw new Error("El organizador no puede calificarse a sí mismo.");
       if (myPart) raterName = myPart.name;
       else if (acc.profileId != null) { const pr = await db.select().from(schema.profiles).where(eq(schema.profiles.id, acc.profileId)); if (pr[0]) raterName = `${pr[0].name} ${pr[0].lastName || ""}`.trim(); }
       const [r] = await db.insert(schema.organizerRatings).values({ householdId: args.householdId, tandaId: args.tandaId, raterName, stars: args.stars, comment: args.comment?.trim() || null }).returning({ id: schema.organizerRatings.id });
