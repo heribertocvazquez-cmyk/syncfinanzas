@@ -9,7 +9,7 @@ import {
 } from "./mercadopago.js";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import * as schema from "./schema.js";
-import { notifyTandaOrganizer, notifyTandaOrganizerAcceptOtherEmail } from "./tandaNotify.js";
+import { fmtDateEs, notifyTandaOrganizer, notifyTandaOrganizerAcceptOtherEmail } from "./tandaNotify.js";
 import { supabaseAdmin } from "./supabase.js";
 import { findHouseholdCodeToken, findHouseholdGenericToken, GENERIC_HOUSEHOLD_INVITE_TTL_DAYS, isHouseholdCodeToken, isHouseholdGenericToken, issueHouseholdCodeToken, issueInviteToken, inviteUrl, markToken, markTokensForInvitation, normalizeHouseholdCode, replaceHouseholdGenericTokens, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
 import { mailConfigured, sendInviteEmail } from "./mail.js";
@@ -35,7 +35,7 @@ async function logActivity(ctx: Ctx, householdId: number, action: string, detail
 // la operación principal: si la tabla aún no existe (falta correr
 // supabase/notifications.sql), la inserción falla en silencio y la app
 // sigue funcionando sin avisos.
-type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion" | "aceptacion_otro_correo"; title: string; body: string; amount?: number | null; target: string };
+type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion" | "aceptacion_otro_correo" | "recordatorio_tanda"; title: string; body: string; amount?: number | null; target: string };
 async function notifyHousehold(ctx: Ctx, householdId: number, n: NotifInput, excludeUserId?: string | null) {
   try {
     const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
@@ -43,6 +43,57 @@ async function notifyHousehold(ctx: Ctx, householdId: number, n: NotifInput, exc
     if (targets.length === 0) return;
     await ctx.db.insert(schema.notifications).values(targets.map(m => ({ householdId, userId: m.userId, type: n.type, title: n.title, body: n.body, amount: n.amount ?? null, target: n.target, isRead: 0 })));
   } catch { /* tabla aún no creada: la operación principal sigue */ }
+}
+// Aviso de una tanda a TODOS sus participantes: notifyHousehold solo llega
+// a los miembros del hogar, así que un participante invitado solo de tanda
+// (sin membresía desde d85c1bc) no se enteraba de lo de SU tanda — por
+// ejemplo, de que alguien nuevo se unió. Aquí se suman los participantes
+// de la tanda (resueltos por su perfil en el hogar o por su cuenta) a los
+// miembros del hogar, sin duplicados. Nunca bloquea la operación
+// principal: si la tabla aún no existe, la inserción falla en silencio.
+async function notifyTandaParticipants(ctx: Ctx, householdId: number, tandaId: number, n: NotifInput, excludeUserId?: string | null) {
+  try {
+    const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
+    const userIds = new Set(members.map(m => m.userId));
+    const parts = await ctx.db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, tandaId));
+    const profs = await ctx.db.select().from(schema.profiles).where(eq(schema.profiles.householdId, householdId));
+    for (const p of parts) {
+      if ((p as unknown as { excluded?: number }).excluded === 1) continue;
+      const email = (p.email || "").trim().toLowerCase();
+      if (!email) continue;
+      const uid = profs.find(pr => (pr.email || "").trim().toLowerCase() === email)?.userId ?? await findUserIdByEmail(ctx.db, email);
+      if (uid) userIds.add(uid);
+    }
+    if (excludeUserId) userIds.delete(excludeUserId);
+    if (userIds.size === 0) return;
+    await ctx.db.insert(schema.notifications).values([...userIds].map(uid => ({ householdId, userId: uid, type: n.type, title: n.title, body: n.body, amount: n.amount ?? null, target: n.target, isRead: 0 })));
+  } catch { /* tabla aún no creada: la operación principal sigue */ }
+}
+// Hogares de tandas en las que el usuario participa por correo sin ser
+// miembro de verdad de ese hogar (invitado solo de tanda, sin membresía
+// desde d85c1bc): sus avisos de esas tandas también deben llegarle a su
+// campanilla aunque su hogar activo sea su Personal. Sin esto, un aviso
+// creado con el hogar del invitador es invisible para el invitado, porque
+// listNotifications se acota al hogar activo. Solo hogares de invitado:
+// si es miembro de verdad del hogar, sus avisos ya se ven al cambiar a
+// ese hogar y no se agregan aquí (el comportamiento de miembros no
+// cambia). Solo devuelve hogares; los avisos siempre se acotan además por
+// userId, así que nunca se filtra un aviso ajeno.
+async function guestTandaHouseholdIds(db: Ctx["db"], userId: string, userEmail: string): Promise<number[]> {
+  const email = (userEmail || "").trim().toLowerCase();
+  if (!email) return [];
+  const myParts = await db.select().from(schema.tandaParticipants).where(sql`lower(${schema.tandaParticipants.email}) = ${email}`);
+  const active = myParts.filter(p => (p as unknown as { excluded?: number }).excluded !== 1);
+  if (active.length === 0) return [];
+  const tandaIds = [...new Set(active.map(p => p.tandaId))];
+  const tds = await db.select().from(schema.tandas).where(inArray(schema.tandas.id, tandaIds));
+  const out: number[] = [];
+  for (const hid of [...new Set(tds.map(t => t.householdId))]) {
+    const mems = await db.select().from(schema.householdMembers).where(and(eq(schema.householdMembers.householdId, hid), eq(schema.householdMembers.userId, userId)));
+    if (mems.length > 0 && !(await isTandaOnlyMember(db, userId, userEmail, hid))) continue;
+    out.push(hid);
+  }
+  return out;
 }
 const moneyShort = (n: number) => `$${Math.round(n * 100) / 100}`;
 // Revisa si un gasto nuevo debe avisar: (b) supera el límite del hogar
@@ -2731,7 +2782,10 @@ export const Actions = {
       // El registro deja constancia del correo con el que se aceptó
       // realmente, no solo del invitado.
       await logActivity(ctx, inv.householdId, "Nuevo participante en la tanda", emailMismatch ? `${name} · ${td.name} · aceptó con ${realEmail} (invitación a ${inv.email})` : `${name} · ${td.name}`);
-      await notifyHousehold(ctx, inv.householdId, { type: "nuevo_integrante", title: "Nuevo participante en la tanda", body: `${name} se unió a la tanda ${td.name}.`, target: "tandas" }, ctx.user.id);
+      // El aviso va a los participantes de la tanda (miembros del hogar +
+      // invitados solo de tanda), no solo a los miembros: un invitado no
+      // se enteraba de que alguien nuevo se unió a SU tanda.
+      await notifyTandaParticipants(ctx, inv.householdId, inv.tandaId, { type: "nuevo_integrante", title: "Nuevo participante en la tanda", body: `${name} se unió a la tanda ${td.name}.`, target: "tandas" }, ctx.user.id);
       // Si aceptó con otro correo, el organizador recibe un aviso con los
       // dos correos (el enlace es la credencial; la aceptación no se
       // bloquea). Nunca bloquea la aceptación si no hay a quién avisar.
@@ -2780,7 +2834,7 @@ export const Actions = {
     },
   }),
   sendTandaReminder: defineAction({
-    description: "Marks a payment reminder as sent for a pending tanda payment (in-app record, no external message is sent).",
+    description: "Marks a payment reminder as sent for a pending tanda payment and notifies the participant in their bell (recordatorio_tanda, target tandas).",
     request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), quincenaIndex: z.number().int().min(0) }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
@@ -2788,9 +2842,42 @@ export const Actions = {
       const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaRank(acc, 2);
       const rows = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId, args.tandaId));
       const mine = rows.find(r=>r.participantId===args.participantId && r.quincenaIndex===args.quincenaIndex);
-      if (mine) { await db.update(schema.tandaPayments).set({ reminderSent: 1 }).where(eq(schema.tandaPayments.id, mine.id)); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
-      const [r] = await db.insert(schema.tandaPayments).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: args.participantId, quincenaIndex: args.quincenaIndex, status: "pending", reminderSent: 1 }).returning({ id: schema.tandaPayments.id });
-      ctx.invalidateQueries(); return { ok: true, id: r?.id };
+      let paymentId: number | undefined;
+      let paid = false;
+      if (mine) { await db.update(schema.tandaPayments).set({ reminderSent: 1 }).where(eq(schema.tandaPayments.id, mine.id)); paymentId = mine.id; paid = mine.status === "paid"; }
+      else {
+        const [r] = await db.insert(schema.tandaPayments).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: args.participantId, quincenaIndex: args.quincenaIndex, status: "pending", reminderSent: 1 }).returning({ id: schema.tandaPayments.id });
+        paymentId = r?.id;
+      }
+      // El recordatorio también es un aviso en la campanilla del
+      // participante: antes solo quedaba la marca reminderSent y el aviso
+      // no se creaba nunca, así que no llegaba a la campana de nadie. El
+      // aviso va dirigido al participante (su userId se resuelve por el
+      // perfil que tiene en el hogar de la tanda o por su cuenta); si no
+      // tiene cuenta, solo queda la marca. Nunca bloquea el recordatorio.
+      // No se duplica: si ya hay uno sin leer para esa tanda y periodo,
+      // no se crea otro (volver a tocar el botón reenvía solo si el
+      // anterior ya se leyó).
+      if (!paid) {
+        try {
+          const part = (await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.id, args.participantId)).limit(1))[0];
+          const email = (part?.email || "").trim().toLowerCase();
+          if (part && part.tandaId === args.tandaId && (part as unknown as { excluded?: number }).excluded !== 1 && email) {
+            const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, args.householdId));
+            const targetUserId = profs.find(pr => (pr.email || "").trim().toLowerCase() === email)?.userId ?? await findUserIdByEmail(db, email);
+            if (targetUserId && targetUserId !== ctx.user.id) {
+              const td = acc.tanda;
+              const periodDate = dueDateOf(td.startDate, td.cadenceDays, args.quincenaIndex);
+              const marker = `tanda «${td.name}», periodo ${args.quincenaIndex + 1}`;
+              const existing = await db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, targetUserId), eq(schema.notifications.type, "recordatorio_tanda"), eq(schema.notifications.isRead, 0)));
+              if (!existing.some(r => r.body.includes(marker))) {
+                await db.insert(schema.notifications).values([{ householdId: args.householdId, userId: targetUserId, type: "recordatorio_tanda", title: "Recordatorio de pago de tanda", body: `Recordatorio de pago de la ${marker} (${fmtDateEs(periodDate)}): el monto es ${moneyShort(td.amountPerQuincena)}.`, amount: td.amountPerQuincena, target: "tandas", isRead: 0 }]);
+              }
+            }
+          }
+        } catch { /* el recordatorio ya quedó marcado; el aviso no lo bloquea */ }
+      }
+      ctx.invalidateQueries(); return { ok: true, id: paymentId };
     },
   }),
 
@@ -3182,12 +3269,13 @@ export const Actions = {
   // ve solo sus propios avisos. Si la tabla aún no existe (falta correr
   // supabase/notifications.sql), la lista sale vacía y nada se rompe.
   listNotifications: defineAction({
-    description: "Lists the current user's notifications for the household, newest first, with the unread count.",
+    description: "Lists the current user's notifications for the household, newest first, with the unread count. It also includes the user's notifications from guest tandas (tandas they participate in without belonging to that household), so a tanda invitee sees their tanda notices in their own Personal bell even though their active household is their own.",
     request: z.object({ householdId: z.number() }),
     response: z.object({ notifications: z.array(z.object({ id: z.number(), type: z.string(), title: z.string(), body: z.string(), amount: z.number().nullable(), target: z.string(), isRead: z.number(), createdAt: z.string() })), unreadCount: z.number() }),
     async handler(ctx, args) {
       try {
-        const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id))).orderBy(desc(schema.notifications.createdAt)).limit(100);
+        const hids = [...new Set([args.householdId, ...(await guestTandaHouseholdIds(ctx.db, ctx.user.id, ctx.user.email))])];
+        const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.userId, ctx.user.id), inArray(schema.notifications.householdId, hids))).orderBy(desc(schema.notifications.createdAt)).limit(100);
         return { notifications: rows.map(r => ({ id: r.id, type: r.type, title: r.title, body: r.body, amount: r.amount ?? null, target: r.target, isRead: r.isRead, createdAt: r.createdAt.toISOString() })), unreadCount: rows.filter(r => !r.isRead).length };
       } catch { return { notifications: [], unreadCount: 0 }; }
     },
@@ -3202,11 +3290,14 @@ export const Actions = {
     },
   }),
   markAllNotificationsRead: defineAction({
-    description: "Marks all of the current user's notifications in the household as read.",
+    description: "Marks all of the current user's notifications in the household as read (including their guest-tanda notifications, which are listed in their bell even when their active household is their own).",
     request: z.object({ householdId: z.number() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
-      try { await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id))); } catch { /* tabla aún no creada */ }
+      try {
+        const hids = [...new Set([args.householdId, ...(await guestTandaHouseholdIds(ctx.db, ctx.user.id, ctx.user.email))])];
+        await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.userId, ctx.user.id), inArray(schema.notifications.householdId, hids)));
+      } catch { /* tabla aún no creada */ }
       ctx.invalidateQueries(); return { ok: true };
     },
   }),
@@ -3228,29 +3319,33 @@ export const Actions = {
     },
   }),
 
-  // Avisos de nuevo participante en una tanda (campanita): cuando el
-  // organizador abre el detalle de la tanda, los avisos «Nuevo
-  // participante en la tanda» de ESA tanda se marcan como leídos en el
-  // servidor y ya no aparecen en la campanilla (ver
-  // client/src/lib/notifications.ts). Solo ese tipo, ese destino
-  // (tandas) y esa tanda: los avisos de otra tanda, de nuevo
-  // integrante en el hogar (destino hogar) y de pagos quedan sin tocar.
-  // La tanda se busca por id dentro del hogar; si no está (se borró),
-  // no hace nada y responde ok. Sin SQL nuevo.
+  // Avisos de una tanda (campanita): cuando alguien abre el detalle de la
+  // tanda, los avisos «Nuevo participante en la tanda» y los recordatorios
+  // de pago de ESA tanda se marcan como leídos en el servidor y ya no
+  // aparecen en la campanilla (ver client/src/lib/notifications.ts). Solo
+  // esos tipos, ese destino (tandas) y esa tanda: los avisos de otra
+  // tanda, de nuevo integrante en el hogar (destino hogar) y de pagos
+  // quedan sin tocar. La tanda se busca por id dentro del hogar; si no
+  // está (se borró), no hace nada y responde ok. Sin SQL nuevo. Vale
+  // también para el invitado solo de tanda: sus avisos de esa tanda viven
+  // en el hogar del invitador y se marcan aquí (el despachador permite la
+  // acción a participantes de la tanda, no solo a miembros).
   markTandaParticipantNotificationsRead: defineAction({
-    description: "Marks the current user's unread 'new tanda participant' notifications (nuevo_integrante, target tandas) for one tanda as read.",
+    description: "Marks the current user's unread 'new tanda participant' notifications (nuevo_integrante, target tandas) and payment reminders (recordatorio_tanda) for one tanda as read.",
     request: z.object({ householdId: z.number(), tandaId: z.number() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       try {
         const td = (await ctx.db.select().from(schema.tandas).where(and(eq(schema.tandas.id, args.tandaId), eq(schema.tandas.householdId, args.householdId))).limit(1))[0];
         if (!td) return { ok: true };
-        const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id), eq(schema.notifications.type, "nuevo_integrante"), eq(schema.notifications.target, "tandas"), eq(schema.notifications.isRead, 0)));
+        const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id), eq(schema.notifications.isRead, 0)));
         // El aviso no guarda el id de la tanda; el cuerpo lleva su
         // nombre con la frase fija que pone el servidor al aceptar
-        // («{nombre} se unió a la tanda {tanda}.»).
-        const marker = `se unió a la tanda ${td.name}.`;
-        const ids = rows.filter((r) => r.body.includes(marker)).map((r) => r.id);
+        // («{nombre} se unió a la tanda {tanda}.») o al recordar
+        // («Recordatorio de pago de la tanda «{tanda}», periodo N»).
+        const joinMarker = `se unió a la tanda ${td.name}.`;
+        const reminderMarker = `tanda «${td.name}»`;
+        const ids = rows.filter((r) => (r.type === "nuevo_integrante" && r.target === "tandas" && r.body.includes(joinMarker)) || (r.type === "recordatorio_tanda" && r.body.includes(reminderMarker))).map((r) => r.id);
         if (ids.length > 0) await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(inArray(schema.notifications.id, ids));
       } catch { /* tabla aún no creada */ }
       ctx.invalidateQueries(); return { ok: true };

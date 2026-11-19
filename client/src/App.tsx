@@ -1128,19 +1128,19 @@ export function App(){
   const [drawSel,setDrawSel]=useState<Record<number,"random"|"weighted">>({});
   const [tandaDetailId,setTandaDetailId]=useState<number|null>(null);
   // Al abrir el detalle de una tanda se marcan como leídos sus avisos
-  // «Nuevo participante en la tanda» (una vez por apertura; la marca
-  // es idempotente en el servidor). Así entrar a Tandas limpia el
-  // aviso aunque no se haya tocado en la campanilla.
+  // «Nuevo participante en la tanda» y sus recordatorios de pago (una
+  // vez por apertura; la marca es idempotente en el servidor). Así entrar
+  // a Tandas limpia el aviso aunque no se haya tocado en la campanilla.
+  // Vale también para una tanda invitada: el aviso vive en el hogar del
+  // invitador, así que se marca con el hogar DE LA TANDA (no con el
+  // hogar activo), y el despachador permite la acción a participantes
+  // de la tanda, no solo a miembros.
   const markedTandaDetailRef=useRef<number|null>(null);
   useEffect(()=>{
     if(tandaDetailId==null || !data?.household){ markedTandaDetailRef.current=null; return; }
     if(markedTandaDetailRef.current===tandaDetailId) return;
-    // Solo para tandas del hogar activo: en una tanda invitada, el aviso
-    // «Nuevo participante» vive en el hogar del invitador, no en el
-    // Personal del invitado, así que no hay nada que marcar aquí.
-    if(!data.tandas.some(t=>t.id===tandaDetailId)) return;
     markedTandaDetailRef.current=tandaDetailId;
-    void markTandaPartNotifRead.mutateAsync({householdId:data.household.id,tandaId:tandaDetailId}).catch(()=>{});
+    void markTandaPartNotifRead.mutateAsync({householdId:tandaHouseholdId(tandaDetailId),tandaId:tandaDetailId}).catch(()=>{});
   },[tandaDetailId, data?.household?.id]);
   const [tInvEmail,setTInvEmail]=useState<Record<number,string>>({}); const [tInvName,setTInvName]=useState<Record<number,string>>({}); const [tJoinName,setTJoinName]=useState<Record<number,string>>({});
   const [rateName,setRateName]=useState<Record<number,string>>({}); const [rateStars,setRateStars]=useState<Record<number,string>>({}); const [rateComment,setRateComment]=useState<Record<number,string>>({});

@@ -15,7 +15,7 @@
 //  5. Límites de peticiones: los aplica cada acción (tabla rate_limits).
 //  6. Registro de actividad: lo escriben las acciones en activity_log.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Actions, isTandaOnlyMember } from "../server/src/actions.js";
 import { getDb, closeDb } from "../server/src/db.js";
@@ -58,7 +58,7 @@ async function firstMembership(db: ReturnType<typeof getDb>, userId: string, use
 // después la propia acción con tandaAccess. Las acciones de organizador
 // (rango 3: eliminar, sorteo, invitar, roles) NO están aquí: esas exigen
 // membresía del hogar.
-const TANDA_PARTICIPANT_ACTIONS = new Set(["setTandaPayment", "verifyTandaPayment", "rateOrganizer", "setParticipantCard", "createMercadoPagoOrder", "checkMercadoPagoOrder", "sendTandaReminder", "addTandaFine", "payTandaFine", "voteExcludeParticipant", "confirmTandaDelivery", "addTandaFundEntry"]);
+const TANDA_PARTICIPANT_ACTIONS = new Set(["setTandaPayment", "verifyTandaPayment", "rateOrganizer", "setParticipantCard", "createMercadoPagoOrder", "checkMercadoPagoOrder", "sendTandaReminder", "addTandaFine", "payTandaFine", "voteExcludeParticipant", "confirmTandaDelivery", "addTandaFundEntry", "markTandaParticipantNotificationsRead"]);
 
 // Acciones que se identifican solo por id: el hogar se resuelve desde la
 // fila correspondiente antes de ejecutarlas.
@@ -84,7 +84,6 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   drawTanda: { table: "tandas", idField: "tandaId" },
   setParticipantCard: { table: "tandaParticipants", idField: "id" },
   removeTandaParticipant: { table: "tandaParticipants", idField: "id" },
-  markNotificationRead: { table: "notifications", idField: "id" },
   deleteCategoryRule: { table: "categoryRules", idField: "id" },
 };
 
@@ -265,18 +264,59 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       if (tandaId == null) return res.status(400).json({ error: "Falta el identificador de la tanda." });
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, tandaId)).limit(1);
-      if (!tdRows[0]) return res.status(404).json({ error: "Tanda no encontrada." });
-      const hid = tdRows[0].householdId;
-      const m = await membershipFor(db, user.id, hid);
-      if (m && !(await isTandaOnlyMember(db, user.id, user.email, hid))) {
-        householdId = hid;
-        role = m.role as Role;
+      if (!tdRows[0]) {
+        // markTandaParticipantNotificationsRead es tolerante a una tanda
+        // borrada: el handler responde ok sin marcar nada. Si el cliente
+        // mandó householdId, se resuelve por membresía y se deja que el
+        // handler responda ok; las demás acciones de participante siguen
+        // con 404 «Tanda no encontrada.».
+        if (actionName === "markTandaParticipantNotificationsRead" && typeof rawArgs.householdId === "number") {
+          await requireMember(rawArgs.householdId);
+        } else {
+          return res.status(404).json({ error: "Tanda no encontrada." });
+        }
       } else {
-        const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, tandaId));
-        const mine = parts.find(p => (p.email || "").trim().toLowerCase() === user.email.toLowerCase() && (p as unknown as { excluded?: number }).excluded !== 1);
-        if (!mine) throw new Error("No pertenece a este hogar.");
-        householdId = hid;
-        role = "member";
+        const hid = tdRows[0].householdId;
+        const m = await membershipFor(db, user.id, hid);
+        if (m && !(await isTandaOnlyMember(db, user.id, user.email, hid))) {
+          householdId = hid;
+          role = m.role as Role;
+        } else {
+          const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, tandaId));
+          const mine = parts.find(p => (p.email || "").trim().toLowerCase() === user.email.toLowerCase() && (p as unknown as { excluded?: number }).excluded !== 1);
+          if (!mine) throw new Error("No pertenece a este hogar.");
+          householdId = hid;
+          role = "member";
+        }
+      }
+    } else if (actionName === "markNotificationRead" && typeof rawArgs.id === "number") {
+      // Marcar un aviso propio como leído: el dueño del aviso puede
+      // hacerlo aunque el aviso viva en el hogar de una tanda en la que
+      // solo participa (sin membresía); la propia acción ya exige userId
+      // = el que llama, así que nadie marca avisos ajenos. Quien no es
+      // dueño ni participante de una tanda de ese hogar sigue pasando por
+      // requireMember y se rechaza igual que antes.
+      // VA ANTES de la rama genérica de householdId: el cliente siempre
+      // manda householdId, así que esa rama rechazaría al invitado solo
+      // de tanda antes de llegar aquí.
+      const rows = await db.select().from(schema.notifications).where(eq(schema.notifications.id, rawArgs.id)).limit(1);
+      if (!rows[0]) return res.status(404).json({ error: "Registro no encontrado." });
+      const hid = rows[0].householdId;
+      if (rows[0].userId === user.id) {
+        const m = await membershipFor(db, user.id, hid);
+        if (m && !(await isTandaOnlyMember(db, user.id, user.email, hid))) {
+          householdId = hid;
+          role = m.role as Role;
+        } else {
+          const tds = await db.select().from(schema.tandas).where(eq(schema.tandas.householdId, hid));
+          const parts = tds.length > 0 ? await db.select().from(schema.tandaParticipants).where(inArray(schema.tandaParticipants.tandaId, tds.map(t => t.id))) : [];
+          const mine = parts.find(p => (p.email || "").trim().toLowerCase() === user.email.toLowerCase() && (p as unknown as { excluded?: number }).excluded !== 1);
+          if (!mine) return res.status(400).json({ error: "No pertenece a este hogar." });
+          householdId = hid;
+          role = "member";
+        }
+      } else {
+        await requireMember(hid);
       }
     } else if (typeof rawArgs.householdId === "number") {
       await requireMember(rawArgs.householdId);
