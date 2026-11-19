@@ -807,15 +807,26 @@ export function App(){
   },[firstGuideOpen, data, chartsSeen]);
 
   // Invitación por enlace directo (?token=...): se resuelve al entrar y se
-  // muestra el banner. Las invitaciones por correo se aceptan o rechazan
-  // con las acciones existentes, que verifican el correo invitado y entran
-  // al mismo hogar/tanda. El enlace genérico del hogar es solo la
-  // invitación a probar la app: quien lo abre empieza con su propio
-  // espacio (botón Empezar), sin solicitar entrar a ningún hogar.
+  // muestra el banner, CON hogar y SIN hogar: antes el banner solo existía
+  // en la pantalla sin hogar, así que quien ya tenía un espacio (por
+  // ejemplo, el Personal creado al registrarse) abría el enlace y caía en
+  // silencio a su espacio vacío sin ver jamás la invitación. Si el enlace
+  // ya no vale, se avisa en lugar de ignorarlo. Las invitaciones por
+  // correo se aceptan o rechazan con las acciones existentes, que
+  // verifican el correo invitado y entran al mismo hogar/tanda. El enlace
+  // genérico del hogar es solo la invitación a probar la app: quien lo
+  // abre empieza con su propio espacio (botón Empezar), sin solicitar
+  // entrar a ningún hogar.
   type InvitePreviewFull = InvitePreview & { invitationId: number | null; tandaInvitationId: number | null; expiresAt: string };
-  const [tokenRaw,setTokenRaw]=useState<string|null>(null);
+  const [tokenRaw,setTokenRaw]=useState<string|null>(()=>readInviteToken());
   const [tokenInvite,setTokenInvite]=useState<InvitePreviewFull|null>(null);
   const [tokenDone,setTokenDone]=useState(false);
+  // El enlace ya no vale (reemplazado, vencido o inexistente): se avisa
+  // en claro en lugar de caer en silencio al espacio propio.
+  const [tokenError,setTokenError]=useState(false);
+  // Mientras haya un token por resolver, el modal de modo no se abre solo:
+  // quien llega con invitación no debe crear su propio espacio antes de verla.
+  const tokenPending = tokenRaw != null && !tokenInvite && !tokenError && !tokenDone;
   const [copiedLink,setCopiedLink]=useState("");
   const copyLink=async(url:string)=>{ try{ await navigator.clipboard.writeText(url); setCopiedLink(url); }catch{ try{ const t=document.createElement("textarea"); t.value=url; document.body.appendChild(t); t.select(); document.execCommand("copy"); document.body.removeChild(t); setCopiedLink(url); }catch{} } };
   // Mensaje de invitación: el enlace real (un solo uso, con token) va primero
@@ -829,7 +840,7 @@ export function App(){
     const token = readInviteToken();
     if (!token) return;
     setTokenRaw(token);
-    void fetch(`/api/invite?token=${encodeURIComponent(token)}`).then(r=>r.json()).then((j: InvitePreviewFull & { ok?: boolean })=>{ if (j && j.ok) setTokenInvite(j); }).catch(()=>{});
+    void fetch(`/api/invite?token=${encodeURIComponent(token)}`).then(r=>r.json()).then((j: InvitePreviewFull & { ok?: boolean })=>{ if (j && j.ok) setTokenInvite(j); else setTokenError(true); }).catch(()=>{ setTokenError(true); });
   },[]);
   const acceptTokenInvite=useMutation({mutationFn:async(_v?:{first?:string;last?:string})=>{
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
@@ -837,7 +848,15 @@ export function App(){
     if (tokenInvite.kind==="household" && tokenInvite.invitationId) return await api.respondInvitation({id: tokenInvite.invitationId, accept: true, firstName: joinFirst||undefined, lastName: joinLast||undefined});
     if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: true, name: [joinFirst, joinLast].filter(Boolean).join(" ")||undefined});
     throw new Error("No se pudo identificar la invitación del enlace.");
-  },onSuccess:(r)=>{ const pid = (r && typeof r === "object" && "profileId" in r) ? (r as { profileId?: unknown }).profileId : undefined; if(typeof pid === "number") pickProfile(pid); setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); }});
+  },onSuccess:(r)=>{ const pid = (r && typeof r === "object" && "profileId" in r) ? (r as { profileId?: unknown }).profileId : undefined; if(typeof pid === "number") pickProfile(pid);
+    // Al aceptar, la persona entra al hogar de la invitación: el hogar
+    // activo cambia a ese hogar (antes se quedaba en la membresía más
+    // antigua, el espacio propio) y, si es tanda, se abre su detalle.
+    const hid = (r && typeof r === "object" && "householdId" in r) ? (r as { householdId?: unknown }).householdId : undefined;
+    if(typeof hid === "number"){ setActiveHouseholdId(hid); writeStoredHousehold(hid, myEmail); }
+    const tid = (r && typeof r === "object" && "tandaId" in r) ? (r as { tandaId?: unknown }).tandaId : undefined;
+    if(tokenInvite?.kind==="tanda" && typeof tid === "number"){ setTandaDetailId(tid); setTab("tandas"); } else if(typeof hid === "number"){ setTab("inicio"); }
+    setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); }});
   const rejectTokenInvite=useMutation({mutationFn:async()=>{
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
     // La invitación general no crea nada: rechazarla es simplemente descartarla.
@@ -857,7 +876,56 @@ export function App(){
   // correo, en cuyo caso se entra al hogar invitado sin crear uno nuevo;
   // el enlace para probar la app no entra a ningún hogar).
   const [modeModalOpen,setModeModalOpen]=useState(false); const [modeModalShown,setModeModalShown]=useState(false);
-  useEffect(()=>{ if(data && !data.household && !tokenInvite && !modeModalShown){ setModeModalOpen(true); setModeModalShown(true); } },[data,tokenInvite,modeModalShown]);
+  useEffect(()=>{ if(data && !data.household && (!tokenInvite || tokenDone) && !tokenPending && !modeModalShown){ setModeModalOpen(true); setModeModalShown(true); } },[data,tokenInvite,tokenPending,tokenDone,modeModalShown]);
+  // Aviso de invitación por enlace: se muestra CON hogar y SIN hogar, e
+  // incluso si el resumen no cargó (la pantalla de error lo incluye
+  // arriba): antes solo existía en la pantalla sin hogar, así que quien ya
+  // tenía un espacio (por ejemplo, el Personal creado al registrarse)
+  // abría el enlace y caía en silencio a su espacio vacío, sin ver jamás
+  // la invitación. El correo de la invitación debe coincidir con el de la
+  // sesión: si no coincide, se dice claro en lugar de dejar aceptar y
+  // fallar después. Si el enlace ya no vale, también se avisa.
+  const tokenEmailMismatch = !!tokenInvite && tokenInvite.email !== "" && myEmail !== "" && tokenInvite.email.trim().toLowerCase() !== myEmail.trim().toLowerCase();
+  const renderTokenInviteBanner = () => (
+    <>
+      {tokenInvite && !tokenDone && (
+        <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2" role="status">
+          <h2 className="font-display font-bold text-lg">{tokenInvite.kind==="household" && tokenInvite.generic ? "Invitación a probar la app" : "Invitación recibida por correo"}</h2>
+          {tokenInvite.kind==="household" && tokenInvite.generic && <p className="text-sm">Le invitan a probar SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Cree su cuenta y empiece con su propio espacio; este enlace no le da acceso al hogar de quien le invitó ni genera ninguna solicitud.</p>}
+          {tokenInvite.kind==="household" && !tokenInvite.generic && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará a ese hogar.</p>}
+          {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante.</p>}
+          {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
+          {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Ya se usó o venció. Solicite una nueva.</p>}
+          {tokenInvite.usable && tokenEmailMismatch && <p className="text-sm text-[var(--red)]">Esta invitación fue enviada a <b>{tokenInvite.email}</b>. Usted entró con <b>{myEmail}</b>. Inicie sesión con el correo invitado.</p>}
+          {tokenInvite.usable && tokenInvite.kind==="household" && tokenInvite.generic && (
+            <div className="flex gap-2">
+              <button type="button" className={btnPrimary} onClick={()=>{ setTokenInvite(null); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} }}>Empezar</button>
+            </div>
+          )}
+          {tokenInvite.usable && !tokenEmailMismatch && !(tokenInvite.kind==="household" && tokenInvite.generic) && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <input aria-label="Su nombre al aceptar la invitación del enlace" placeholder="Nombre" className={inputCls} value={joinFirst} onChange={e=>setJoinFirst(e.target.value)} />
+                <input aria-label="Su apellido al aceptar la invitación del enlace" placeholder="Apellido" className={inputCls} value={joinLast} onChange={e=>setJoinLast(e.target.value)} />
+              </div>
+              <div className="flex gap-2">
+                <button type="button" className={btnPrimary} onClick={()=>acceptTokenInvite.mutate({})} disabled={acceptTokenInvite.isPending}>{tokenInvite.kind==="general"?"Aceptar y crear mi cuenta":"Aceptar invitación"}</button>
+                <button type="button" className={btnGhost} onClick={()=>rejectTokenInvite.mutate()} disabled={rejectTokenInvite.isPending}>Rechazar</button>
+              </div>
+              {(acceptTokenInvite.error || rejectTokenInvite.error) && <p className="text-sm text-[var(--red)]">{String(acceptTokenInvite.error || rejectTokenInvite.error)}</p>}
+            </>
+          )}
+        </div>
+      )}
+      {tokenError && !tokenInvite && !tokenDone && (
+        <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2" role="status">
+          <h2 className="font-display font-bold text-lg">Invitación recibida por correo</h2>
+          <p className="text-sm text-[var(--red)]">Este enlace de invitación ya no funciona. Pida a quien le invitó que le envíe uno nuevo.</p>
+        </div>
+      )}
+      {tokenDone && <p className="text-sm text-[var(--green)] mt-4" role="status">Invitación respondida.</p>}
+    </>
+  );
   const [hhInvResult,setHhInvResult]=useState<InviteSend|null>(null);
   const [tInvResult,setTInvResult]=useState<Record<number,InviteSend>>({});
 
@@ -1348,7 +1416,7 @@ export function App(){
   // Al cambiar el mes que muestra el tablero, la lista de Inicio vuelve a mostrar solo los 5 más recientes.
   useEffect(()=>{ setShowAllHomeMovs(false); },[data?.summary?.currentMonth]);
   if(q.isPending) return <LoadingSplash />;
-  if(q.error) return <div className="min-h-screen bg-[var(--bg)] p-6"><p className="text-[var(--red)]">No se pudo cargar. {String(q.error)}</p><button className={btnPrimary} onClick={()=>q.refetch()}>Reintentar</button></div>;
+  if(q.error) return <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] p-6"><div className="max-w-xl mx-auto">{renderTokenInviteBanner()}<p className="text-[var(--red)] mt-4">No se pudo cargar. {String(q.error)}</p><button className={btnPrimary+" mt-3"} onClick={()=>q.refetch()}>Reintentar</button></div></div>;
   if(!data) return null;
 
   // ---- ONBOARDING ----
@@ -1393,35 +1461,7 @@ export function App(){
               </div>
             ))}
           </div>
-          {tokenInvite && !tokenDone && (
-            <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2" role="status">
-              <h2 className="font-display font-bold text-lg">{tokenInvite.kind==="household" && tokenInvite.generic ? "Invitación a probar la app" : "Invitación recibida por correo"}</h2>
-              {tokenInvite.kind==="household" && tokenInvite.generic && <p className="text-sm">Le invitan a probar SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Cree su cuenta y empiece con su propio espacio; este enlace no le da acceso al hogar de quien le invitó ni genera ninguna solicitud.</p>}
-              {tokenInvite.kind==="household" && !tokenInvite.generic && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará a ese hogar.</p>}
-              {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante.</p>}
-              {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
-              {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Ya se usó o venció. Solicite una nueva.</p>}
-              {tokenInvite.usable && tokenInvite.kind==="household" && tokenInvite.generic && (
-                <div className="flex gap-2">
-                  <button type="button" className={btnPrimary} onClick={()=>{ setTokenInvite(null); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} }}>Empezar</button>
-                </div>
-              )}
-              {tokenInvite.usable && !(tokenInvite.kind==="household" && tokenInvite.generic) && (
-                <>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input aria-label="Su nombre al aceptar la invitación del enlace" placeholder="Nombre" className={inputCls} value={joinFirst} onChange={e=>setJoinFirst(e.target.value)} />
-                    <input aria-label="Su apellido al aceptar la invitación del enlace" placeholder="Apellido" className={inputCls} value={joinLast} onChange={e=>setJoinLast(e.target.value)} />
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="button" className={btnPrimary} onClick={()=>acceptTokenInvite.mutate({})} disabled={acceptTokenInvite.isPending}>{tokenInvite.kind==="general"?"Aceptar y crear mi cuenta":"Aceptar invitación"}</button>
-                    <button type="button" className={btnGhost} onClick={()=>rejectTokenInvite.mutate()} disabled={rejectTokenInvite.isPending}>Rechazar</button>
-                  </div>
-                  {(acceptTokenInvite.error || rejectTokenInvite.error) && <p className="text-sm text-[var(--red)]">{String(acceptTokenInvite.error || rejectTokenInvite.error)}</p>}
-                </>
-              )}
-            </div>
-          )}
-          {tokenDone && <p className="text-sm text-[var(--green)] mt-4" role="status">Invitación respondida.</p>}
+          {renderTokenInviteBanner()}
           <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-2">
             <h2 className="font-display font-bold text-lg">Invitar a crear una cuenta personal</h2>
             <p className="text-sm text-[var(--dim)]">Recibirá un enlace directo.</p>
@@ -1844,6 +1884,7 @@ export function App(){
       </header>
 
       <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
+        {renderTokenInviteBanner()}
         {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-4 sm:p-5 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {savedNotice && <div ref={savedNoticeRef} className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 flex flex-wrap items-center gap-2" role="status"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--green)] text-white font-bold flex items-center justify-center text-sm">✓</span><p className="text-sm font-bold flex-1 min-w-40">{savedNotice}</p><button type="button" aria-label="Ir a Inicio" className="w-full sm:w-auto rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-6 py-3 text-base flex items-center justify-center gap-2 shrink-0" onClick={()=>{setSavedNotice(null);goTab("inicio");}}>↑ Ir a Inicio</button><button type="button" aria-label="Cerrar el aviso" onClick={()=>setSavedNotice(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
