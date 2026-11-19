@@ -2,6 +2,9 @@
 // «Invitaciones al hogar»: quien solicitó no tiene enlace de invitación,
 // así que no se le muestra el formulario de aceptación; el administrador
 // la aprueba o la rechaza, y cualquier integrante ve que está pendiente.
+// Borrar una solicitud pide confirmación en línea (mismo patrón que el
+// borrado de movimientos y de invitaciones): solo al confirmar se ejecuta.
+import { useState } from "react";
 const btnPrimary = "rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
 const btnGhost = "rounded-full border border-[var(--border)] bg-[var(--surface)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
 
@@ -12,6 +15,7 @@ export function JoinRequestRow(p: {
   onRespond: (id: number, accept: boolean) => void;
   onDelete: (id: number) => void;
 }) {
+  const [confirmDel, setConfirmDel] = useState(false);
   return (
     <div className="py-2.5 text-sm">
       <div className="flex justify-between gap-2 flex-wrap">
@@ -51,13 +55,27 @@ export function JoinRequestRow(p: {
             >
               Rechazar
             </button>
-            <button type="button" aria-label={`Borrar solicitud de ${p.inv.email}`} className="text-xs underline text-[var(--red)]" onClick={() => p.onDelete(p.inv.id)}>
+            <button type="button" aria-label={`Borrar solicitud de ${p.inv.email}`} className="text-xs underline text-[var(--red)]" onClick={() => setConfirmDel(!confirmDel)}>
               Borrar
             </button>
           </div>
         ) : (
           <p className="text-sm text-[var(--dim)] mt-2">Pendiente de aprobación por el administrador del hogar.</p>
         ))}
+      {p.inv.status === "pending" && p.isAdmin && confirmDel && (
+        <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
+          <p className="text-xs">¿Está seguro de eliminar esta solicitud?</p>
+          <p className="text-xs text-[var(--dim)] mt-1">La persona tendría que volver a solicitar entrar. Esta acción no se puede deshacer.</p>
+          <div className="flex gap-2 mt-2">
+            <button type="button" aria-label={`Confirmar la eliminación de la solicitud de ${p.inv.email}`} className={btnPrimary} onClick={() => p.onDelete(p.inv.id)}>
+              Eliminar
+            </button>
+            <button type="button" aria-label="Cancelar la eliminación de la solicitud" className={btnGhost} onClick={() => setConfirmDel(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
