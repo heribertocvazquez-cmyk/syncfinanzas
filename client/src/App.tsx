@@ -12,6 +12,7 @@ import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnl
 import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
 import { readStoredProfile, resolveActiveProfile, writeStoredProfile } from "./lib/activeProfile";
 import { categoryCounts, guideCounts, invitationCounts, sumBudgets, sumCashCounts, sumContributions, sumGoals, sumMonthMovements } from "./lib/cardSummaries";
+import { visibleNotifications } from "./lib/notifications";
 import { MovementsFilter } from "./components/MovementsFilter";
 import { DEFAULT_MOVEMENTS_FILTER, filterMovements, type MovementsFilterValue } from "./lib/movementsFilter";
 import { buildBalanceBreakdown } from "./lib/balanceBreakdown";
@@ -709,6 +710,10 @@ export function App(){
   // vacía y nada se rompe.
   const notifQuery=useQuery({queryKey:["notifications"],queryFn:()=>api.listNotifications({householdId:data!.household!.id}),enabled:!!data?.household});
   const unreadCount=notifQuery.data?.unreadCount??0;
+  // Avisos que se pintan en la campanilla: las opiniones de testers ya
+  // revisadas no se listan (ver lib/notifications.ts); los demás avisos
+  // leídos siguen visibles como historial.
+  const visibleNotifs=visibleNotifications(notifQuery.data?.notifications ?? []);
   // La campanilla también avisa de una versión nueva en espera: cuenta como
   // un aviso sin leer más.
   const bellCount = unreadCount + (updateAvailable ? 1 : 0);
@@ -1830,10 +1835,10 @@ export function App(){
               </div>
             </div>
             {notifQuery.isPending && <p className="text-sm text-[var(--dim)] mt-2">Cargando avisos…</p>}
-            {notifQuery.data && notifQuery.data.notifications.length===0 && !updateAvailable && <p className="text-sm text-[var(--dim)] mt-2">Sin avisos por ahora.</p>}
+            {notifQuery.data && visibleNotifs.length===0 && !updateAvailable && <p className="text-sm text-[var(--dim)] mt-2">Sin avisos por ahora.</p>}
             <UpdateBellNotice updateAvailable={updateAvailable} updateApplying={updateApplying} onUpdate={()=>{ setUpdateApplying(true); applyAppUpdate(); }} />
             <ul className="mt-2 space-y-2">
-              {notifQuery.data?.notifications.map(n=>(
+              {visibleNotifs.map(n=>(
                 <li key={n.id}>
                   <button type="button" className={`w-full text-left rounded-xl border p-3 ${n.isRead?"border-[var(--border)]":"border-[var(--gold)] bg-[var(--surface2)]"}`} onClick={()=>openNotif(n)}>
                     <p className="text-sm font-bold">{n.title}{!n.isRead && <span className="ml-2 inline-block w-2 h-2 rounded-full bg-[var(--red)]" aria-label="Sin leer" />}</p>
