@@ -160,10 +160,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     if (actionName === "getOverview") {
-      const m = await firstMembership(db, user.id);
-      if (m) {
-        householdId = m.householdId;
-        role = m.role as Role;
+      // Selector de hogar: si el cliente pide un hogar concreto, se valida
+      // la membresía (nunca se confía en lo que el cliente afirme); sin
+      // elección, la membresía más antigua (comportamiento actual).
+      if (typeof rawArgs.householdId === "number") {
+        await requireMember(rawArgs.householdId);
+      } else {
+        const m = await firstMembership(db, user.id);
+        if (m) {
+          householdId = m.householdId;
+          role = m.role as Role;
+        }
       }
     } else if (actionName === "createHousehold") {
       const m = await firstMembership(db, user.id);

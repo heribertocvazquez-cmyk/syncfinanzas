@@ -11,6 +11,8 @@ import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
 import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
 import { readStoredProfile, resolveActiveProfile, writeStoredProfile } from "./lib/activeProfile";
+import { clearStoredHousehold, readStoredHousehold, writeStoredHousehold } from "./lib/activeHousehold";
+import { HouseholdSwitcher } from "./components/HouseholdSwitcher";
 import { categoryCounts, guideCounts, invitationCounts, sumBudgets, sumCashCounts, sumContributions, sumGoals, sumMonthMovements } from "./lib/cardSummaries";
 import { visibleNotifications } from "./lib/notifications";
 import { MovementsFilter } from "./components/MovementsFilter";
@@ -678,11 +680,39 @@ export function App(){
   // Al elegir un perfil se guarda también con qué cuenta se eligió, para
   // que una elección hecha con otra cuenta no se herede al entrar.
   const pickProfile=(id:number|null)=>{ setCurrentProfileId(id); writeStoredProfile(id, myEmail); };
+  // Hogar activo (selector «Cambiar de hogar»): la elección guardada del
+  // dispositivo, atada a la cuenta con la marca «sf-household-user» (mismo
+  // patrón que el perfil). Sin elección, el despachador toma la membresía
+  // más antigua. Al cambiar, todo se recarga para ese hogar (la consulta
+  // del panorama lleva el hogar en su clave).
+  const [activeHouseholdId,setActiveHouseholdId]=useState<number|null>(()=>readStoredHousehold().id);
+  const pickHousehold=(id:number)=>{ setMenuOpen(false); if(id===activeHouseholdId) return; setActiveHouseholdId(id); writeStoredHousehold(id, myEmail); setTab("inicio"); };
+  // Cuando la sesión ya cargó, una elección guardada con otra cuenta no
+  // se hereda: se borra y se vuelve al hogar más antiguo de esta cuenta.
+  useEffect(()=>{
+    if(!myEmail) return;
+    const stored=readStoredHousehold();
+    if(stored.id!=null && stored.user && stored.user!==myEmail){ clearStoredHousehold(); setActiveHouseholdId(null); }
+  },[myEmail]);
   // Mes que muestra el tablero: null = mes en curso; el selector de mes y
   // año de la tarjeta Movimientos fija otro mes y el servidor recalcula
   // las cifras del mes sobre él.
   const [viewMonth,setViewMonth]=useState<string|null>(null);
-  const q=useQuery({queryKey:["overview",viewMonth],queryFn:()=>api.getOverview(viewMonth?{month:viewMonth}:{})});
+  const q=useQuery({queryKey:["overview",viewMonth,activeHouseholdId],queryFn:async()=>{
+    const baseArgs = viewMonth?{month:viewMonth}:{};
+    if(activeHouseholdId==null) return api.getOverview(baseArgs);
+    try { return await api.getOverview({...baseArgs, householdId: activeHouseholdId}); }
+    catch(e){
+      // La elección guardada ya no es membresía de esta cuenta (cambio de
+      // cuenta en el dispositivo, o se salió del hogar): se borra y se
+      // vuelve al hogar más antiguo, sin pantalla de error.
+      if(e instanceof Error && e.message.includes("No pertenece a este hogar.")){
+        clearStoredHousehold(); setActiveHouseholdId(null);
+        return api.getOverview(baseArgs);
+      }
+      throw e;
+    }
+  }});
   const inv=()=>{ qc.invalidateQueries({queryKey:["overview"]}); qc.invalidateQueries({queryKey:["notifications"]}); };
   const data=q.data;
   // Opiniones de testers (segunda etapa): se consultan solo si hay hogar y
@@ -980,7 +1010,7 @@ export function App(){
   const [resetStep,setResetStep]=useState(0); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false); const [savedNotice,setSavedNotice]=useState<string|null>(null);
   const savedNoticeRef=useRef<HTMLDivElement|null>(null);
   useEffect(()=>{ if(savedNotice){ savedNoticeRef.current?.scrollIntoView({behavior:"smooth",block:"center"}); } },[savedNotice]);
-  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTab("inicio"); pickProfile(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); localStorage.removeItem("sf-pin-hash"); sessionStorage.removeItem("sf-pin-unlocked"); localStorage.removeItem("sf-periodic-alerts-date"); }catch{} }});
+  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTab("inicio"); pickProfile(null); clearStoredHousehold(); setActiveHouseholdId(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); localStorage.removeItem("sf-pin-hash"); sessionStorage.removeItem("sf-pin-unlocked"); localStorage.removeItem("sf-periodic-alerts-date"); }catch{} }});
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persAccountError,setPersAccountError]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
@@ -1780,6 +1810,9 @@ export function App(){
           </div>
           <p className="text-sm text-[var(--dim)] mt-2">Disponible</p>
           <p className="font-display text-2xl font-extrabold">{money2(s.availableFree)}</p>
+          {(data.households ?? []).length>1 && (
+            <HouseholdSwitcher households={data.households ?? []} activeId={hh.id} onPick={pickHousehold} />
+          )}
         </div>
         <DrawerMenu
           sections={drawerSections}

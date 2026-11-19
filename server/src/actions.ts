@@ -716,9 +716,10 @@ async function findUserIdByEmail(db: Ctx["db"], email: string): Promise<string |
 export const Actions = {
   getOverview: defineAction({
     description: "Returns the full household state with computed totals that always reconcile.",
-    request: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() }),
+    request: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(), householdId: z.number().int().positive().optional() }),
     response: z.object({
       household: z.object({ id: z.number(), name: z.string(), currency: z.string(), cutoffDay: z.number(), contributionRule: z.string(), approvalRule: z.string(), approvalThreshold: z.number(), mode: z.string() }).nullable(),
+      households: z.array(z.object({ id: z.number(), name: z.string(), role: z.string() })),
       profiles: z.array(z.object({ id: z.number(), name: z.string(), lastName: z.string().nullable(), role: z.string(), email: z.string().nullable(), kind: z.string(), dependentType: z.string().nullable(), monthlyIncome: z.number(), fixedCommitments: z.number(), capacity: z.number() })), myProfileId: z.number().nullable(), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string(), householdName: z.string(), requested: z.boolean() })),
       accounts: z.array(z.object({ id: z.number(), name: z.string(), type: z.string(), visibility: z.string(), initialBalance: z.number(), balance: z.number(), ownerProfileId: z.number().nullable() })),
       categories: z.array(z.object({ id: z.number(), name: z.string(), kind: z.string(), isSystem: z.number(), isActive: z.number(), subcategories: z.array(z.string()) })),
@@ -764,11 +765,20 @@ export const Actions = {
       const hh = hhRows[0];
       if (!hh) {
         return {
-          household: null, profiles: [], myProfileId: null, invitations: [], accounts: [], categories: [], movements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
+          household: null, households: [], profiles: [], myProfileId: null, invitations: [], accounts: [], categories: [], movements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
           personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth, contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
         };
       }
       const hid = hh.id;
+      // Hogares del usuario (selector de hogar): todas sus membresías, la
+      // más antigua primero (mismo orden que el despachador usa por
+      // defecto). El cliente muestra el control «Cambiar de hogar» solo
+      // con más de un hogar; la elección se valida en el despachador, no
+      // aquí. Las membresías sin hogar (huérfanas) no se listan.
+      const myMemberships = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.userId, ctx.user.id)).orderBy(schema.householdMembers.id);
+      const myHouseholdIds = myMemberships.map(m => m.householdId);
+      const myHouseholdsR = myHouseholdIds.length > 0 ? await db.select().from(schema.households).where(inArray(schema.households.id, myHouseholdIds)) : [];
+      const households = myMemberships.filter(m => myHouseholdsR.some(h => h.id === m.householdId)).map(m => ({ id: m.householdId, name: myHouseholdsR.find(h => h.id === m.householdId)?.name ?? "", role: m.role }));
       // Consultas en secuencia, NO en Promise.all: con una sola conexión
       // Postgres (max: 1, pooler de Supabase en modo transacción), lanzar
       // 17 consultas a la vez atasca la conexión y la petición se cuelga
@@ -1093,6 +1103,7 @@ export const Actions = {
 
       return {
         household: { id: hh.id, name: hh.name, currency: hh.currency, cutoffDay: hh.cutoffDay, contributionRule: hh.contributionRule, approvalRule: hh.approvalRule, approvalThreshold: hh.approvalThreshold, mode: hh.mode },
+        households,
         profiles: profilesR.map(p=>({ id: p.id, name: p.name, lastName: p.lastName ?? null, role: p.role, email: p.email ?? null, kind: p.kind, dependentType: p.dependentType ?? null, monthlyIncome: p.monthlyIncome, fixedCommitments: p.fixedCommitments, capacity: Math.max(0, p.monthlyIncome - p.fixedCommitments) })),
         myProfileId,
         accounts,
