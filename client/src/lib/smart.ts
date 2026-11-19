@@ -119,6 +119,32 @@ function decimalAmounts(line: string): number[] {
   return out;
 }
 
+// Importe DESPUÉS de la etiqueta en la misma línea («Monto $100.00»,
+// «Importe: $500.00», «Cantidad: $100.00», «Transferiste $100.00»):
+// se toma el PRIMER importe después de la etiqueta. En un comprobante
+// de dos columnas las columnas se pegan al leer («Monto $100.00 IVA
+// $0.00»): el último importe de la línea sería el IVA, no el monto.
+function amountAfterLabel(line: string): number | null {
+  const m = /\b(monto|importe|cantidad|transfer\w*)/i.exec(line);
+  if (!m) return null;
+  const rest = line.slice(m.index + m[0].length);
+  const dec = decimalAmounts(rest);
+  if (dec.length > 0) return dec[0]!;
+  const amts = amountsIn(rest);
+  return amts.length > 0 ? amts[0]! : null;
+}
+
+// Línea que es solo un importe («$100.00», «100.00 MXN»): en un SPEI de
+// dos columnas el valor queda solo en su línea. Sin decimales no cuenta
+// (un folio, una fecha o una cuenta no es un importe) y cero no cuenta.
+function bareAmount(line: string): number | null {
+  const m = /^\$?\s*(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+,\d{2}|\d+\.\d{1,2})\s*(mxn|pesos)?\.?$/i.exec(line.trim());
+  if (!m) return null;
+  const raw = m[1]!;
+  const v = raw.includes(".") ? Number(raw.replace(/,/g, "")) : Number(raw.replace(",", "."));
+  return Number.isFinite(v) && v > 0 && v < 1000000 ? v : null;
+}
+
 // Tabla de categorías sugeridas del lector propio (la del previo): palabras
 // de comercios y giros comunes en México → etiqueta sugerida. La etiqueta
 // es solo una sugerencia: la app siempre usa las categorías reales del
@@ -231,10 +257,12 @@ export type ReceiptDateCheck = { readDate: string; reason: "future" | "other-yea
 export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   // Comprobante de transferencia (SPEI): no trae línea de "total"; el
-  // importe va en la línea "Monto" o "Importe" y el concepto en
-  // "Concepto:" o en el beneficiario. Se detecta por las palabras de
-  // transferencia, pero la línea de total de un ticket siempre gana.
-  const isTransferDoc = /transferencia|spei/.test(normText(text));
+  // importe va en la línea "Monto", "Importe" o "Cantidad", en la línea
+  // de la transferencia misma («Transferiste $100.00») o solo en su
+  // línea («$100.00» grande arriba, como en la pantalla de la app del
+  // banco). Se detecta por las palabras de transferencia, pero la línea
+  // de total de un ticket siempre gana.
+  const isTransferDoc = /transfer|spei/.test(normText(text));
   let total: number | null = null;
   // La línea de total es la que dice "total" sin ser "subtotal".
   const totalLines = lines.filter((l) => {
@@ -246,15 +274,32 @@ export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
     if (amts.length > 0) total = amts[amts.length - 1]!;
   }
   if (total == null && isTransferDoc) {
-    // Transferencia sin línea de total: el importe de la línea "Monto"
-    // o "Importe". El folio, la clave de rastreo y las cuentas son
-    // números largos sin decimales y no cuentan como importe.
-    for (const l of lines) {
-      const n = normText(l);
-      if (!/\bmonto\b/.test(n) && !/\bimporte\b/.test(n)) continue;
-      const dec = decimalAmounts(l);
-      const amts = dec.length > 0 ? dec : amountsIn(l);
-      if (amts.length > 0) { total = amts[amts.length - 1]!; break; }
+    // Transferencia sin línea de total. El folio, la clave de rastreo y
+    // las cuentas son números largos sin decimales y no cuentan como
+    // importe. En un comprobante de dos columnas (CEP de Banxico) la
+    // etiqueta puede quedar sola en su línea y el valor en la siguiente;
+    // y en una captura de la app el importe va solo en su línea.
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]!;
+      const a = amountAfterLabel(l);
+      if (a != null) { total = a; break; }
+      // Etiqueta sola en su línea («Monto») con el valor en la
+      // siguiente («$100.00»): solo vale si la siguiente es solo un
+      // importe; si fuera «IVA $0.00» no es el monto.
+      if (/\b(monto|importe|cantidad)\b/.test(normText(l)) && i + 1 < lines.length) {
+        const b = bareAmount(lines[i + 1]!);
+        if (b != null) { total = b; break; }
+      }
+    }
+    if (total == null) {
+      // Importe solo en su línea en todo el comprobante: el mayor mayor
+      // que cero (el IVA o la comisión en $0.00 no cuentan).
+      let best = 0;
+      for (const l of lines) {
+        const b = bareAmount(l);
+        if (b != null && b > best) best = b;
+      }
+      if (best > 0) total = best;
     }
   }
   if (total == null) {

@@ -974,7 +974,7 @@ export function App(){
     if(target==="mv"){ if(mvCat==="" || appliedRuleMv){ setMvCat(String(r.categoryId)); setAppliedRuleMv({keyword:r.keyword,categoryName:cat.name}); } }
     else { if(persCat==="" || appliedRulePers){ setPersCat(String(r.categoryId)); setAppliedRulePers({keyword:r.keyword,categoryName:cat.name}); } }
   };
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();resetMvForm();if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}setSavedNotice("Movimiento guardado.");}});
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();resetMvForm();if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}}});
   const [confirmDeleteMvId,setConfirmDeleteMvId]=useState<number|null>(null);
   const [confirmDelInvId,setConfirmDelInvId]=useState<number|null>(null);
   const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:()=>{inv();setConfirmDeleteMvId(null);}});
@@ -983,18 +983,18 @@ export function App(){
 
   // account form
   const [accFormName,setAccFormName]=useState(""); const [accType,setAccType]=useState<"bank"|"cash"|"credit"|"investment"|"loan">("bank"); const [accVis,setAccVis]=useState<"private"|"shared">("shared"); const [accInit,setAccInit]=useState("0"); const [editingAcc,setEditingAcc]=useState<number|null>(null);
-  const saveAcc=useMutation({mutationFn:async()=>await api.saveAccount({id:editingAcc??undefined,householdId:data!.household!.id,name:accFormName,type:accType,visibility:accVis,initialBalance:Number(accInit)||0}),onSuccess:()=>{inv();setAccFormName("");setEditingAcc(null);setSavedNotice("Cuenta guardada.");}});
+  const saveAcc=useMutation({mutationFn:async()=>await api.saveAccount({id:editingAcc??undefined,householdId:data!.household!.id,name:accFormName,type:accType,visibility:accVis,initialBalance:Number(accInit)||0}),onSuccess:()=>{inv();setAccFormName("");setEditingAcc(null);}});
   const delAcc=useMutation({mutationFn:async(id:number)=>await api.deleteAccount({id}),onSuccess:inv});
 
   // Arqueo de cuentas (auditoría): lo contado en físico por cada cuenta y
   // en efectivo, contra lo que dice la app. La diferencia se calcula en
   // pantalla y el servidor la vuelve a calcular al guardar.
   const [ccOpen,setCcOpen]=useState(false); const [ccCounted,setCcCounted]=useState<Record<string,string>>({}); const [ccNote,setCcNote]=useState(""); const [ccError,setCcError]=useState(""); const [ccExpanded,setCcExpanded]=useState<number|null>(null);
-  const saveCc=useMutation({mutationFn:async()=>{ const lines: {accountId:number|null;counted:number}[] = []; const cash=ccCounted["cash"]; if(cash!=null && cash!=="" && Number(cash)>=0) lines.push({accountId:null,counted:Number(cash)}); for(const a of data!.accounts){ const v=ccCounted[`acc-${a.id}`]; if(v!=null && v!=="" && Number(v)>=0) lines.push({accountId:a.id,counted:Number(v)}); } if(lines.length===0) throw new Error("Anote al menos una cantidad contada."); return await api.saveCashCount({householdId:data!.household!.id,lines,note:ccNote}); },onSuccess:()=>{inv(); qc.invalidateQueries({queryKey:["cashCounts"]}); setCcCounted({}); setCcNote(""); setCcError(""); setCcOpen(false); setSavedNotice("Arqueo guardado.");},onError:(e:Error)=>{setCcError(e.message);}});
+  const saveCc=useMutation({mutationFn:async()=>{ const lines: {accountId:number|null;counted:number}[] = []; const cash=ccCounted["cash"]; if(cash!=null && cash!=="" && Number(cash)>=0) lines.push({accountId:null,counted:Number(cash)}); for(const a of data!.accounts){ const v=ccCounted[`acc-${a.id}`]; if(v!=null && v!=="" && Number(v)>=0) lines.push({accountId:a.id,counted:Number(v)}); } if(lines.length===0) throw new Error("Anote al menos una cantidad contada."); return await api.saveCashCount({householdId:data!.household!.id,lines,note:ccNote}); },onSuccess:()=>{inv(); qc.invalidateQueries({queryKey:["cashCounts"]}); setCcCounted({}); setCcNote(""); setCcError(""); setCcOpen(false); },onError:(e:Error)=>{setCcError(e.message);}});
 
   // budget
   const [budCat,setBudCat]=useState(""); const [budMonth,setBudMonth]=useState(monthNow()); const [budAmount,setBudAmount]=useState(""); const [budVis,setBudVis]=useState<"private"|"shared">("shared");
-  const saveBud=useMutation({mutationFn:async()=>await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis}),onSuccess:()=>{inv();setBudAmount("");setSavedNotice("Presupuesto guardado.");}});
+  const saveBud=useMutation({mutationFn:async()=>await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis}),onSuccess:()=>{inv();setBudAmount("");}});
   const delBud=useMutation({mutationFn:async(id:number)=>await api.deleteBudget({id}),onSuccess:inv});
 
   // category
@@ -1003,7 +1003,7 @@ export function App(){
 
   // fund
   const [fundName,setFundName]=useState(""); const [fundTarget,setFundTarget]=useState(""); const [fundAmt,setFundAmt]=useState<Record<number,string>>({});
-  const saveFund=useMutation({mutationFn:async()=>await api.saveFund({householdId:data!.household!.id,name:fundName,targetAmount:fundTarget?Number(fundTarget):null,visibility:"shared"}),onSuccess:()=>{inv();setFundName("");setFundTarget("");setSavedNotice("Fondo guardado.");}});
+  const saveFund=useMutation({mutationFn:async()=>await api.saveFund({householdId:data!.household!.id,name:fundName,targetAmount:fundTarget?Number(fundTarget):null,visibility:"shared"}),onSuccess:()=>{inv();setFundName("");setFundTarget("");}});
   const fundMove=useMutation({mutationFn:async(v:{fundId:number;type:"contribution"|"withdrawal";amount:number})=>await api.addFundMovement({householdId:data!.household!.id,fundId:v.fundId,type:v.type,amount:v.amount,date:todayISO()}),onSuccess:inv});
   const delFund=useMutation({mutationFn:async(id:number)=>await api.deleteFund({id}),onSuccess:inv});
 
@@ -1019,11 +1019,11 @@ export function App(){
   const [showSummary,setShowSummary]=useState(false);
   const [helpOpen,setHelpOpen]=useState(false);
   const [showAllHomeMovs,setShowAllHomeMovs]=useState(false);
-  const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setSavedNotice("Meta guardada.");}});
+  const saveGoal=useMutation({mutationFn:async()=>await api.saveGoal({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared"}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number})=>await api.addGoalSaving(v),onSuccess:inv});
-  const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:()=>{inv();setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");setSavedNotice("Gasto registrado.");}});
-  const contributeGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number|null})=>await api.addGoalSaving(v),onSuccess:()=>{inv();setQuickGoal(null);setQuickGoalAmt("");setQuickGoalAcc("");setSavedNotice("Aporte registrado.");}});
-  const updatePat=useMutation({mutationFn:async(v:{id:number;name:string;kind:string;category:string;value:number;owner:string|null})=>await api.savePatrimony({id:v.id,householdId:data!.household!.id,name:v.name,kind:v.kind as "asset"|"liability",category:v.category,value:v.value,owner:v.owner??undefined}),onSuccess:()=>{inv();setQuickPat(null);setQuickPatVal("");setSavedNotice("Patrimonio actualizado.");}});
+  const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:()=>{inv();setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");}});
+  const contributeGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number|null})=>await api.addGoalSaving(v),onSuccess:()=>{inv();setQuickGoal(null);setQuickGoalAmt("");setQuickGoalAcc("");}});
+  const updatePat=useMutation({mutationFn:async(v:{id:number;name:string;kind:string;category:string;value:number;owner:string|null})=>await api.savePatrimony({id:v.id,householdId:data!.household!.id,name:v.name,kind:v.kind as "asset"|"liability",category:v.category,value:v.value,owner:v.owner??undefined}),onSuccess:()=>{inv();setQuickPat(null);setQuickPatVal("");}});
   const delGoal=useMutation({mutationFn:async(id:number)=>await api.deleteGoal({id}),onSuccess:inv});
 
   // plan de ahorro para una meta
@@ -1032,8 +1032,8 @@ export function App(){
   const [planMonths,setPlanMonths]=useState("");
   const [planError,setPlanError]=useState("");
   const analyzePlan=useMutation({mutationFn:async(v:{goalId:number;months?:number})=>{ const g=data!.goals.find(x=>x.id===v.goalId)!; return await api.analyzeGoalPlan({householdId:data!.household!.id,goalId:g.id,name:g.name,targetAmount:g.targetAmount,savedAmount:g.savedAmount,targetDate:g.targetDate??undefined,months:v.months}); },onSuccess:(r,v)=>{setPlanGoalId(v.goalId);setPlanResult(r);setPlanMonths(String(r.months));setPlanError("");},onError:(e:Error)=>{setPlanError(e.message);}});
-  const acceptPlan=useMutation({mutationFn:async(v:{goalId:number;monthlyAmount:number;months:number;dueDay:number})=>await api.acceptGoalPlan({householdId:data!.household!.id,...v}),onSuccess:()=>{inv();setPlanResult(null);setPlanGoalId(null);setSavedNotice("Plan de ahorro guardado.");},onError:(e:Error)=>{setPlanError(e.message);}});
-  const cancelPlan=useMutation({mutationFn:async(goalId:number)=>await api.cancelGoalPlan({householdId:data!.household!.id,goalId}),onSuccess:()=>{inv();setSavedNotice("Plan cancelado. El fondo y el dinero se conservan.");}});
+  const acceptPlan=useMutation({mutationFn:async(v:{goalId:number;monthlyAmount:number;months:number;dueDay:number})=>await api.acceptGoalPlan({householdId:data!.household!.id,...v}),onSuccess:()=>{inv();setPlanResult(null);setPlanGoalId(null);},onError:(e:Error)=>{setPlanError(e.message);}});
+  const cancelPlan=useMutation({mutationFn:async(goalId:number)=>await api.cancelGoalPlan({householdId:data!.household!.id,goalId}),onSuccess:()=>{inv();}});
 
   // ajuste automático de gastos para llegar a la meta
   type AdjAnalysis = Awaited<ReturnType<typeof api.analyzeSpendingAdjustment>>;
@@ -1043,9 +1043,9 @@ export function App(){
   const [adjCuts,setAdjCuts]=useState<Record<number,string>>({});
   const [adjPropCuts,setAdjPropCuts]=useState<Record<number,Record<number,string>>>({});
   const analyzeAdj=useMutation({mutationFn:async(goalId:number)=>await api.analyzeSpendingAdjustment({householdId:data!.household!.id,goalId}),onSuccess:(r,v)=>{setAdjGoalId(v);setAdjAnalysis(r);setAdjCuts(Object.fromEntries(r.cuts.map(c=>[c.budgetId,String(c.cut)])));setAdjError("");},onError:(e:Error)=>{setAdjError(e.message);}});
-  const proposeAdj=useMutation({mutationFn:async(v:{goalId:number;kind:"recorte"|"sobrante";cuts?:{budgetId:number;amount:number}[]})=>await api.proposeSpendingAdjustment({householdId:data!.household!.id,...v}),onSuccess:()=>{inv();setAdjAnalysis(null);setAdjGoalId(null);setSavedNotice("Ajuste propuesto. Se envió el aviso a su hogar antes de mover nada.");},onError:(e:Error)=>{setAdjError(e.message);}});
-  const acceptAdj=useMutation({mutationFn:async(v:{id:number;cuts?:{budgetId:number;amount:number}[]})=>await api.acceptSpendingAdjustment(v),onSuccess:()=>{inv();setSavedNotice("Ajuste aplicado.");},onError:(e:Error)=>{setAdjError(e.message);}});
-  const rejectAdj=useMutation({mutationFn:async(id:number)=>await api.rejectSpendingAdjustment({id}),onSuccess:()=>{inv();setSavedNotice("Ajuste rechazado. No se movió nada.");},onError:(e:Error)=>{setAdjError(e.message);}});
+  const proposeAdj=useMutation({mutationFn:async(v:{goalId:number;kind:"recorte"|"sobrante";cuts?:{budgetId:number;amount:number}[]})=>await api.proposeSpendingAdjustment({householdId:data!.household!.id,...v}),onSuccess:()=>{inv();setAdjAnalysis(null);setAdjGoalId(null);},onError:(e:Error)=>{setAdjError(e.message);}});
+  const acceptAdj=useMutation({mutationFn:async(v:{id:number;cuts?:{budgetId:number;amount:number}[]})=>await api.acceptSpendingAdjustment(v),onSuccess:()=>{inv();},onError:(e:Error)=>{setAdjError(e.message);}});
+  const rejectAdj=useMutation({mutationFn:async(id:number)=>await api.rejectSpendingAdjustment({id}),onSuccess:()=>{inv();},onError:(e:Error)=>{setAdjError(e.message);}});
 
   // agreement
   const [agTitle,setAgTitle]=useState(""); const [agDesc,setAgDesc]=useState(""); const [voteProfile,setVoteProfile]=useState("");
@@ -1068,14 +1068,12 @@ export function App(){
   const saveHh=useMutation({mutationFn:async()=>await api.updateHousehold({id:data!.household!.id,mode:editMode,name:editName||data!.household!.name,currency:"MXN",cutoffDay:Number(editCutoff)||1,contributionRule:editContrib,approvalRule:editApproval,approvalThreshold:Number(editThreshold)||0}),onSuccess:inv});
   const demo=useMutation({mutationFn:async()=>await api.loadDemo({householdId:data!.household!.id}),onSuccess:inv});
   // Reinicio completo de la aplicación (botón dentro del menú desplegable de módulos)
-  const [resetStep,setResetStep]=useState(0); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false); const [savedNotice,setSavedNotice]=useState<string|null>(null);
-  const savedNoticeRef=useRef<HTMLDivElement|null>(null);
-  useEffect(()=>{ if(savedNotice){ savedNoticeRef.current?.scrollIntoView({behavior:"smooth",block:"center"}); } },[savedNotice]);
+  const [resetStep,setResetStep]=useState(0); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false);
   const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTab("inicio"); pickProfile(null); clearStoredHousehold(); setActiveHouseholdId(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); localStorage.removeItem("sf-pin-hash"); sessionStorage.removeItem("sf-pin-unlocked"); localStorage.removeItem("sf-periodic-alerts-date"); }catch{} }});
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persAccountError,setPersAccountError]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();resetPersForm();setSavedNotice("Gasto del día guardado.");}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();resetPersForm();}});
   // Mike dinámico: preguntas con cifras reales del mes que se está viendo,
   // calculadas en el dispositivo con los datos ya cargados (sin llamadas nuevas
   // ni servicios externos). Las respuestas usan solo los movimientos que el
@@ -1144,7 +1142,7 @@ export function App(){
   },[tandaDetailId, data?.household?.id]);
   const [tInvEmail,setTInvEmail]=useState<Record<number,string>>({}); const [tInvName,setTInvName]=useState<Record<number,string>>({}); const [tJoinName,setTJoinName]=useState<Record<number,string>>({});
   const [rateName,setRateName]=useState<Record<number,string>>({}); const [rateStars,setRateStars]=useState<Record<number,string>>({}); const [rateComment,setRateComment]=useState<Record<number,string>>({});
-  const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined,coverageRule:tandaCoverage,fineAmount:Number(tandaFine)||0,meetingDay:tandaMeeting,treasurerProfileId:tandaTreasurer?Number(tandaTreasurer):null,substituteProfileId:tandaSubstitute?Number(tandaSubstitute):null}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");setTandaFine("");setTandaMeeting("");setTandaTreasurer("");setTandaSubstitute("");setSavedNotice("Tanda creada.");}});
+  const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined,coverageRule:tandaCoverage,fineAmount:Number(tandaFine)||0,meetingDay:tandaMeeting,treasurerProfileId:tandaTreasurer?Number(tandaTreasurer):null,substituteProfileId:tandaSubstitute?Number(tandaSubstitute):null}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");setTandaFine("");setTandaMeeting("");setTandaTreasurer("");setTandaSubstitute("");}});
   const setRole=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;role:"organizador"|"tesorero"|"suplente"|"participante"})=>await api.setTandaRole(v),onSuccess:inv});
   const addFine=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;reason:"retardo"|"falta"})=>await api.addTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   const payFine=useMutation({mutationFn:async(v:{tandaId:number;fineId:number})=>await api.payTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
@@ -1186,7 +1184,7 @@ export function App(){
   const confirmTandaProof=()=>{
     const r=tandaProofReview; if(!r) return;
     if(r.dateCheck) return;
-    uploadProof.mutate({tandaId:r.tandaId,participantId:r.participantId,quincenaIndex:r.quincenaIndex,file:r.file,paidDate:r.paidDate,readAmount:r.detail?.total ?? null},{onSuccess:()=>{ setTandaProofReview(null); setSavedNotice("Pago registrado con comprobante."); }});
+    uploadProof.mutate({tandaId:r.tandaId,participantId:r.participantId,quincenaIndex:r.quincenaIndex,file:r.file,paidDate:r.paidDate,readAmount:r.detail?.total ?? null},{onSuccess:()=>{ setTandaProofReview(null); }});
   };
   const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   const createTandaInv=useMutation({mutationFn:async(v:{tandaId:number})=>await api.createTandaInvitation({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,email:tInvEmail[v.tandaId]||"",invitedName:tInvName[v.tandaId]||undefined}),onSuccess:(r,v)=>{inv();setTInvResult(p=>({...p,[v.tandaId]:{emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}}));setTInvEmail(p=>({...p,[v.tandaId]:""}));setTInvName(p=>({...p,[v.tandaId]:""}));}});
@@ -1208,12 +1206,12 @@ export function App(){
   const createMpOrder=useMutation({
     mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.createMercadoPagoOrder({householdId:tandaHouseholdId(v.tandaId),...v}),
     onMutate:()=>{ try{ mpTabRef.current=window.open("about:blank","_blank"); }catch{ mpTabRef.current=null; } },
-    onSuccess:(r,v)=>{ mpSaveOrder(v.tandaId,v.quincenaIndex,r.orderId); const tab=mpTabRef.current; mpTabRef.current=null; if(tab && !tab.closed) tab.location.href=r.checkoutUrl; else window.open(r.checkoutUrl,"_blank","noopener"); inv(); setSavedNotice("Se abrió el pago de Mercado Pago (PRUEBA) en otra pestaña. En PRUEBA, pague con una cuenta compradora de prueba de Mercado Pago, no con su cuenta real; si tiene una sesión abierta, ciérrela o use una ventana de incógnito. Al volver, el organizador verifica el pago."); },
+    onSuccess:(r,v)=>{ mpSaveOrder(v.tandaId,v.quincenaIndex,r.orderId); const tab=mpTabRef.current; mpTabRef.current=null; if(tab && !tab.closed) tab.location.href=r.checkoutUrl; else window.open(r.checkoutUrl,"_blank","noopener"); inv(); },
     onError:()=>{ const tab=mpTabRef.current; mpTabRef.current=null; try{ tab?.close(); }catch{} },
   });
   const checkMpOrder=useMutation({
     mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;orderId:string})=>await api.checkMercadoPagoOrder({householdId:tandaHouseholdId(v.tandaId),...v}),
-    onSuccess:(r,v)=>{ if(r.paid){ mpClearOrder(v.tandaId,v.quincenaIndex); inv(); setSavedNotice("Pago confirmado por Mercado Pago."); } else { setSavedNotice("El pago aún no aparece como aprobado en Mercado Pago. Inténtelo de nuevo en un momento."); } },
+    onSuccess:(r,v)=>{ if(r.paid){ mpClearOrder(v.tandaId,v.quincenaIndex); inv(); } else { } },
   });
   const [mvProfile,setMvProfile]=useState("");
   const [receipt,setReceipt]=useState<{dataBase64:string;mimeType:string;preview:string;file?:File}|null>(null);
@@ -1244,7 +1242,7 @@ export function App(){
   const respondInv2=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:acceptFirst[v.id]||undefined,lastName:acceptLast[v.id]||undefined}),onSuccess:(r)=>{ inv(); if(r.profileId) pickProfile(r.profileId); }});
   // Aprobar o rechazar una solicitud de ingreso (código del hogar). Solo el
   // administrador ve los botones; el servidor vuelve a verificar el rol.
-  const respondJoinReq=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondJoinRequest({id:v.id,accept:v.accept}),onSuccess:(r,v)=>{ inv(); setSavedNotice(v.accept ? (r.accepted ? "La persona ya es integrante del hogar." : "Aprobada. La persona debe aceptar la invitación desde su cuenta para entrar.") : "Solicitud rechazada."); }});
+  const respondJoinReq=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondJoinRequest({id:v.id,accept:v.accept}),onSuccess:()=>{ inv(); }});
   const delInv=useMutation({mutationFn:async(id:number)=>await api.deleteInvitation({id}),onSuccess:inv});
 
   // subcategorías editables + lectura automática del comprobante
@@ -1330,7 +1328,7 @@ export function App(){
   const [ocrDetailPers,setOcrDetailPers]=useState<ReceiptRead|null>(null);
   const [ocrLabelMv,setOcrLabelMv]=useState(""); const [ocrLabelPers,setOcrLabelPers]=useState("");
   const [ocrNewCatName,setOcrNewCatName]=useState("");
-  const createCat=useMutation({mutationFn:async(v:{target:"mv"|"pers";name:string;kind:"income"|"expense"})=>await api.saveCategory({householdId:data!.household!.id,name:v.name,kind:v.kind,subcategories:[],isActive:1}),onSuccess:(r,v)=>{inv(); if(v.target==="mv"){ if(r.id) setMvCat(String(r.id)); setOcrLabelMv(""); } else { if(r.id) setPersCat(String(r.id)); setOcrLabelPers(""); } setOcrNewCatName(""); setNewCatName(""); setSavedNotice("Categoría creada y seleccionada.");}});
+  const createCat=useMutation({mutationFn:async(v:{target:"mv"|"pers";name:string;kind:"income"|"expense"})=>await api.saveCategory({householdId:data!.household!.id,name:v.name,kind:v.kind,subcategories:[],isActive:1}),onSuccess:(r,v)=>{inv(); if(v.target==="mv"){ if(r.id) setMvCat(String(r.id)); setOcrLabelMv(""); } else { if(r.id) setPersCat(String(r.id)); setOcrLabelPers(""); } setOcrNewCatName(""); setNewCatName(""); }});
   // Reinicio completo de los formularios de movimiento: tras guardar, el
   // formulario debe quedar como recién abierto (sin foto, sin nota del
   // lector, sin concepto ni importe, fecha de hoy, paso 1). Antes solo se
@@ -1439,7 +1437,7 @@ export function App(){
       setImportRows(rows); setImportFileName(file.name);
     }catch{ setImportError("No se pudo leer el archivo CSV."); }
   };
-  const importMv=useMutation({mutationFn:async(rows:ImportRow[])=>await api.importMovements({householdId:data!.household!.id,movements:rows.filter(r=>r.include).map(r=>({type:r.type,amount:r.amount,concept:r.concept,categoryId:r.categoryId,date:r.date,visibility:"shared" as const,accountId:r.accountId}))}),onSuccess:(r)=>{ inv(); setImportRows(null); setImportOpen(false); setSavedNotice(`Se importaron ${r.imported} movimiento(s)${r.skipped?` · ${r.skipped} duplicado(s) no se importaron`:""}.`); }});
+  const importMv=useMutation({mutationFn:async(rows:ImportRow[])=>await api.importMovements({householdId:data!.household!.id,movements:rows.filter(r=>r.include).map(r=>({type:r.type,amount:r.amount,concept:r.concept,categoryId:r.categoryId,date:r.date,visibility:"shared" as const,accountId:r.accountId}))}),onSuccess:()=>{ inv(); setImportRows(null); setImportOpen(false); }});
   // Formulario de reglas en Categorías.
   const [ruleKeyword,setRuleKeyword]=useState(""); const [ruleCat,setRuleCat]=useState("");
 
@@ -1946,7 +1944,6 @@ export function App(){
       <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
         {renderTokenInviteBanner()}
         {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-4 sm:p-5 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
-        {savedNotice && <div ref={savedNoticeRef} className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 flex flex-wrap items-center gap-2" role="status"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--green)] text-white font-bold flex items-center justify-center text-sm">✓</span><p className="text-sm font-bold flex-1 min-w-40">{savedNotice}</p><button type="button" aria-label="Ir a Inicio" className="w-full sm:w-auto rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-6 py-3 text-base flex items-center justify-center gap-2 shrink-0" onClick={()=>{setSavedNotice(null);goTab("inicio");}}>↑ Ir a Inicio</button><button type="button" aria-label="Cerrar el aviso" onClick={()=>setSavedNotice(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
           <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 sm:p-3.5" role="status">
             <div className="flex items-start justify-between gap-2">
