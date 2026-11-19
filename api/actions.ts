@@ -47,7 +47,7 @@ async function firstMembership(db: ReturnType<typeof getDb>, userId: string) {
 
 // Acciones que se identifican solo por id: el hogar se resuelve desde la
 // fila correspondiente antes de ejecutarlas.
-const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | "funds" | "goals" | "agreements" | "patrimonyItems" | "invitations" | "tandas" | "movements" | "categories" | "tandaParticipants" | "notifications" | "categoryRules"; idField: "id" | "agreementId" | "tandaId" | "categoryId" | "participantId" }> = {
+const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | "funds" | "goals" | "agreements" | "patrimonyItems" | "invitations" | "tandaInvitations" | "tandas" | "movements" | "categories" | "tandaParticipants" | "notifications" | "categoryRules"; idField: "id" | "agreementId" | "tandaId" | "categoryId" | "participantId" }> = {
   deleteProfile: { table: "profiles", idField: "id" },
   deleteAccount: { table: "accounts", idField: "id" },
   deleteBudget: { table: "budgets", idField: "id" },
@@ -57,6 +57,7 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   deleteAgreement: { table: "agreements", idField: "id" },
   deletePatrimony: { table: "patrimonyItems", idField: "id" },
   deleteInvitation: { table: "invitations", idField: "id" },
+  cancelTandaInvitation: { table: "tandaInvitations", idField: "id" },
   respondJoinRequest: { table: "invitations", idField: "id" },
   createMercadoPagoOrder: { table: "tandas", idField: "tandaId" },
   checkMercadoPagoOrder: { table: "tandas", idField: "tandaId" },
@@ -102,6 +103,8 @@ async function householdIdForRow(
       return byId(db.select().from(schema.patrimonyItems).where(eq(schema.patrimonyItems.id, id)).limit(1));
     case "invitations":
       return byId(db.select().from(schema.invitations).where(eq(schema.invitations.id, id)).limit(1));
+    case "tandaInvitations":
+      return byId(db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.id, id)).limit(1));
     case "tandas":
       return byId(db.select().from(schema.tandas).where(eq(schema.tandas.id, id)).limit(1));
     case "movements":
