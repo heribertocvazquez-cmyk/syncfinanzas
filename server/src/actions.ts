@@ -719,7 +719,7 @@ export const Actions = {
     request: z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() }),
     response: z.object({
       household: z.object({ id: z.number(), name: z.string(), currency: z.string(), cutoffDay: z.number(), contributionRule: z.string(), approvalRule: z.string(), approvalThreshold: z.number(), mode: z.string() }).nullable(),
-      profiles: z.array(z.object({ id: z.number(), name: z.string(), lastName: z.string().nullable(), role: z.string(), email: z.string().nullable(), kind: z.string(), dependentType: z.string().nullable(), monthlyIncome: z.number(), fixedCommitments: z.number(), capacity: z.number() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string(), householdName: z.string(), requested: z.boolean() })),
+      profiles: z.array(z.object({ id: z.number(), name: z.string(), lastName: z.string().nullable(), role: z.string(), email: z.string().nullable(), kind: z.string(), dependentType: z.string().nullable(), monthlyIncome: z.number(), fixedCommitments: z.number(), capacity: z.number() })), myProfileId: z.number().nullable(), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string(), householdName: z.string(), requested: z.boolean() })),
       accounts: z.array(z.object({ id: z.number(), name: z.string(), type: z.string(), visibility: z.string(), initialBalance: z.number(), balance: z.number(), ownerProfileId: z.number().nullable() })),
       categories: z.array(z.object({ id: z.number(), name: z.string(), kind: z.string(), isSystem: z.number(), isActive: z.number(), subcategories: z.array(z.string()) })),
       movements: z.array(z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), date: z.string(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() })),
@@ -764,7 +764,7 @@ export const Actions = {
       const hh = hhRows[0];
       if (!hh) {
         return {
-          household: null, profiles: [], invitations: [], accounts: [], categories: [], movements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
+          household: null, profiles: [], myProfileId: null, invitations: [], accounts: [], categories: [], movements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
           personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth, contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
         };
       }
@@ -836,6 +836,10 @@ export const Actions = {
       // lo que se filtra son las filas que viajan al navegador (lista de
       // movimientos y movimientos del día), incluidos sus comprobantes.
       const myProfileIds = new Set(profilesR.filter(p=>p.userId===ctx.user.id).map(p=>p.id));
+      // Perfil propio de la cuenta en este hogar (profiles.userId): el
+      // cliente lo usa para que el perfil activo no quede siendo el de
+      // otra cuenta tras aceptar una invitación en el mismo dispositivo.
+      const myProfileId = profilesR.find(p=>p.userId===ctx.user.id)?.id ?? null;
       const canSeeMovement = (m: { visibility: string; profileId: number | null }): boolean =>
         ctx.userRole === "admin" || m.visibility === "shared" || (m.profileId != null && myProfileIds.has(m.profileId));
 
@@ -1090,6 +1094,7 @@ export const Actions = {
       return {
         household: { id: hh.id, name: hh.name, currency: hh.currency, cutoffDay: hh.cutoffDay, contributionRule: hh.contributionRule, approvalRule: hh.approvalRule, approvalThreshold: hh.approvalThreshold, mode: hh.mode },
         profiles: profilesR.map(p=>({ id: p.id, name: p.name, lastName: p.lastName ?? null, role: p.role, email: p.email ?? null, kind: p.kind, dependentType: p.dependentType ?? null, monthlyIncome: p.monthlyIncome, fixedCommitments: p.fixedCommitments, capacity: Math.max(0, p.monthlyIncome - p.fixedCommitments) })),
+        myProfileId,
         accounts,
         categories: catsR.map(c=>{ let subs: string[]=[]; try{ subs=JSON.parse(c.subcategories) as string[] }catch{ subs=[] } return { id:c.id, name:c.name, kind:c.kind, isSystem:c.isSystem, isActive:c.isActive, subcategories: subs }; }),
         movements: movementsOut,
@@ -2446,8 +2451,8 @@ export const Actions = {
   respondTandaInvitation: defineAction({
     description: "Accepts or rejects a tanda invitation. Accepting adds the person as a visible participant of that tanda with the name they choose (never taken from their email), and also brings them into the tanda's household (member profile + membership), like accepting a household invitation: without membership they would never see the tanda.",
     request: z.object({ id: z.number(), accept: z.boolean(), name: z.string().optional() }),
-    response: z.object({ ok: z.literal(true), participantId: z.number().optional(), tandaId: z.number().optional(), householdId: z.number().optional() }),
-    async handler(ctx, args): Promise<{ ok: true; participantId?: number; tandaId?: number; householdId?: number }> {
+    response: z.object({ ok: z.literal(true), participantId: z.number().optional(), profileId: z.number().optional(), tandaId: z.number().optional(), householdId: z.number().optional() }),
+    async handler(ctx, args): Promise<{ ok: true; participantId?: number; profileId?: number; tandaId?: number; householdId?: number }> {
       const db = ctx.db;
       const rows = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.id, args.id));
       const inv = rows[0]; if (!inv) throw new Error("Invitación de tanda no encontrada.");
@@ -2489,7 +2494,7 @@ export const Actions = {
       }
       await logActivity(ctx, inv.householdId, "Nuevo participante en la tanda", `${name} · ${td.name}`);
       await notifyHousehold(ctx, inv.householdId, { type: "nuevo_integrante", title: "Nuevo participante en la tanda", body: `${name} se unió a la tanda ${td.name}.`, target: "tandas" }, ctx.user.id);
-      ctx.invalidateQueries(); return { ok: true, participantId, tandaId: inv.tandaId, householdId: inv.householdId };
+      ctx.invalidateQueries(); return { ok: true, participantId, profileId, tandaId: inv.tandaId, householdId: inv.householdId };
     },
   }),
   rateOrganizer: defineAction({

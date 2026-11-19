@@ -10,6 +10,7 @@ import { readReceiptText, ocrStatusText, OcrError } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
 import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
+import { readStoredProfile, resolveActiveProfile, writeStoredProfile } from "./lib/activeProfile";
 import { categoryCounts, guideCounts, invitationCounts, sumBudgets, sumCashCounts, sumContributions, sumGoals, sumMonthMovements } from "./lib/cardSummaries";
 import { MovementsFilter } from "./components/MovementsFilter";
 import { DEFAULT_MOVEMENTS_FILTER, filterMovements, type MovementsFilterValue } from "./lib/movementsFilter";
@@ -672,8 +673,10 @@ export function App(){
     else if(r==="latest"){ setUpdateCheckMsg("Ya tiene la versión más reciente."); }
     else { setUpdateCheckMsg("No se pudo revisar la actualización."); }
   };
-  const [currentProfileId,setCurrentProfileId]=useState<number|null>(()=>{ try{ const v=localStorage.getItem("sf-profile"); return v?Number(v):null; }catch{ return null; } });
-  const pickProfile=(id:number|null)=>{ setCurrentProfileId(id); try{ if(id) localStorage.setItem("sf-profile",String(id)); else localStorage.removeItem("sf-profile"); }catch{} };
+  const [currentProfileId,setCurrentProfileId]=useState<number|null>(()=>readStoredProfile().id);
+  // Al elegir un perfil se guarda también con qué cuenta se eligió, para
+  // que una elección hecha con otra cuenta no se herede al entrar.
+  const pickProfile=(id:number|null)=>{ setCurrentProfileId(id); writeStoredProfile(id, myEmail); };
   // Mes que muestra el tablero: null = mes en curso; el selector de mes y
   // año de la tarjeta Movimientos fija otro mes y el servidor recalcula
   // las cifras del mes sobre él.
@@ -683,7 +686,11 @@ export function App(){
   const data=q.data;
   // Opiniones de testers (segunda etapa): se consultan solo si hay hogar y
   // la sesión es del dueño de la app; el servidor vuelve a verificar el correo.
-  const meEarly = data ? (data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null) : null;
+  // Perfil activo: la elección guardada del dispositivo solo se respeta si
+  // es el perfil propio de la cuenta o se eligió con esta cuenta; si no,
+  // el perfil activo es el propio (myProfileId del servidor). Así, tras
+  // aceptar una invitación, la invitada no queda viendo como administradora.
+  const meEarly = data ? resolveActiveProfile(data.profiles, currentProfileId, data.myProfileId ?? null, myEmail, readStoredProfile().user) : null;
   const fbQuery=useQuery({queryKey:["testerFeedback"],queryFn:()=>api.listTesterFeedback({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
   // Canal de dudas y mejoras: formulario integrado desde el menú y cola de
   // evaluación en Desarrollador. Solo el dueño evalúa; el servidor lo
@@ -783,7 +790,7 @@ export function App(){
   // onboarding state
   const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;email:string;householdName:string;invitedName:string|null;kind:"household"|"tanda";tandaId:number|null;tandaName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500");
   const findInv=useMutation({mutationFn:async()=>await api.findInvitations({email:invEmail}),onSuccess:(r)=>{setInvFound(r.invitations);setInvSearched(true);}});
-  const respondInv=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:joinFirst||undefined,lastName:joinLast||undefined}),onSuccess:inv});
+  const respondInv=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:joinFirst||undefined,lastName:joinLast||undefined}),onSuccess:(r)=>{ inv(); if(r.profileId) pickProfile(r.profileId); }});
   const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero personal":hhName):hhName,currency:"MXN",cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:()=>{ inv(); setChartsSeen(false); try{ localStorage.setItem("sf-first-guide-pending","1"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
   // Asistente de creación del espacio (paso a paso), secciones plegables de
   // registro y guía de primer uso tras crear el hogar.
@@ -832,7 +839,7 @@ export function App(){
     if (tokenInvite.kind==="household" && tokenInvite.invitationId) return await api.respondInvitation({id: tokenInvite.invitationId, accept: true, firstName: joinFirst||undefined, lastName: joinLast||undefined});
     if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: true, name: [joinFirst, joinLast].filter(Boolean).join(" ")||undefined});
     throw new Error("No se pudo identificar la invitación del enlace.");
-  },onSuccess:()=>{ setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); }});
+  },onSuccess:(r)=>{ const pid = (r && typeof r === "object" && "profileId" in r) ? (r as { profileId?: unknown }).profileId : undefined; if(typeof pid === "number") pickProfile(pid); setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); }});
   const rejectTokenInvite=useMutation({mutationFn:async()=>{
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
     // La invitación general no crea nada: rechazarla es simplemente descartarla.
@@ -1078,7 +1085,7 @@ export function App(){
   };
   const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
   const createTandaInv=useMutation({mutationFn:async(v:{tandaId:number})=>await api.createTandaInvitation({householdId:data!.household!.id,tandaId:v.tandaId,email:tInvEmail[v.tandaId]||"",invitedName:tInvName[v.tandaId]||undefined}),onSuccess:(r,v)=>{inv();setTInvResult(p=>({...p,[v.tandaId]:{emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}}));setTInvEmail(p=>({...p,[v.tandaId]:""}));setTInvName(p=>({...p,[v.tandaId]:""}));}});
-  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:inv});
+  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:(r)=>{ inv(); if(r.profileId) pickProfile(r.profileId); }});
   const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:data!.household!.id,tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
   const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:data!.household!.id,...v}),onSuccess:inv});
   // Pago de tanda con Mercado Pago (Checkout Pro, PRUEBA): crea la orden
@@ -1334,7 +1341,7 @@ export function App(){
 
   const catsForType = useMemo(()=>{ if(!data) return []; const kind = mvType==="income"?"income":"expense"; if(mvType==="transfer") return []; return data.categories.filter(c=>c.kind===kind && c.isActive===1); },[data,mvType]);
   const selectedCat = data?.categories.find(c=>String(c.id)===mvCat);
-  const filteredMovs = useMemo(()=>{ if(!data) return []; const meId = currentProfileId ?? data.profiles.find(x=>x.role==="admin")?.id ?? data.profiles.find(x=>x.kind==="adult")?.id ?? null; const meIsAdmin = meId!=null && data.profiles.find(x=>x.id===meId)?.role==="admin"; const meRow = meId!=null ? { id: meId, role: meIsAdmin ? "admin" : "member" } : null; return filterMovements(data.movements.filter(m=> canSeeMovementRow(m, meRow)), mvFilters); },[data,mvFilters,currentProfileId]);
+  const filteredMovs = useMemo(()=>{ if(!data) return []; const meId = meEarly?.id ?? null; const meIsAdmin = meEarly?.role==="admin"; const meRow = meId!=null ? { id: meId, role: meIsAdmin ? "admin" : "member" } : null; return filterMovements(data.movements.filter(m=> canSeeMovementRow(m, meRow)), mvFilters); },[data,mvFilters,meEarly]);
 
   // Los hooks van antes de los retornos de carga/error: si van después,
   // el primer render (cargando) llamaría menos hooks que el siguiente y
@@ -1547,7 +1554,7 @@ export function App(){
   const scrollFormTop=(id:string)=>{ window.setTimeout(()=>{ document.getElementById(id)?.scrollIntoView({behavior:"smooth",block:"start"}); },60); };
   const openNewMovement=(t:"income"|"expense")=>{ setEditingMv(null); setMvType(t); setMvCat(""); setMvSub(""); setMvStep(1); goToForm("movimientos","mv-amount"); };
   const fullName=(pr:{name:string;lastName?:string|null})=>`${pr.name} ${pr.lastName||""}`.trim();
-  const me = data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null;
+  const me = meEarly;
   const guideStep1 = hh.mode==="personal" ? data.personal.salary>0 : data.accounts.length>0;
   const guideStep2 = data.movements.length>0;
   const guideStep3 = chartsSeen;
