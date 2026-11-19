@@ -48,6 +48,7 @@ export function DrawerMenu(p: {
   onToggleVista: () => void;
   darkMode: boolean;
   onSetThemeMode: (dark: boolean) => void;
+  onFeedback?: () => void;
 }) {
   return (
     <nav id="menu-modulos" aria-label="Módulos" className="flex-1 overflow-y-auto px-3 py-3">
@@ -61,6 +62,11 @@ export function DrawerMenu(p: {
             <ul className="mt-1 space-y-0.5">
               <li>
                 <button type="button" aria-label="Ir a Guía de uso" aria-current={p.currentTab==="guia"?"page":undefined} onClick={()=>{p.onNavigate("guia");}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${p.currentTab==="guia"?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{TAB_ICONS.guia}<span className="flex-1">Guía de uso</span>{p.currentTab==="guia" && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
+              </li>
+              <li>
+                {/* Enviar comentarios: abre el formulario de dudas y mejoras
+                    dentro de la app (sin salir al enlace público). */}
+                <button type="button" aria-label="Enviar comentarios sobre la app" onClick={()=>{p.onFeedback?.();}} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold text-[var(--text)]">{tabIcon(<><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>)}<span className="flex-1">Enviar comentarios</span></button>
               </li>
               <li>
                 {/* Vista: abre la elección de tema (Claro / Oscuro). */}

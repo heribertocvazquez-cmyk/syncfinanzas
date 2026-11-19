@@ -19,7 +19,7 @@ import { IncExpDetailModal } from "./components/IncExpDetailModal";
 import { HomeMovementsCard } from "./components/HomeMovementsCard";
 import { CollapsibleCard } from "./components/CollapsibleCard";
 import { money, money2, fmtDate, todayISO } from "./lib/format";
-import { Stars, Label, inputCls, btnPrimary, btnGhost, Empty } from "./lib/uiShared";
+import { Label, inputCls, btnPrimary, btnGhost, Empty } from "./lib/uiShared";
 import { OcrDetail } from "./components/OcrDetail";
 import { LoadingSplash } from "./components/LoadingSplash";
 import { TandasModule } from "./components/TandasModule";
@@ -27,6 +27,8 @@ import { HomeTandasCard } from "./components/HomeTandasCard";
 import { GenericHouseholdInvite } from "./components/GenericHouseholdInvite";
 import { JoinRequestRow } from "./components/JoinRequestRow";
 import { GenericInviteRequest, type JoinRequestStatus } from "./components/GenericInviteRequest";
+import { FeedbackReviewRow } from "./components/FeedbackReview";
+import type { FeedbackState } from "./lib/feedback";
 import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview } from "./components/TandaDetail";
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
 import { DRAWER_GROUPS, orderDrawerTabs } from "./lib/drawerOrder";
@@ -581,73 +583,13 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
   );
 }
 
-// ---- Opiniones de testers (segunda etapa) ----
-// Formulario público (?feedback=1): se muestra sin sesión, sin cuenta.
-// Se envía a POST /api/feedback y se guarda en la tabla tester_feedback.
-// main.tsx lo muestra en lugar de la pantalla de acceso cuando la URL trae
-// ?feedback=1.
-const FEEDBACK_MODULES = ["Inicio","Personal","Movimientos","Cuentas","Categorías","Presupuestos","Fondos","Aportaciones","Metas","Acuerdos","Patrimonio","Tandas","Perfiles","Hogar","Guía de uso","Instalación"];
-const FEEDBACK_DEVICES = ["iPhone","Android","Computadora","Otro"];
-function StarInput({label, value, onChange}:{label:string; value:number; onChange:(v:number)=>void}){
-  return <div>
-    <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">{label}</span>
-    <div className="flex gap-1" role="radiogroup" aria-label={label}>
-      {[1,2,3,4,5].map(n=>(
-        <button key={n} type="button" role="radio" aria-checked={value===n} aria-label={`${n} de 5 estrellas`} onClick={()=>onChange(n)} className="text-2xl leading-none text-[var(--gold)] px-0.5">{n<=value?"★":"☆"}</button>
-      ))}
-    </div>
-  </div>;
-}
-export function TesterFeedbackForm(){
-  const [nombre,setNombre]=useState(""); const [correo,setCorreo]=useState("");
-  const [rating,setRating]=useState(0); const [ease,setEase]=useState(0);
-  const [modulo,setModulo]=useState(""); const [dispositivo,setDispositivo]=useState("");
-  const [worked,setWorked]=useState(""); const [failed,setFailed]=useState(""); const [suggestion,setSuggestion]=useState("");
-  const [sent,setSent]=useState(false); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
-  const submit=async(e:FormEvent)=>{
-    e.preventDefault(); setError("");
-    if(rating<1 || ease<1){ setError("Elija la calificación general y la facilidad de uso."); return; }
-    setBusy(true);
-    try{
-      const res=await fetch("/api/feedback",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({nombre:nombre||null,correo:correo||null,calificacionGeneral:rating,facilidadUso:ease,queFunciono:worked||null,queFallo:failed||null,sugerencia:suggestion||null,modulo:modulo||null,dispositivo:dispositivo||null})});
-      const json=(await res.json().catch(()=>null)) as {error?:string}|null;
-      if(!res.ok) throw new Error(json?.error ?? "No se pudo enviar su opinión.");
-      setSent(true);
-    }catch(err){ setError(err instanceof Error?err.message:"No se pudo enviar su opinión."); }
-    finally{ setBusy(false); }
-  };
-  if(sent) return (
-    <main className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex items-start sm:items-center justify-center p-4">
-      <div className="w-full max-w-md bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-6 mt-8 sm:mt-0 text-center">
-        <h1 className="font-display font-bold text-2xl">SyncFinanzas</h1>
-        <p className="text-sm mt-3">Gracias por su opinión. Sus comentarios ayudan a mejorar SyncFinanzas.</p>
-        <button type="button" className={btnPrimary+" mt-4"} onClick={()=>{ setSent(false); setRating(0); setEase(0); setWorked(""); setFailed(""); setSuggestion(""); }}>Enviar otra opinión</button>
-      </div>
-    </main>
-  );
-  return (
-    <main className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex items-start sm:items-center justify-center p-4">
-      <div className="w-full max-w-md bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-6 mt-8 sm:mt-0">
-        <h1 className="font-display font-bold text-2xl">SyncFinanzas</h1>
-        <h2 className="font-display font-bold text-lg mt-4">Opiniones de testers</h2>
-        <p className="text-sm text-[var(--dim)] mt-1">Cuéntenos cómo le fue con la app. No necesita cuenta.</p>
-        <form className="mt-4 space-y-3" onSubmit={submit}>
-          <div><Label htmlFor="fb-nombre">Su nombre (opcional)</Label><input id="fb-nombre" aria-label="Su nombre, opcional" className={inputCls} value={nombre} onChange={e=>setNombre(e.target.value)} placeholder="Ej. Ana" autoComplete="name" /></div>
-          <div><Label htmlFor="fb-correo">Su correo (opcional)</Label><input id="fb-correo" aria-label="Su correo, opcional" type="email" className={inputCls} value={correo} onChange={e=>setCorreo(e.target.value)} placeholder="usted@correo.com" autoComplete="email" /></div>
-          <StarInput label="Calificación general" value={rating} onChange={setRating} />
-          <StarInput label="Facilidad de uso" value={ease} onChange={setEase} />
-          <div><Label htmlFor="fb-modulo">Módulo</Label><select id="fb-modulo" aria-label="Módulo sobre el que opina" className={inputCls} value={modulo} onChange={e=>setModulo(e.target.value)}><option value="">Sin módulo en particular</option>{FEEDBACK_MODULES.map(m=><option key={m} value={m}>{m}</option>)}</select></div>
-          <div><Label htmlFor="fb-dispositivo">Dispositivo</Label><select id="fb-dispositivo" aria-label="Dispositivo desde el que probó la app" className={inputCls} value={dispositivo} onChange={e=>setDispositivo(e.target.value)}><option value="">Sin especificar</option>{FEEDBACK_DEVICES.map(d=><option key={d} value={d}>{d}</option>)}</select></div>
-          <div><Label htmlFor="fb-funciono">Qué funcionó</Label><textarea id="fb-funciono" aria-label="Qué funcionó bien en la app" className={inputCls+" min-h-[72px]"} value={worked} onChange={e=>setWorked(e.target.value)} placeholder="Lo que le gustó o le resultó fácil." /></div>
-          <div><Label htmlFor="fb-fallo">Qué falló</Label><textarea id="fb-fallo" aria-label="Qué falló en la app" className={inputCls+" min-h-[72px]"} value={failed} onChange={e=>setFailed(e.target.value)} placeholder="Lo que no funcionó o le costó trabajo." /></div>
-          <div><Label htmlFor="fb-sugerencia">Sugerencia</Label><textarea id="fb-sugerencia" aria-label="Sugerencia para mejorar la app" className={inputCls+" min-h-[72px]"} value={suggestion} onChange={e=>setSuggestion(e.target.value)} placeholder="Qué cambiaría o agregaría." /></div>
-          {error && <p className="text-sm text-[var(--red)]" role="alert">{error}</p>}
-          <button type="submit" className={btnPrimary+" w-full"} disabled={busy}>{busy?"Enviando…":"Enviar opinión"}</button>
-        </form>
-      </div>
-    </main>
-  );
-}
+// ---- Opiniones de testers (segunda etapa + canal de dudas y mejoras) ----
+// El formulario vive en client/src/components/TesterFeedbackForm.tsx
+// (main.tsx lo muestra en ?feedback=1; dentro de la app se abre en modo
+// integrado desde el menú «Enviar comentarios»). Se importa aquí para el
+// modal y se reexporta para no tocar main.tsx.
+import { TesterFeedbackForm } from "./components/TesterFeedbackForm";
+export { TesterFeedbackForm };
 
 export function App(){
   const qc=useQueryClient();
@@ -741,6 +683,11 @@ export function App(){
   // la sesión es del dueño de la app; el servidor vuelve a verificar el correo.
   const meEarly = data ? (data.profiles.find(x=>x.id===currentProfileId) || data.profiles.find(x=>x.role==="admin") || data.profiles.find(x=>x.kind==="adult") || null) : null;
   const fbQuery=useQuery({queryKey:["testerFeedback"],queryFn:()=>api.listTesterFeedback({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
+  // Canal de dudas y mejoras: formulario integrado desde el menú y cola de
+  // evaluación en Desarrollador. Solo el dueño evalúa; el servidor lo
+  // vuelve a verificar en cada guardado.
+  const [feedbackOpen,setFeedbackOpen]=useState(false);
+  const setFbStatus=useMutation({mutationFn:async(v:{id:number;estado:FeedbackState;respuesta:string|null})=>await api.setFeedbackStatus(v),onSuccess:()=>qc.invalidateQueries({queryKey:["testerFeedback"]})});
   // Registro de usuarios de la app: total y lista de quienes han entrado.
   // Solo lo ve el dueño de la app; el servidor vuelve a verificar el correo.
   const appUsersQuery=useQuery({queryKey:["appUsers"],queryFn:()=>api.listAppUsers({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
@@ -1839,6 +1786,7 @@ export function App(){
           onToggleVista={()=>setVistaOpen(o=>!o)}
           darkMode={darkMode}
           onSetThemeMode={(d)=>setThemeMode(d)}
+          onFeedback={()=>{ setMenuOpen(false); setFeedbackOpen(true); }}
         />
         <div className="px-3 pb-4 pt-2 border-t border-[var(--border)]">
           <button type="button" aria-label="Abrir a Mike" onClick={()=>{ setMenuOpen(false); setHelpOpen(true); }} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
@@ -2676,6 +2624,13 @@ export function App(){
             </div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 flex items-center gap-2">
               <div className="flex-1 min-w-0">
+                <h2 className="font-display font-bold text-lg">Enviar comentarios</h2>
+                <p className="text-sm text-[var(--dim)] mt-0.5">Dudas, errores o mejoras. El dueño de la app los revisa antes de hacer cambios.</p>
+              </div>
+              <button type="button" className={btnPrimary+" shrink-0"} aria-label="Enviar comentarios sobre la app" onClick={()=>setFeedbackOpen(true)}>Enviar comentarios</button>
+            </div>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 flex items-center gap-2">
+              <div className="flex-1 min-w-0">
                 <h2 className="font-display font-bold text-lg">Datos de demostración</h2>
                 <p className="text-sm text-[var(--dim)] mt-0.5">Cargue datos de ejemplo para probar la app. Solo funciona sin movimientos.</p>
                 {demo.error && <p className="text-xs text-[var(--red)] mt-1">{String(demo.error)}</p>}
@@ -2878,14 +2833,7 @@ export function App(){
                 : !fbQuery.data || fbQuery.data.feedback.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin opiniones todavía. Cuando un tester envíe la suya, aparecerá aquí.</p>
                 : <div className="divide-y divide-[var(--border)] mt-2">
                   {fbQuery.data.feedback.map(f=>(
-                    <div key={f.id} className="py-2.5 text-sm">
-                      <div className="flex justify-between gap-2"><b>{f.nombre || "Tester"}</b><span className="text-xs text-[var(--dim)] shrink-0">{fmtDate(f.createdAt.slice(0,10))}</span></div>
-                      <p className="mt-0.5"><Stars value={f.calificacionGeneral} /> <span className="text-xs text-[var(--dim)]">General · Facilidad {f.facilidadUso}/5</span></p>
-                      <p className="text-xs text-[var(--dim)]">{f.modulo || "Sin módulo"} · {f.dispositivo || "Sin dispositivo"}{f.correo?` · ${f.correo}`:""}</p>
-                      {f.queFunciono && <p className="mt-1"><b>Funcionó:</b> {f.queFunciono}</p>}
-                      {f.queFallo && <p><b>Falló:</b> {f.queFallo}</p>}
-                      {f.sugerencia && <p><b>Sugerencia:</b> {f.sugerencia}</p>}
-                    </div>
+                    <FeedbackReviewRow key={f.id} f={f} busy={setFbStatus.isPending} onSave={(v)=>setFbStatus.mutate(v)} />
                   ))}
                 </div>}
             </CollapsibleCard>
@@ -2917,6 +2865,9 @@ export function App(){
       </main>
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
       <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} hidden={menuOpen} dynamicFaqs={dynamicFaqs} greeting={greeting} onDismissGreeting={dismissGreeting} overview={data} nudge={activeNudge} onDismissNudge={dismissNudge} />
+      {feedbackOpen && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Enviar comentarios">
+        <TesterFeedbackForm embedded initialNombre={meEarly ? fullName(meEarly) : ""} initialCorreo={myEmail} onClose={()=>setFeedbackOpen(false)} />
+      </div>}
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border)]">
