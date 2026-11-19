@@ -3,7 +3,7 @@
 // Error confirmado, Mejora aprobada, Descartado— y la respuesta que ve el
 // tester al consultar con su correo. Nada se construye desde aquí: el estado
 // es solo la evaluación; la decisión de construir se toma aparte.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Stars, Label, inputCls, btnPrimary } from "../lib/uiShared";
 import { CollapsibleCard } from "./CollapsibleCard";
 import {
@@ -123,7 +123,23 @@ export function FeedbackReviewList(p: {
   items: FeedbackReviewItem[];
   busy: boolean;
   onSave: (v: { id: number; estado: FeedbackState; respuesta: string | null }) => void;
+  /** Se llama una vez al abrir la cola (al montarse la lista). */
+  onOpen?: () => void;
 }) {
+  // Al abrir la cola de evaluación, los avisos de opiniones nuevas ya no
+  // deben aparecer en la campanilla: el dueño entró a revisarlos. La lista
+  // solo se monta cuando la tarjeta «Opiniones de testers» está abierta
+  // (CollapsibleCard no pinta los hijos plegados), así que el montaje es
+  // la apertura; al cerrar y volver a abrir se monta de nuevo y se vuelve
+  // a avisar (la marca en el servidor es idempotente).
+  const openedRef = useRef(false);
+  const onOpenRef = useRef(p.onOpen);
+  onOpenRef.current = p.onOpen;
+  useEffect(() => {
+    if (openedRef.current) return;
+    openedRef.current = true;
+    onOpenRef.current?.();
+  }, []);
   const pendientes = p.items.filter((f) => (f.estado || "por_revisar") === "por_revisar");
   const revisados = p.items.filter((f) => (f.estado || "por_revisar") !== "por_revisar");
   return (

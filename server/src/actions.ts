@@ -2794,6 +2794,13 @@ export const Actions = {
         throw new Error("Para evaluar opiniones, ejecute supabase/feedback-canal.sql en Supabase.");
       }
       if (updated.length === 0) throw new Error("Opinión no encontrada.");
+      // Al evaluar una opinión, su aviso en la campanilla ya no debe
+      // aparecer: se marcan como leídas las notificaciones de opiniones
+      // del dueño. La tabla notifications no guarda el id de la opinión,
+      // así que se marcan las de tipo nueva_opinion (al abrir la cola ya
+      // se marcaron todas; esto cubre el guardado directo). Nunca rompe
+      // la evaluación: si la tabla aún no existe, se ignora.
+      try { await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.userId, ctx.user.id), eq(schema.notifications.type, "nueva_opinion"))); } catch { /* tabla aún no creada */ }
       ctx.invalidateQueries();
       return { ok: true };
     },
@@ -2925,6 +2932,23 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       try { await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id))); } catch { /* tabla aún no creada */ }
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+  // Avisos de opiniones de testers (campanita): cuando el dueño entra a
+  // revisar las opiniones en Desarrollador → Opiniones de testers, las
+  // notificaciones «Nueva opinión de tester» ya no deben aparecer en la
+  // campanilla (ni distintivo ni entrada en el panel). Solo las de ese
+  // tipo (nueva_opinion); los demás avisos (pago de tanda, actualización,
+  // etc.) no se tocan. Solo el dueño de la app; la marca es persistente
+  // en el servidor (isRead en la tabla notifications).
+  markOpinionNotificationsRead: defineAction({
+    description: "Marks the current user's tester-opinion notifications (nueva_opinion) as read. App owner only.",
+    request: z.object({ householdId: z.number() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      if (!isAppOwner(ctx)) throw new Error("Solo el dueño de la app puede revisar las opiniones de los testers.");
+      try { await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.householdId, args.householdId), eq(schema.notifications.userId, ctx.user.id), eq(schema.notifications.type, "nueva_opinion"))); } catch { /* tabla aún no creada */ }
       ctx.invalidateQueries(); return { ok: true };
     },
   }),

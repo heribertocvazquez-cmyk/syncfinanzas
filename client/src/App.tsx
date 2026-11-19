@@ -689,7 +689,7 @@ export function App(){
   // evaluación en Desarrollador. Solo el dueño evalúa; el servidor lo
   // vuelve a verificar en cada guardado.
   const [feedbackOpen,setFeedbackOpen]=useState(false);
-  const setFbStatus=useMutation({mutationFn:async(v:{id:number;estado:FeedbackState;respuesta:string|null})=>await api.setFeedbackStatus(v),onSuccess:()=>qc.invalidateQueries({queryKey:["testerFeedback"]})});
+  const setFbStatus=useMutation({mutationFn:async(v:{id:number;estado:FeedbackState;respuesta:string|null})=>await api.setFeedbackStatus(v),onSuccess:()=>{ qc.invalidateQueries({queryKey:["testerFeedback"]}); qc.invalidateQueries({queryKey:["notifications"]}); }});
   // Registro de usuarios de la app: total y lista de quienes han entrado.
   // Solo lo ve el dueño de la app; el servidor vuelve a verificar el correo.
   const appUsersQuery=useQuery({queryKey:["appUsers"],queryFn:()=>api.listAppUsers({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
@@ -714,6 +714,11 @@ export function App(){
   const toggleNotif=()=>{ if(!notifOpen) void checkForAppUpdate(); setNotifOpen((o)=>!o); };
   const markNotifRead=useMutation({mutationFn:async(id:number)=>await api.markNotificationRead({id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
   const markAllNotifRead=useMutation({mutationFn:async()=>await api.markAllNotificationsRead({householdId:data!.household!.id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
+  // Avisos de opiniones de testers: al abrir la cola en Desarrollador, los
+  // avisos «Nueva opinión de tester» se marcan como leídos en el servidor
+  // y ya no aparecen en la campanilla. Solo ese tipo; los demás avisos no
+  // se tocan.
+  const markOpinionNotifRead=useMutation({mutationFn:async()=>await api.markOpinionNotificationsRead({householdId:data!.household!.id}),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
   const openNotif=(n:{id:number;target:string})=>{ void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); goTab(n.target as Tab); };
   // Reglas de auto-categorización: si el concepto contiene la palabra, la
   // app pone sola esa categoría. Si la tabla aún no existe (falta correr
@@ -2817,7 +2822,7 @@ export function App(){
                 {fbQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando opiniones…</p>
                 : fbQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar las opiniones.</p>
                 : !fbQuery.data || fbQuery.data.feedback.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin opiniones todavía. Cuando un tester envíe la suya, aparecerá aquí.</p>
-                : <FeedbackReviewList items={fbQuery.data.feedback} busy={setFbStatus.isPending} onSave={(v)=>setFbStatus.mutate(v)} />}
+                : <FeedbackReviewList items={fbQuery.data.feedback} busy={setFbStatus.isPending} onSave={(v)=>setFbStatus.mutate(v)} onOpen={()=>markOpinionNotifRead.mutate()} />}
             </CollapsibleCard>
             <CollapsibleCard
               open={devUsersOpen}
