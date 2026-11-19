@@ -676,8 +676,19 @@ export function App(){
       throw e;
     }
   }});
-  const inv=()=>{ qc.invalidateQueries({queryKey:["overview"]}); qc.invalidateQueries({queryKey:["notifications"]}); };
+  const inv=()=>{ qc.invalidateQueries({queryKey:["overview"]}); qc.invalidateQueries({queryKey:["notifications"]}); qc.invalidateQueries({queryKey:["myTandas"]}); };
+  // Tandas invitadas: tandas de otros hogares en las que el usuario
+  // participa por correo sin ser miembro de ese hogar. El servidor solo
+  // devuelve ESA tanda (sin nada más del hogar del invitador); se muestran
+  // en el propio espacio Personal («Mis tandas»).
+  const myTandasQuery=useQuery({queryKey:["myTandas"],queryFn:()=>api.listMyTandas({}),enabled:!!myEmail});
+  const guestTandas=myTandasQuery.data?.tandas ?? [];
   const data=q.data;
+  const allTandas=data?[...data.tandas,...guestTandas.filter(g=>!data.tandas.some(t=>t.id===g.id))]:guestTandas;
+  // El hogar que recibe una acción de tanda es el hogar DE LA TANDA (no
+  // el activo): para una tanda invitada, el activo es el Personal y el
+  // servidor rechazaría el hogar equivocado.
+  const tandaHouseholdId=(tandaId:number)=>allTandas.find(t=>t.id===tandaId)?.householdId ?? data!.household!.id;
   // Opiniones de testers (segunda etapa): se consultan solo si hay hogar y
   // la sesión es del dueño de la app; el servidor vuelve a verificar el correo.
   // Perfil activo: la elección guardada del dispositivo solo se respeta si
@@ -854,14 +865,23 @@ export function App(){
     if (tokenInvite.kind==="household" && tokenInvite.invitationId) return await api.respondInvitation({id: tokenInvite.invitationId, accept: true, firstName: joinFirst||undefined, lastName: joinLast||undefined});
     if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: true, name: [joinFirst, joinLast].filter(Boolean).join(" ")||undefined});
     throw new Error("No se pudo identificar la invitación del enlace.");
-  },onSuccess:(r)=>{ const pid = (r && typeof r === "object" && "profileId" in r) ? (r as { profileId?: unknown }).profileId : undefined; if(typeof pid === "number") pickProfile(pid);
-    // Al aceptar, la persona entra al hogar de la invitación: el hogar
-    // activo cambia a ese hogar (antes se quedaba en la membresía más
-    // antigua, el espacio propio) y, si es tanda, se abre su detalle.
+  },onSuccess:(r)=>{ if(tokenInvite?.kind==="tanda"){
+    // Invitación de tanda: el invitado NO se hace miembro del hogar del
+    // invitador y el hogar activo NO cambia: la tanda se habilita en su
+    // propio espacio Personal (listMyTandas) y se abre su detalle cuando
+    // la lista ya la trae.
+    const tid = (r && typeof r === "object" && "tandaId" in r) ? (r as { tandaId?: unknown }).tandaId : undefined;
+    setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv();
+    void qc.invalidateQueries({queryKey:["myTandas"]}).then(()=>{ if(typeof tid === "number"){ setTandaDetailId(tid); setTab("tandas"); } });
+    return;
+  }
+  const pid = (r && typeof r === "object" && "profileId" in r) ? (r as { profileId?: unknown }).profileId : undefined; if(typeof pid === "number") pickProfile(pid);
+    // Al aceptar una invitación AL HOGAR, la persona entra a ese hogar:
+    // el hogar activo cambia a ese hogar (antes se quedaba en la
+    // membresía más antigua, el espacio propio).
     const hid = (r && typeof r === "object" && "householdId" in r) ? (r as { householdId?: unknown }).householdId : undefined;
     if(typeof hid === "number"){ setActiveHouseholdId(hid); writeStoredHousehold(hid, myEmail); }
-    const tid = (r && typeof r === "object" && "tandaId" in r) ? (r as { tandaId?: unknown }).tandaId : undefined;
-    if(tokenInvite?.kind==="tanda" && typeof tid === "number"){ setTandaDetailId(tid); setTab("tandas"); } else if(typeof hid === "number"){ setTab("inicio"); }
+    if(typeof hid === "number"){ setTab("inicio"); }
     setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); }});
   const rejectTokenInvite=useMutation({mutationFn:async()=>{
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
@@ -900,7 +920,7 @@ export function App(){
           <h2 className="font-display font-bold text-lg">{tokenInvite.kind==="household" && tokenInvite.generic ? "Invitación a probar la app" : "Invitación recibida por correo"}</h2>
           {tokenInvite.kind==="household" && tokenInvite.generic && <p className="text-sm">Le invitan a probar SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Cree su cuenta y empiece con su propio espacio; este enlace no le da acceso al hogar de quien le invitó ni genera ninguna solicitud.</p>}
           {tokenInvite.kind==="household" && !tokenInvite.generic && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará a ese hogar.</p>}
-          {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante.</p>}
+          {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante. La tanda se habilitará en su perfil Personal, sin acceso al resto del hogar de quien le invitó.</p>}
           {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
           {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Ya se usó o venció. Solicite una nueva.</p>}
           {tokenInvite.usable && tokenEmailMismatch && tokenInvite.kind==="tanda" && <p className="text-sm text-[var(--red)]">Esta invitación fue enviada a <b>{tokenInvite.email}</b>. Usted entró con <b>{myEmail}</b>. Si acepta, se incorporará a la tanda con <b>{myEmail}</b> y {tokenInvite.inviterName ? <><b>{tokenInvite.inviterName}</b> será avisado</> : "el organizador será avisado"}.</p>}
@@ -1115,6 +1135,10 @@ export function App(){
   useEffect(()=>{
     if(tandaDetailId==null || !data?.household){ markedTandaDetailRef.current=null; return; }
     if(markedTandaDetailRef.current===tandaDetailId) return;
+    // Solo para tandas del hogar activo: en una tanda invitada, el aviso
+    // «Nuevo participante» vive en el hogar del invitador, no en el
+    // Personal del invitado, así que no hay nada que marcar aquí.
+    if(!data.tandas.some(t=>t.id===tandaDetailId)) return;
     markedTandaDetailRef.current=tandaDetailId;
     void markTandaPartNotifRead.mutateAsync({householdId:data.household.id,tandaId:tandaDetailId}).catch(()=>{});
   },[tandaDetailId, data?.household?.id]);
@@ -1122,18 +1146,18 @@ export function App(){
   const [rateName,setRateName]=useState<Record<number,string>>({}); const [rateStars,setRateStars]=useState<Record<number,string>>({}); const [rateComment,setRateComment]=useState<Record<number,string>>({});
   const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined,coverageRule:tandaCoverage,fineAmount:Number(tandaFine)||0,meetingDay:tandaMeeting,treasurerProfileId:tandaTreasurer?Number(tandaTreasurer):null,substituteProfileId:tandaSubstitute?Number(tandaSubstitute):null}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");setTandaFine("");setTandaMeeting("");setTandaTreasurer("");setTandaSubstitute("");setSavedNotice("Tanda creada.");}});
   const setRole=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;role:"organizador"|"tesorero"|"suplente"|"participante"})=>await api.setTandaRole(v),onSuccess:inv});
-  const addFine=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;reason:"retardo"|"falta"})=>await api.addTandaFine({householdId:data!.household!.id,...v}),onSuccess:inv});
-  const payFine=useMutation({mutationFn:async(v:{tandaId:number;fineId:number})=>await api.payTandaFine({householdId:data!.household!.id,...v}),onSuccess:inv});
-  const voteExclude=useMutation({mutationFn:async(v:{tandaId:number;targetParticipantId:number})=>await api.voteExcludeParticipant({householdId:data!.household!.id,...v,voterName:me?fullName(me):"Organizador"}),onSuccess:inv});
-  const confirmDelivery=useMutation({mutationFn:async(v:{tandaId:number;quincenaIndex:number;receiverId:number|null;by:"organizador"|"receptor"})=>await api.confirmTandaDelivery({householdId:data!.household!.id,...v}),onSuccess:inv});
-  const addFundEntry=useMutation({mutationFn:async(v:{tandaId:number})=>await api.addTandaFundEntry({householdId:data!.household!.id,tandaId:v.tandaId,kind:(fundKind[v.tandaId]||"fondo") as "aportacion"|"fondo"|"multa",amount:Number(fundAmount[v.tandaId])||0,note:fundNote[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setFundAmount(p=>({...p,[v.tandaId]:""}));setFundNote(p=>({...p,[v.tandaId]:""}));}});
+  const addFine=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;reason:"retardo"|"falta"})=>await api.addTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
+  const payFine=useMutation({mutationFn:async(v:{tandaId:number;fineId:number})=>await api.payTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
+  const voteExclude=useMutation({mutationFn:async(v:{tandaId:number;targetParticipantId:number})=>await api.voteExcludeParticipant({householdId:tandaHouseholdId(v.tandaId),...v,voterName:me?fullName(me):"Organizador"}),onSuccess:inv});
+  const confirmDelivery=useMutation({mutationFn:async(v:{tandaId:number;quincenaIndex:number;receiverId:number|null;by:"organizador"|"receptor"})=>await api.confirmTandaDelivery({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
+  const addFundEntry=useMutation({mutationFn:async(v:{tandaId:number})=>await api.addTandaFundEntry({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,kind:(fundKind[v.tandaId]||"fondo") as "aportacion"|"fondo"|"multa",amount:Number(fundAmount[v.tandaId])||0,note:fundNote[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setFundAmount(p=>({...p,[v.tandaId]:""}));setFundNote(p=>({...p,[v.tandaId]:""}));}});
   const delTanda=useMutation({mutationFn:async(id:number)=>await api.deleteTanda({id}),onSuccess:inv});
-  const addPart=useMutation({mutationFn:async(v:{tandaId:number;name:string;cardLast4?:string})=>await api.addTandaParticipant({householdId:data!.household!.id,tandaId:v.tandaId,name:v.name,cardLast4:v.cardLast4||undefined}),onSuccess:inv});
+  const addPart=useMutation({mutationFn:async(v:{tandaId:number;name:string;cardLast4?:string})=>await api.addTandaParticipant({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,name:v.name,cardLast4:v.cardLast4||undefined}),onSuccess:inv});
   const removePart=useMutation({mutationFn:async(id:number)=>await api.removeTandaParticipant({id}),onSuccess:inv});
   const setCard=useMutation({mutationFn:async(v:{id:number;cardLast4:string})=>await api.setParticipantCard(v),onSuccess:inv});
   const drawTanda=useMutation({mutationFn:async(v:{id:number;mode:"random"|"weighted"})=>await api.drawTanda({tandaId:v.id,mode:v.mode}),onSuccess:inv});
-  const setPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;status:"paid"|"pending"|"late"})=>await api.setTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
-  const uploadProof=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;file:File;paidDate?:string;readAmount?:number|null})=>{ const r=await fileToBase64(v.file); return await api.setTandaPayment({householdId:data!.household!.id,tandaId:v.tandaId,participantId:v.participantId,quincenaIndex:v.quincenaIndex,status:"paid",paidDate:v.paidDate,readAmount:v.readAmount ?? undefined,proof:{dataBase64:r.dataBase64,mimeType:r.mimeType}}); },onSuccess:inv});
+  const setPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;status:"paid"|"pending"|"late"})=>await api.setTandaPayment({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
+  const uploadProof=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;file:File;paidDate?:string;readAmount?:number|null})=>{ const r=await fileToBase64(v.file); return await api.setTandaPayment({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,participantId:v.participantId,quincenaIndex:v.quincenaIndex,status:"paid",paidDate:v.paidDate,readAmount:v.readAmount ?? undefined,proof:{dataBase64:r.dataBase64,mimeType:r.mimeType}}); },onSuccess:inv});
   // Revisión del comprobante de pago de tanda antes de guardar: se sube la
   // foto del depósito, la lectura llena importe y fecha, y la persona revisa
   // antes de confirmar. El importe leído se compara con el pago de la tanda;
@@ -1164,12 +1188,12 @@ export function App(){
     if(r.dateCheck) return;
     uploadProof.mutate({tandaId:r.tandaId,participantId:r.participantId,quincenaIndex:r.quincenaIndex,file:r.file,paidDate:r.paidDate,readAmount:r.detail?.total ?? null},{onSuccess:()=>{ setTandaProofReview(null); setSavedNotice("Pago registrado con comprobante."); }});
   };
-  const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:data!.household!.id,...v}),onSuccess:inv});
-  const createTandaInv=useMutation({mutationFn:async(v:{tandaId:number})=>await api.createTandaInvitation({householdId:data!.household!.id,tandaId:v.tandaId,email:tInvEmail[v.tandaId]||"",invitedName:tInvName[v.tandaId]||undefined}),onSuccess:(r,v)=>{inv();setTInvResult(p=>({...p,[v.tandaId]:{emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}}));setTInvEmail(p=>({...p,[v.tandaId]:""}));setTInvName(p=>({...p,[v.tandaId]:""}));}});
-  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:(r)=>{ inv(); if(r.profileId) pickProfile(r.profileId); }});
+  const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
+  const createTandaInv=useMutation({mutationFn:async(v:{tandaId:number})=>await api.createTandaInvitation({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,email:tInvEmail[v.tandaId]||"",invitedName:tInvName[v.tandaId]||undefined}),onSuccess:(r,v)=>{inv();setTInvResult(p=>({...p,[v.tandaId]:{emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}}));setTInvEmail(p=>({...p,[v.tandaId]:""}));setTInvName(p=>({...p,[v.tandaId]:""}));}});
+  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:()=>{ inv(); }});
   const cancelTandaInv=useMutation({mutationFn:async(id:number)=>await api.cancelTandaInvitation({id}),onSuccess:inv});
-  const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:data!.household!.id,tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
-  const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:data!.household!.id,...v}),onSuccess:inv});
+  const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
+  const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   // Pago de tanda con Mercado Pago (Checkout Pro, PRUEBA): crea la orden
   // en el servidor y abre el checkout en otra pestaña. La pestaña se abre
   // en blanco al pulsar (gesto del usuario) y se le pone la URL al
@@ -1182,13 +1206,13 @@ export function App(){
   const mpSaveOrder=(tandaId:number,quincenaIndex:number,orderId:string)=>{ const k=mpOrderKey(tandaId,quincenaIndex); try{ localStorage.setItem(k,orderId); }catch{} setMpOrders(p=>({...p,[k]:orderId})); };
   const mpClearOrder=(tandaId:number,quincenaIndex:number)=>{ const k=mpOrderKey(tandaId,quincenaIndex); try{ localStorage.removeItem(k); }catch{} setMpOrders(p=>{ const n={...p}; delete n[k]; return n; }); };
   const createMpOrder=useMutation({
-    mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.createMercadoPagoOrder({householdId:data!.household!.id,...v}),
+    mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.createMercadoPagoOrder({householdId:tandaHouseholdId(v.tandaId),...v}),
     onMutate:()=>{ try{ mpTabRef.current=window.open("about:blank","_blank"); }catch{ mpTabRef.current=null; } },
     onSuccess:(r,v)=>{ mpSaveOrder(v.tandaId,v.quincenaIndex,r.orderId); const tab=mpTabRef.current; mpTabRef.current=null; if(tab && !tab.closed) tab.location.href=r.checkoutUrl; else window.open(r.checkoutUrl,"_blank","noopener"); inv(); setSavedNotice("Se abrió el pago de Mercado Pago (PRUEBA) en otra pestaña. Al volver, pulse Verificar pago."); },
     onError:()=>{ const tab=mpTabRef.current; mpTabRef.current=null; try{ tab?.close(); }catch{} },
   });
   const checkMpOrder=useMutation({
-    mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;orderId:string})=>await api.checkMercadoPagoOrder({householdId:data!.household!.id,...v}),
+    mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;orderId:string})=>await api.checkMercadoPagoOrder({householdId:tandaHouseholdId(v.tandaId),...v}),
     onSuccess:(r,v)=>{ if(r.paid){ mpClearOrder(v.tandaId,v.quincenaIndex); inv(); setSavedNotice("Pago confirmado por Mercado Pago."); } else { setSavedNotice("El pago aún no aparece como aprobado en Mercado Pago. Inténtelo de nuevo en un momento."); } },
   });
   const [mvProfile,setMvProfile]=useState("");
@@ -1617,7 +1641,7 @@ export function App(){
   // botones que corresponden a su rol; el servidor es la autoridad y rechaza
   // lo no permitido. El rol sale de la fila de participante (por correo o
   // por nombre) o de los campos organizador/tesorero/suplente de la tanda.
-  const tandaPerms = (td: (typeof data.tandas)[number]) => {
+  const tandaPerms = (td: (typeof allTandas)[number]) => {
     const meName = me ? fullName(me).trim().toLowerCase() : "";
     const meEmail = (me?.email || "").trim().toLowerCase();
     const myPart = td.participants.find(p => (p.email && meEmail !== "" && p.email.trim().toLowerCase() === meEmail) || (meName !== "" && p.name.trim().toLowerCase() === meName)) ?? null;
@@ -1626,19 +1650,28 @@ export function App(){
     let rank = 0;
     if (!excluded) {
       if (myPart) rank = Math.max(rank, rankOf(myPart.role));
-      if (me) {
-        if (td.organizerProfileId === me.id) rank = Math.max(rank, 3);
-        else if (td.treasurerProfileId === me.id) rank = Math.max(rank, 2);
-        else if (td.substituteProfileId === me.id) rank = Math.max(rank, 2);
+      // El rango por perfil designado (organizador/tesorero/suplente) se
+      // resuelve con el perfil DEL HOGAR DE LA TANDA (td.myProfileId): en
+      // una tanda invitada, el perfil activo es el del espacio Personal
+      // y su id no coincide con el del hogar del invitador.
+      const myTandaProfileId = td.myProfileId ?? me?.id ?? null;
+      if (myTandaProfileId != null) {
+        if (td.organizerProfileId === myTandaProfileId) rank = Math.max(rank, 3);
+        else if (td.treasurerProfileId === myTandaProfileId) rank = Math.max(rank, 2);
+        else if (td.substituteProfileId === myTandaProfileId) rank = Math.max(rank, 2);
       }
     }
     const myParticipantId = !excluded && myPart ? myPart.id : null;
+    // isAdmin es POR TANDA (lo calcula el servidor): en una tanda invitada
+    // es falso aunque el usuario sea administrador de su propio espacio
+    // Personal; si no, vería botones de organizador que no le corresponden.
+    const tandaAdmin = td.isAdmin;
     return {
-      isAdmin,
+      isAdmin: tandaAdmin,
       myParticipantId,
       isParticipant: myParticipantId != null,
-      canManage: isAdmin || rank >= 3,
-      canTreasury: isAdmin || rank >= 2,
+      canManage: tandaAdmin || rank >= 3,
+      canTreasury: tandaAdmin || rank >= 2,
       isOwn: (participantId: number) => myParticipantId === participantId,
     };
   };
@@ -1998,7 +2031,7 @@ export function App(){
                 </div>)}
               </CollapsibleCard>
               )}
-              <HomeTandasCard tandas={data.tandas} onOpenDetail={openTandaDetail} onGoTandas={()=>goTab("tandas")} />
+              <HomeTandasCard tandas={allTandas} onOpenDetail={openTandaDetail} onGoTandas={()=>goTab("tandas")} />
             </div>
 
           </section>
@@ -2635,7 +2668,7 @@ export function App(){
                   <h2 className="font-display font-bold text-lg">Ingresos vs gastos · últimos 6 meses</h2>
                   <MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} todayMonth={todayISO().slice(0,7)} inicio onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} />
                 </div>
-                <HomeTandasCard tandas={data.tandas} onOpenDetail={openTandaDetail} onGoTandas={()=>goTab("tandas")} />
+                <HomeTandasCard tandas={allTandas} onOpenDetail={openTandaDetail} onGoTandas={()=>goTab("tandas")} />
                 {data.personal.todayMovements.length===0 ? (
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                   <h2 className="font-display font-bold text-lg">Gastos del día ({data.personal.todayCount})</h2>
@@ -2659,7 +2692,7 @@ export function App(){
 
         {effTab==="tandas" && (
           <TandasModule
-            tandas={data.tandas}
+            tandas={allTandas}
             detailId={tandaDetailId}
             onDetailChange={setTandaDetailId}
             formValues={{name:tandaName,count:tandaCount,amount:tandaAmount,start:tandaStart,freq:tandaFreq,drawMode:tandaDrawMode,coverage:tandaCoverage,fine:tandaFine,meeting:tandaMeeting,treasurer:tandaTreasurer,substitute:tandaSubstitute}}

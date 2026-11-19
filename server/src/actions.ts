@@ -713,6 +713,159 @@ async function findUserIdByEmail(db: Ctx["db"], email: string): Promise<string |
   }
 }
 
+// ---- Fechas de tandas (antes vivían dentro de getOverview) ----
+const addDays = (iso: string, days: number) => { const [y = 2026, mo = 1, d = 1] = iso.split("-").map(Number); const dt = new Date(y, (mo || 1) - 1, (d || 1) + days); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
+const dayDiff = (a: string, b: string) => { const [ay = 2026, am = 1, ad = 1] = a.split("-").map(Number); const [by = 2026, bm = 1, bd = 1] = b.split("-").map(Number); return Math.round((new Date(ay, (am || 1) - 1, ad || 1).getTime() - new Date(by, (bm || 1) - 1, bd || 1).getTime()) / 86400000); };
+const dueDateOf = (tdStart: string, cadence: number, idx: number) => addDays(tdStart, idx * cadence);
+
+// ---- Membresía derivada solo de una invitación de tanda ----
+// Una membresía es «solo de tanda» cuando la persona es participante
+// (no excluido) de una tanda del hogar Y aceptó una invitación de tanda
+// para una de esas tandas Y NO es dueña del hogar NI aceptó una
+// invitación al hogar (por correo o por código). Esa membresía la creó
+// el flujo viejo de respondTandaInvitation: la persona nunca pidió
+// entrar al hogar. El despachador y getOverview la tratan como si no
+// existiera (sin acceso al hogar), y listMyTandas le muestra la tanda
+// en su propio espacio Personal. La fila se quita además con
+// supabase/remove-tanda-only-memberships.sql; nunca se borra el
+// participante ni sus pagos, y nunca se toca a quien entró por
+// invitación al hogar.
+export async function isTandaOnlyMember(db: Ctx["db"], userId: string, userEmail: string, householdId: number): Promise<boolean> {
+  const email = (userEmail || "").trim().toLowerCase();
+  if (!email) return false;
+  // Sin fila de membresía no hay nada que negar: la persona simplemente
+  // no pertenece al hogar (listMyTandas le muestra la tanda igual si
+  // participa en ella).
+  const mem = await db.select().from(schema.householdMembers).where(and(eq(schema.householdMembers.householdId, householdId), eq(schema.householdMembers.userId, userId))).limit(1);
+  if (mem.length === 0) return false;
+  const hh = await db.select().from(schema.households).where(eq(schema.households.id, householdId)).limit(1);
+  if (hh[0]?.ownerUserId === userId) return false;
+  const invs = await db.select().from(schema.invitations).where(and(eq(schema.invitations.householdId, householdId), eq(schema.invitations.status, "accepted")));
+  if (invs.some(i => (i.email || "").trim().toLowerCase() === email)) return false;
+  const tds = await db.select().from(schema.tandas).where(eq(schema.tandas.householdId, householdId));
+  if (tds.length === 0) return false;
+  const parts = await db.select().from(schema.tandaParticipants).where(inArray(schema.tandaParticipants.tandaId, tds.map(t => t.id)));
+  const myParts = parts.filter(p => (p.email || "").trim().toLowerCase() === email && (p as unknown as { excluded?: number }).excluded !== 1);
+  if (myParts.length === 0) return false;
+  const myTandaIds = new Set(myParts.map(p => p.tandaId));
+  const tinvs = await db.select().from(schema.tandaInvitations).where(and(eq(schema.tandaInvitations.householdId, householdId), eq(schema.tandaInvitations.status, "accepted")));
+  if (!tinvs.some(ti => myTandaIds.has(ti.tandaId))) return false;
+  return true;
+}
+
+// Esquema de la vista de una tanda (lo comparten getOverview y listMyTandas).
+const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAdmin: z.boolean(), myProfileId: z.number().nullable(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) });
+
+// ---- Vista de una tanda (la misma que getOverview arma por hogar) ----
+// Se extrae para reutilizarla en listMyTandas: el invitado de una tanda
+// ve ESA tanda completa (participantes, calendario, pagos, multas,
+// votos, entregas, saldos) sin ser miembro del hogar del invitador.
+// householdId / isAdmin / myProfileId se calculan por tanda en el
+// servidor: el cliente nunca decide sus propios permisos.
+type TandaRows = {
+  profilesR: (typeof schema.profiles.$inferSelect)[];
+  tandasR: (typeof schema.tandas.$inferSelect)[];
+  tandaPartsR: (typeof schema.tandaParticipants.$inferSelect)[];
+  tandaPaysR: (typeof schema.tandaPayments.$inferSelect)[];
+  proofAmounts: Map<number, number>;
+  tandaFinesR: (typeof schema.tandaFines.$inferSelect)[];
+  tandaVotesR: (typeof schema.tandaVotes.$inferSelect)[];
+  tandaDeliveriesR: (typeof schema.tandaDeliveries.$inferSelect)[];
+  tandaFundEntriesR: (typeof schema.tandaFundEntries.$inferSelect)[];
+  orgRatingsR: (typeof schema.organizerRatings.$inferSelect)[];
+  tandaInvsR: (typeof schema.tandaInvitations.$inferSelect)[];
+  todayStr: string;
+};
+async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect, rows: TandaRows, opts: { isAdmin: boolean; myProfileId: number | null }) {
+  const { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr } = rows;
+  const statsForName = (name:string) => {
+    const key = name.trim().toLowerCase();
+    const myParts = tandaPartsR.filter(x=>x.name.trim().toLowerCase()===key);
+    const myIds = new Set(myParts.map(x=>x.id));
+    const myPays = tandaPaysR.filter(x=>myIds.has(x.participantId));
+    let dueCount = 0; let paidCount = 0; let onTime = 0; let earlySum = 0; let earlyN = 0;
+    for (const td2 of tandasR) {
+      const cadence = td2.cadenceDays || 15;
+      for (let i=0;i<td2.participantCount;i++) { if (dueDateOf(td2.startDate, cadence, i) <= todayStr) dueCount += myParts.filter(x=>x.tandaId===td2.id).length; }
+    }
+    for (const pay of myPays) {
+      if (pay.status !== "paid") continue;
+      paidCount++;
+      const td2 = tandasR.find(x=>x.id===pay.tandaId); if (!td2 || !pay.paidDate) continue;
+      const due = dueDateOf(td2.startDate, td2.cadenceDays || 15, pay.quincenaIndex);
+      const diff = dayDiff(due, pay.paidDate); // >0 pagó con anticipación; 0, el día del vencimiento
+      if (diff >= 0) onTime++;
+      earlySum += diff; earlyN++;
+    }
+    const joinedDates = myParts.map(x=>x.joinedDate).filter((d): d is string => !!d).sort();
+    const seniorityDays = joinedDates[0] ? Math.max(0, dayDiff(todayStr, joinedDates[0])) : 0;
+    const onTimePct = paidCount>0 ? Math.round(onTime/paidCount*100) : 100;
+    const avgDaysEarly = earlyN>0 ? Math.round((earlySum/earlyN)*10)/10 : 0;
+    // Racha: rondas vencidas consecutivas pagadas a tiempo, desde la más reciente hacia atrás.
+    let streak = 0;
+    {
+      const rounds: { due: string; onTime: boolean }[] = [];
+      for (const td2 of tandasR) {
+        const cadence = td2.cadenceDays || 15;
+        for (let i=0;i<td2.participantCount;i++) {
+          const due = dueDateOf(td2.startDate, cadence, i);
+          if (due > todayStr) continue;
+          const pay = myPays.find(x=>x.tandaId===td2.id && x.quincenaIndex===i);
+          rounds.push({ due, onTime: !!pay && pay.status==="paid" && !!pay.paidDate && dayDiff(due, pay.paidDate) >= 0 });
+        }
+      }
+      rounds.sort((a,b)=> b.due.localeCompare(a.due));
+      for (const r of rounds) { if (!r.onTime) break; streak++; }
+    }
+    const base = dueCount===0 ? 70 : (paidCount/Math.max(1,dueCount))*70;
+    const onTimeComp = paidCount>0 ? (onTime/paidCount)*20 : 10;
+    const seniorityComp = Math.min(10, seniorityDays/3);
+    const score = Math.max(5, Math.min(100, Math.round(base + onTimeComp + seniorityComp)));
+    return { paidCount, dueCount, onTimePct, avgDaysEarly, seniorityDays, score, streak };
+  };
+  const parts = tandaPartsR.filter(x=>x.tandaId===td.id);
+  const ordered = [...parts].sort((a,b)=>(a.drawOrder??999)-(b.drawOrder??999));
+  const cadence = td.cadenceDays || 15;
+  const calendar = Array.from({length: td.participantCount}, (_,i)=>{
+    const recv = ordered.find(x=>x.drawOrder===i+1) || null;
+    return { index: i, date: addDays(td.startDate, i*cadence), receiverName: recv? recv.name : null, receiverId: recv? recv.id : null, amount: Math.round(td.amountPerQuincena*td.participantCount*100)/100 };
+  });
+  const orgName = td.organizerName || profilesR.find(p=>p.id===td.organizerProfileId)?.name || profilesR.find(p=>p.role==="admin")?.name || null;
+  const orgKey = (orgName||"").trim().toLowerCase();
+  const orgTandaIds = new Set(tandasR.filter(x=>((x.organizerName || profilesR.find(p=>p.id===x.organizerProfileId)?.name || profilesR.find(p=>p.role==="admin")?.name || "").trim().toLowerCase())===orgKey).map(x=>x.id));
+  const ratingsAll = orgRatingsR.filter(r=>orgTandaIds.has(r.tandaId));
+  const organizerRating = { avg: ratingsAll.length? Math.round(ratingsAll.reduce((s,r)=>s+r.stars,0)/ratingsAll.length*10)/10 : 0, count: ratingsAll.length };
+  const paysOut: {participantId:number;quincenaIndex:number;status:string;reminderSent:number;paidDate:string|null;proofUrl:string|null;proofAmount:number|null;verified:number;fineAmount:number}[] = [];
+  for (const x of tandaPaysR.filter(x=>x.tandaId===td.id)) { let url: string|null = null; if (x.proofBlobKey) { try { url = await ctx.blobs.getUrl(x.proofBlobKey); } catch { url = null; } } paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: url, proofAmount: proofAmounts.get(x.id) ?? null, verified: x.verified ?? 0, fineAmount: x.fineAmount ?? 0 }); }
+  // ---- Tandas v3: roles, saldos separados, multas, votos, entregas y pase de lista ----
+  const treasurerName = profilesR.find(p=>p.id===(td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId)?.name ?? null;
+  const substituteName = profilesR.find(p=>p.id===(td as unknown as { substituteProfileId?: number | null }).substituteProfileId)?.name ?? null;
+  const finesOut = tandaFinesR.filter(x=>x.tandaId===td.id).map(x=>({ id: x.id, participantId: x.participantId, quincenaIndex: x.quincenaIndex, amount: x.amount, reason: x.reason, status: x.status }));
+  const votesOut = tandaVotesR.filter(x=>x.tandaId===td.id).map(x=>({ id: x.id, targetParticipantId: x.targetParticipantId, voterName: x.voterName, vote: x.vote, reason: x.reason ?? null }));
+  const deliveriesOut = tandaDeliveriesR.filter(x=>x.tandaId===td.id).map(x=>({ quincenaIndex: x.quincenaIndex, receiverId: x.receiverId ?? null, organizerConfirmed: x.organizerConfirmed ?? 0, receiverConfirmed: x.receiverConfirmed ?? 0 }));
+  const fundEntriesOut = tandaFundEntriesR.filter(x=>x.tandaId===td.id).map(x=>({ id: x.id, participantId: x.participantId ?? null, kind: x.kind, amount: x.amount, note: x.note ?? null }));
+  const paidCountT = paysOut.filter(x=>x.status==="paid").length;
+  const balances = {
+    aportacion: Math.round(paidCountT * td.amountPerQuincena * 100) / 100,
+    fondo: Math.round(fundEntriesOut.filter(x=>x.kind==="fondo").reduce((s,x)=>s+x.amount,0)*100)/100,
+    multasPendientes: Math.round(finesOut.filter(x=>x.status==="pendiente").reduce((s,x)=>s+x.amount,0)*100)/100,
+    multasCobradas: Math.round(fundEntriesOut.filter(x=>x.kind==="multa").reduce((s,x)=>s+x.amount,0)*100)/100,
+  };
+  const elapsedDays = Math.max(0, dayDiff(todayStr, td.startDate));
+  const attIndex = Math.min(td.participantCount - 1, Math.floor(elapsedDays / cadence));
+  const attCal = calendar[attIndex] || { index: 0, date: td.startDate, receiverName: null, receiverId: null, amount: Math.round(td.amountPerQuincena*td.participantCount*100)/100 };
+  const attendance = {
+    index: attIndex, date: attCal.date, receiverName: attCal.receiverName, receiverId: attCal.receiverId, amount: attCal.amount,
+    items: parts.map(pt=>{
+      const pay = paysOut.find(x=>x.participantId===pt.id && x.quincenaIndex===attIndex);
+      let status = pay?.status || "pending";
+      if (status === "pending" && attCal.date < todayStr) status = "late";
+      return { participantId: pt.id, name: pt.name, status, paidDate: pay?.paidDate ?? null, proofUrl: pay?.proofUrl ?? null, proofAmount: pay?.proofAmount ?? null, verified: pay?.verified ?? 0, fineAmount: pay?.fineAmount ?? 0 };
+    }),
+  };
+  return { id: td.id, householdId: td.householdId, isAdmin: opts.isAdmin, myProfileId: opts.myProfileId, name: td.name, participantCount: td.participantCount, amountPerQuincena: td.amountPerQuincena, startDate: td.startDate, potPerQuincena: Math.round(td.amountPerQuincena*td.participantCount*100)/100, organizerName: orgName, organizerProfileId: td.organizerProfileId ?? null, frequency: td.frequency || "quincenal", cadenceDays: cadence, drawMode: td.drawMode || "random", coverageRule: (td as unknown as { coverageRule?: string }).coverageRule || "fondo", fineAmount: (td as unknown as { fineAmount?: number }).fineAmount ?? 0, meetingDay: (td as unknown as { meetingDay?: string }).meetingDay || "", treasurerProfileId: (td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId ?? null, treasurerName, substituteProfileId: (td as unknown as { substituteProfileId?: number | null }).substituteProfileId ?? null, substituteName, turnsLocked: (td as unknown as { turnsLocked?: number }).turnsLocked ?? 0, organizerRating, ratings: orgRatingsR.filter(r=>r.tandaId===td.id).map(r=>({ id: r.id, raterName: r.raterName, stars: r.stars, comment: r.comment ?? null })), invitations: tandaInvsR.filter(i=>i.tandaId===td.id).map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, status: i.status })), participants: parts.map(x=>({ id: x.id, name: x.name, email: x.email ?? null, drawOrder: x.drawOrder ?? null, cardLast4: x.cardLast4 ?? null, joinedDate: x.joinedDate ?? null, role: (x as unknown as { role?: string }).role || "participante", excluded: (x as unknown as { excluded?: number }).excluded ?? 0, stats: statsForName(x.name) })), calendar, payments: paysOut, fines: finesOut, votes: votesOut, deliveries: deliveriesOut, fundEntries: fundEntriesOut, balances, attendance };
+}
+
 export const Actions = {
   getOverview: defineAction({
     description: "Returns the full household state with computed totals that always reconcile.",
@@ -733,7 +886,7 @@ export const Actions = {
       agreements: z.array(z.object({ id: z.number(), title: z.string(), description: z.string(), status: z.string(), votes: z.array(z.object({ profileId: z.number(), vote: z.string() })) })),
       patrimony: z.array(z.object({ id: z.number(), name: z.string(), kind: z.string(), category: z.string(), value: z.number(), owner: z.string().nullable() })),
       personal: z.object({ salary: z.number(), monthSpent: z.number(), remaining: z.number(), todaySpent: z.number(), todayCount: z.number(), byCategory: z.array(z.object({ categoryId: z.number().nullable(), name: z.string(), total: z.number(), pct: z.number() })), todayMovements: z.array(z.object({ id: z.number(), concept: z.string(), amount: z.number(), categoryId: z.number().nullable(), date: z.string() })) }),
-      tandas: z.array(z.object({ id: z.number(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) })),
+      tandas: z.array(tandaViewSchema),
       summary: z.object({
         totalBalance: z.number(), totalInFunds: z.number(), availableFree: z.number(),
         openingBalance: z.number(), priorMonthsNet: z.number(), fundsFromAccounts: z.number(), fundsReserved: z.number(),
@@ -778,7 +931,14 @@ export const Actions = {
       const myMemberships = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.userId, ctx.user.id)).orderBy(schema.householdMembers.id);
       const myHouseholdIds = myMemberships.map(m => m.householdId);
       const myHouseholdsR = myHouseholdIds.length > 0 ? await db.select().from(schema.households).where(inArray(schema.households.id, myHouseholdIds)) : [];
-      const households = myMemberships.filter(m => myHouseholdsR.some(h => h.id === m.householdId)).map(m => ({ id: m.householdId, name: myHouseholdsR.find(h => h.id === m.householdId)?.name ?? "", role: m.role }));
+      // El selector «Cambiar de hogar» solo muestra hogares a los que la
+      // persona pertenece de verdad: una membresía derivada solo de una
+      // invitación de tanda (flujo viejo) no abre el hogar del invitador.
+      const households: { id: number; name: string; role: string }[] = [];
+      for (const m of myMemberships.filter(m => myHouseholdsR.some(h => h.id === m.householdId))) {
+        if (await isTandaOnlyMember(db, ctx.user.id, ctx.user.email, m.householdId)) continue;
+        households.push({ id: m.householdId, name: myHouseholdsR.find(h => h.id === m.householdId)?.name ?? "", role: m.role });
+      }
       // Consultas en secuencia, NO en Promise.all: con una sola conexión
       // Postgres (max: 1, pooler de Supabase en modo transacción), lanzar
       // 17 consultas a la vez atasca la conexión y la petición se cuelga
@@ -970,98 +1130,7 @@ export const Actions = {
       const personal = { salary: Math.round(salary*100)/100, monthSpent: Math.round(monthSpentP*100)/100, remaining: Math.round((salary-monthSpentP)*100)/100, todaySpent: Math.round(todayMovs.reduce((s,m)=>s+m.amount,0)*100)/100, todayCount: todayMovs.length, byCategory, todayMovements: todayMovs.filter(canSeeMovement).map(m=>({ id:m.id, concept:m.concept, amount:m.amount, categoryId:m.categoryId??null, date:m.date })) };
 
       // ---- Tandas v2: organizador con estrellas, invitados, comprobantes y cumplimiento ----
-      const addDays = (iso:string, days:number) => { const [y=2026,mo=1,d=1]=iso.split("-").map(Number); const dt=new Date(y,(mo||1)-1,(d||1)+days); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`; };
-      const dayDiff = (a:string, b:string) => { const [ay=2026,am=1,ad=1]=a.split("-").map(Number); const [by=2026,bm=1,bd=1]=b.split("-").map(Number); return Math.round((new Date(ay,(am||1)-1,ad||1).getTime()-new Date(by,(bm||1)-1,bd||1).getTime())/86400000); };
-      const dueDateOf = (tdStart:string, cadence:number, idx:number) => addDays(tdStart, idx*cadence);
-      // Historial de cumplimiento por nombre en TODO el espacio (todas las tandas del mismo organizador/espacio)
-      const statsForName = (name:string) => {
-        const key = name.trim().toLowerCase();
-        const myParts = tandaPartsR.filter(x=>x.name.trim().toLowerCase()===key);
-        const myIds = new Set(myParts.map(x=>x.id));
-        const myPays = tandaPaysR.filter(x=>myIds.has(x.participantId));
-        let dueCount = 0; let paidCount = 0; let onTime = 0; let earlySum = 0; let earlyN = 0;
-        for (const td2 of tandasR) {
-          const cadence = td2.cadenceDays || 15;
-          for (let i=0;i<td2.participantCount;i++) { if (dueDateOf(td2.startDate, cadence, i) <= todayStr) dueCount += myParts.filter(x=>x.tandaId===td2.id).length; }
-        }
-        for (const pay of myPays) {
-          if (pay.status !== "paid") continue;
-          paidCount++;
-          const td2 = tandasR.find(x=>x.id===pay.tandaId); if (!td2 || !pay.paidDate) continue;
-          const due = dueDateOf(td2.startDate, td2.cadenceDays || 15, pay.quincenaIndex);
-          const diff = dayDiff(due, pay.paidDate); // >0 pagó con anticipación; 0, el día del vencimiento
-          if (diff >= 0) onTime++;
-          earlySum += diff; earlyN++;
-        }
-        const joinedDates = myParts.map(x=>x.joinedDate).filter((d): d is string => !!d).sort();
-        const seniorityDays = joinedDates[0] ? Math.max(0, dayDiff(todayStr, joinedDates[0])) : 0;
-        const onTimePct = paidCount>0 ? Math.round(onTime/paidCount*100) : 100;
-        const avgDaysEarly = earlyN>0 ? Math.round((earlySum/earlyN)*10)/10 : 0;
-        // Racha: rondas vencidas consecutivas pagadas a tiempo, desde la más reciente hacia atrás.
-        let streak = 0;
-        {
-          const rounds: { due: string; onTime: boolean }[] = [];
-          for (const td2 of tandasR) {
-            const cadence = td2.cadenceDays || 15;
-            for (let i=0;i<td2.participantCount;i++) {
-              const due = dueDateOf(td2.startDate, cadence, i);
-              if (due > todayStr) continue;
-              const pay = myPays.find(x=>x.tandaId===td2.id && x.quincenaIndex===i);
-              rounds.push({ due, onTime: !!pay && pay.status==="paid" && !!pay.paidDate && dayDiff(due, pay.paidDate) >= 0 });
-            }
-          }
-          rounds.sort((a,b)=> b.due.localeCompare(a.due));
-          for (const r of rounds) { if (!r.onTime) break; streak++; }
-        }
-        const base = dueCount===0 ? 70 : (paidCount/Math.max(1,dueCount))*70;
-        const onTimeComp = paidCount>0 ? (onTime/paidCount)*20 : 10;
-        const seniorityComp = Math.min(10, seniorityDays/3);
-        const score = Math.max(5, Math.min(100, Math.round(base + onTimeComp + seniorityComp)));
-        return { paidCount, dueCount, onTimePct, avgDaysEarly, seniorityDays, score, streak };
-      };
-      const tandas = await Promise.all(tandasR.map(async td=>{
-        const parts = tandaPartsR.filter(x=>x.tandaId===td.id);
-        const ordered = [...parts].sort((a,b)=>(a.drawOrder??999)-(b.drawOrder??999));
-        const cadence = td.cadenceDays || 15;
-        const calendar = Array.from({length: td.participantCount}, (_,i)=>{
-          const recv = ordered.find(x=>x.drawOrder===i+1) || null;
-          return { index: i, date: addDays(td.startDate, i*cadence), receiverName: recv? recv.name : null, receiverId: recv? recv.id : null, amount: Math.round(td.amountPerQuincena*td.participantCount*100)/100 };
-        });
-        const orgName = td.organizerName || profilesR.find(p=>p.id===td.organizerProfileId)?.name || profilesR.find(p=>p.role==="admin")?.name || null;
-        const orgKey = (orgName||"").trim().toLowerCase();
-        const orgTandaIds = new Set(tandasR.filter(x=>((x.organizerName || profilesR.find(p=>p.id===x.organizerProfileId)?.name || profilesR.find(p=>p.role==="admin")?.name || "").trim().toLowerCase())===orgKey).map(x=>x.id));
-        const ratingsAll = orgRatingsR.filter(r=>orgTandaIds.has(r.tandaId));
-        const organizerRating = { avg: ratingsAll.length? Math.round(ratingsAll.reduce((s,r)=>s+r.stars,0)/ratingsAll.length*10)/10 : 0, count: ratingsAll.length };
-        const paysOut: {participantId:number;quincenaIndex:number;status:string;reminderSent:number;paidDate:string|null;proofUrl:string|null;proofAmount:number|null;verified:number;fineAmount:number}[] = [];
-        for (const x of tandaPaysR.filter(x=>x.tandaId===td.id)) { let url: string|null = null; if (x.proofBlobKey) { try { url = await ctx.blobs.getUrl(x.proofBlobKey); } catch { url = null; } } paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: url, proofAmount: proofAmounts.get(x.id) ?? null, verified: x.verified ?? 0, fineAmount: x.fineAmount ?? 0 }); }
-        // ---- Tandas v3: roles, saldos separados, multas, votos, entregas y pase de lista ----
-        const treasurerName = profilesR.find(p=>p.id===(td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId)?.name ?? null;
-        const substituteName = profilesR.find(p=>p.id===(td as unknown as { substituteProfileId?: number | null }).substituteProfileId)?.name ?? null;
-        const finesOut = tandaFinesR.filter(x=>x.tandaId===td.id).map(x=>({ id: x.id, participantId: x.participantId, quincenaIndex: x.quincenaIndex, amount: x.amount, reason: x.reason, status: x.status }));
-        const votesOut = tandaVotesR.filter(x=>x.tandaId===td.id).map(x=>({ id: x.id, targetParticipantId: x.targetParticipantId, voterName: x.voterName, vote: x.vote, reason: x.reason ?? null }));
-        const deliveriesOut = tandaDeliveriesR.filter(x=>x.tandaId===td.id).map(x=>({ quincenaIndex: x.quincenaIndex, receiverId: x.receiverId ?? null, organizerConfirmed: x.organizerConfirmed ?? 0, receiverConfirmed: x.receiverConfirmed ?? 0 }));
-        const fundEntriesOut = tandaFundEntriesR.filter(x=>x.tandaId===td.id).map(x=>({ id: x.id, participantId: x.participantId ?? null, kind: x.kind, amount: x.amount, note: x.note ?? null }));
-        const paidCountT = paysOut.filter(x=>x.status==="paid").length;
-        const balances = {
-          aportacion: Math.round(paidCountT * td.amountPerQuincena * 100) / 100,
-          fondo: Math.round(fundEntriesOut.filter(x=>x.kind==="fondo").reduce((s,x)=>s+x.amount,0)*100)/100,
-          multasPendientes: Math.round(finesOut.filter(x=>x.status==="pendiente").reduce((s,x)=>s+x.amount,0)*100)/100,
-          multasCobradas: Math.round(fundEntriesOut.filter(x=>x.kind==="multa").reduce((s,x)=>s+x.amount,0)*100)/100,
-        };
-        const elapsedDays = Math.max(0, dayDiff(todayStr, td.startDate));
-        const attIndex = Math.min(td.participantCount - 1, Math.floor(elapsedDays / cadence));
-        const attCal = calendar[attIndex] || { index: 0, date: td.startDate, receiverName: null, receiverId: null, amount: Math.round(td.amountPerQuincena*td.participantCount*100)/100 };
-        const attendance = {
-          index: attIndex, date: attCal.date, receiverName: attCal.receiverName, receiverId: attCal.receiverId, amount: attCal.amount,
-          items: parts.map(pt=>{
-            const pay = paysOut.find(x=>x.participantId===pt.id && x.quincenaIndex===attIndex);
-            let status = pay?.status || "pending";
-            if (status === "pending" && attCal.date < todayStr) status = "late";
-            return { participantId: pt.id, name: pt.name, status, paidDate: pay?.paidDate ?? null, proofUrl: pay?.proofUrl ?? null, proofAmount: pay?.proofAmount ?? null, verified: pay?.verified ?? 0, fineAmount: pay?.fineAmount ?? 0 };
-          }),
-        };
-        return { id: td.id, name: td.name, participantCount: td.participantCount, amountPerQuincena: td.amountPerQuincena, startDate: td.startDate, potPerQuincena: Math.round(td.amountPerQuincena*td.participantCount*100)/100, organizerName: orgName, organizerProfileId: td.organizerProfileId ?? null, frequency: td.frequency || "quincenal", cadenceDays: cadence, drawMode: td.drawMode || "random", coverageRule: (td as unknown as { coverageRule?: string }).coverageRule || "fondo", fineAmount: (td as unknown as { fineAmount?: number }).fineAmount ?? 0, meetingDay: (td as unknown as { meetingDay?: string }).meetingDay || "", treasurerProfileId: (td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId ?? null, treasurerName, substituteProfileId: (td as unknown as { substituteProfileId?: number | null }).substituteProfileId ?? null, substituteName, turnsLocked: (td as unknown as { turnsLocked?: number }).turnsLocked ?? 0, organizerRating, ratings: orgRatingsR.filter(r=>r.tandaId===td.id).map(r=>({ id: r.id, raterName: r.raterName, stars: r.stars, comment: r.comment ?? null })), invitations: tandaInvsR.filter(i=>i.tandaId===td.id).map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, status: i.status })), participants: parts.map(x=>({ id: x.id, name: x.name, email: x.email ?? null, drawOrder: x.drawOrder ?? null, cardLast4: x.cardLast4 ?? null, joinedDate: x.joinedDate ?? null, role: (x as unknown as { role?: string }).role || "participante", excluded: (x as unknown as { excluded?: number }).excluded ?? 0, stats: statsForName(x.name) })), calendar, payments: paysOut, fines: finesOut, votes: votesOut, deliveries: deliveriesOut, fundEntries: fundEntriesOut, balances, attendance };
-      }));
+      const tandas = await Promise.all(tandasR.map(td => assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: ctx.userRole === "admin", myProfileId })));
 
       // ---- Plan de ahorro por meta: avance y ritmo, calculados del fondo ligado ----
       // Los avisos del plan se revisan en cada carga; si toca avisar, el aviso
@@ -1130,6 +1199,57 @@ export const Actions = {
     },
   }),
 
+  listMyTandas: defineAction({
+    description: "Lists the full tanda views where the user participates by email in a household they are NOT a real member of (guest tandas from accepted tanda invitations). The tanda is shown in their own Personal space; nothing else of the inviter's household is returned. Tandas of households they belong to are already in getOverview and are excluded here.",
+    request: z.object({}),
+    response: z.object({ tandas: z.array(tandaViewSchema) }),
+    async handler(ctx): Promise<{ tandas: z.infer<typeof tandaViewSchema>[] }> {
+      const db = ctx.db;
+      const email = (ctx.user.email || "").trim().toLowerCase();
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const myParts = await db.select().from(schema.tandaParticipants).where(sql`lower(${schema.tandaParticipants.email}) = ${email}`);
+      const activeParts = myParts.filter(p => (p as unknown as { excluded?: number }).excluded !== 1);
+      if (activeParts.length === 0) return { tandas: [] };
+      const tandaIds = [...new Set(activeParts.map(p => p.tandaId))];
+      const tds = await db.select().from(schema.tandas).where(inArray(schema.tandas.id, tandaIds));
+      const out: z.infer<typeof tandaViewSchema>[] = [];
+      const byHousehold = new Map<number, typeof tds>();
+      for (const td of tds) {
+        const arr = byHousehold.get(td.householdId) ?? [];
+        arr.push(td);
+        byHousehold.set(td.householdId, arr);
+      }
+      for (const [hid, htds] of byHousehold) {
+        // Miembro de verdad del hogar (dueño o invitación al hogar
+        // aceptada): esas tandas ya vienen en getOverview, no aquí.
+        const mems = await db.select().from(schema.householdMembers).where(and(eq(schema.householdMembers.householdId, hid), eq(schema.householdMembers.userId, ctx.user.id)));
+        if (mems.length > 0 && !(await isTandaOnlyMember(db, ctx.user.id, ctx.user.email, hid))) continue;
+        const profilesR = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, hid));
+        const tandasR = await db.select().from(schema.tandas).where(eq(schema.tandas.householdId, hid));
+        const tandaPartsR = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.householdId, hid));
+        const tandaPaysR = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.householdId, hid));
+        const proofAmounts = new Map<number, number>();
+        try {
+          const res = (await db.execute(sql`SELECT id, proof_amount FROM tanda_payments WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; proof_amount: number | null }[] } | { id: number; proof_amount: number | null }[];
+          const rows = Array.isArray(res) ? res : (res.rows ?? []);
+          for (const row of rows) if (row.proof_amount != null) proofAmounts.set(row.id, row.proof_amount);
+        } catch { /* columna aún no creada */ }
+        const tandaInvsR = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.householdId, hid)).orderBy(desc(schema.tandaInvitations.id));
+        const orgRatingsR = await db.select().from(schema.organizerRatings).where(eq(schema.organizerRatings.householdId, hid)).orderBy(desc(schema.organizerRatings.id));
+        const safeRows = async <T>(fn: () => Promise<T[]>): Promise<T[]> => { try { return await fn(); } catch { return []; } };
+        const tandaFinesR = await safeRows(() => db.select().from(schema.tandaFines).where(eq(schema.tandaFines.householdId, hid)));
+        const tandaVotesR = await safeRows(() => db.select().from(schema.tandaVotes).where(eq(schema.tandaVotes.householdId, hid)));
+        const tandaDeliveriesR = await safeRows(() => db.select().from(schema.tandaDeliveries).where(eq(schema.tandaDeliveries.householdId, hid)));
+        const tandaFundEntriesR = await safeRows(() => db.select().from(schema.tandaFundEntries).where(eq(schema.tandaFundEntries.householdId, hid)));
+        const myProfileId = profilesR.find(p => p.userId === ctx.user.id)?.id ?? null;
+        for (const td of htds) {
+          out.push(await assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: false, myProfileId }));
+        }
+      }
+      return { tandas: out };
+    },
+  }),
   createHousehold: defineAction({
     description: "Creates the household and seeds default categories.",
     request: z.object({ mode: z.enum(["personal","familiar"]).default("familiar"), name: z.string().min(1).max(120), currency: z.string().default("MXN"), cutoffDay: z.number().int().min(1).max(28).default(1), contributionRule: z.enum(["equal","proportional"]).default("equal"), approvalRule: z.enum(["unanimous","majority"]).default("unanimous"), approvalThreshold: z.number().min(0).max(100_000_000).default(1500), ownerName: z.string().min(1).max(80), ownerLastName: z.string().max(80).default(""), ownerIncome: z.number().min(0).max(100_000_000).default(0) }),
@@ -2460,7 +2580,7 @@ export const Actions = {
     },
   }),
   respondTandaInvitation: defineAction({
-    description: "Accepts or rejects a tanda invitation. Accepting adds the person as a visible participant of that tanda with the name they choose (never taken from their email), and also brings them into the tanda's household (member profile + membership), like accepting a household invitation: without membership they would never see the tanda. The invitation link (token) is the credential: the person may accept with any account email; when it differs from the invited email, the organizer is notified with both emails.",
+    description: "Accepts or rejects a tanda invitation. Accepting adds the person as a visible participant of that tanda with the name they choose (never taken from their email), and gives them a profile in the tanda's household so the organizer can see them and their rank can be resolved — but it does NOT make them a member of that household: they cannot read anything else of the inviter's household (overview, movements, accounts, budgets). The tanda is shown in their own Personal space. The invitation link (token) is the credential: the person may accept with any account email; when it differs from the invited email, the organizer is notified with both emails.",
     request: z.object({ id: z.number(), accept: z.boolean(), name: z.string().optional() }),
     response: z.object({ ok: z.literal(true), participantId: z.number().optional(), profileId: z.number().optional(), tandaId: z.number().optional(), householdId: z.number().optional() }),
     async handler(ctx, args): Promise<{ ok: true; participantId?: number; profileId?: number; tandaId?: number; householdId?: number }> {
@@ -2499,10 +2619,13 @@ export const Actions = {
       }
       await db.update(schema.tandaInvitations).set({ status: "accepted" }).where(eq(schema.tandaInvitations.id, args.id));
       await markTokensForInvitation(db, null, inv.id, "accepted");
-      // Al aceptar, la persona entra al hogar de la tanda (perfil de
-      // integrante + membresía), igual que al aceptar una invitación al
-      // hogar: sin membresía nunca vería la tanda, porque el hogar se
-      // resuelve desde household_members.
+      // Al aceptar, la persona queda como participante de LA tanda con un
+      // perfil propio en el hogar del invitador (para que el organizador
+      // lo vea y para resolver su rango), pero NO se hace miembro del
+      // hogar: la membresía es lo que abriría el panel completo del
+      // invitador (movimientos, cuentas, presupuestos). La tanda se le
+      // muestra en su propio espacio Personal (listMyTandas), sin acceso
+      // al hogar.
       const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, inv.householdId));
       // El perfil se reconoce por el correo REAL de la cuenta; si ya hay
       // uno con el correo invitado, se reutiliza y se actualiza.
@@ -2519,10 +2642,6 @@ export const Actions = {
       }
       if (profileId) {
         await db.update(schema.profiles).set({ userId: ctx.user.id }).where(eq(schema.profiles.id, profileId));
-        const existingMember = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, inv.householdId));
-        if (!existingMember.some(m => m.userId === ctx.user.id)) {
-          await db.insert(schema.householdMembers).values({ householdId: inv.householdId, userId: ctx.user.id, profileId, role: "member" });
-        }
       }
       // El registro deja constancia del correo con el que se aceptó
       // realmente, no solo del invitado.

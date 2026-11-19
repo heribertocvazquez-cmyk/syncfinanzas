@@ -17,7 +17,7 @@
 
 import { and, eq } from "drizzle-orm";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { Actions } from "../server/src/actions.js";
+import { Actions, isTandaOnlyMember } from "../server/src/actions.js";
 import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { buildCtx } from "../server/src/space-shim.js";
@@ -35,15 +35,30 @@ async function membershipFor(db: ReturnType<typeof getDb>, userId: string, house
   return rows[0] ?? null;
 }
 
-async function firstMembership(db: ReturnType<typeof getDb>, userId: string) {
+async function firstMembership(db: ReturnType<typeof getDb>, userId: string, userEmail: string) {
+  // La membresía más antigua que de verdad abre un hogar: una membresía
+  // derivada solo de una invitación de tanda (flujo viejo) no cuenta,
+  // porque el invitado nunca pidió entrar a ese hogar.
   const rows = await db
     .select()
     .from(schema.householdMembers)
     .where(eq(schema.householdMembers.userId, userId))
-    .orderBy(schema.householdMembers.id)
-    .limit(1);
-  return rows[0] ?? null;
+    .orderBy(schema.householdMembers.id);
+  for (const m of rows) {
+    if (await isTandaOnlyMember(db, userId, userEmail, m.householdId)) continue;
+    return m;
+  }
+  return null;
 }
+
+// Acciones que un participante de tanda puede ejercer sobre ESA tanda sin
+// ser miembro del hogar: el hogar se resuelve desde la tanda y se exige
+// membresía real o participación (no excluida) en esa tanda. El rango
+// (organizador/tesorero/suplente o participante propio) lo verifica
+// después la propia acción con tandaAccess. Las acciones de organizador
+// (rango 3: eliminar, sorteo, invitar, roles) NO están aquí: esas exigen
+// membresía del hogar.
+const TANDA_PARTICIPANT_ACTIONS = new Set(["setTandaPayment", "verifyTandaPayment", "rateOrganizer", "setParticipantCard", "createMercadoPagoOrder", "checkMercadoPagoOrder", "sendTandaReminder", "addTandaFine", "payTandaFine", "voteExcludeParticipant", "confirmTandaDelivery", "addTandaFundEntry"]);
 
 // Acciones que se identifican solo por id: el hogar se resuelve desde la
 // fila correspondiente antes de ejecutarlas.
@@ -157,6 +172,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const requireMember = async (hid: number): Promise<Role> => {
       const m = await membershipFor(db, user.id, hid);
       if (!m) throw new Error("No pertenece a este hogar.");
+      // Una membresía derivada solo de una invitación de tanda (flujo
+      // viejo) no abre el hogar del invitador: el invitado solo ve ESA
+      // tanda en su propio espacio Personal (listMyTandas). Sin esta
+      // comprobación, la fila vieja seguiría abriendo el panel completo
+      // del hogar (movimientos, cuentas, presupuestos).
+      if (await isTandaOnlyMember(db, user.id, user.email, hid)) throw new Error("No pertenece a este hogar.");
       householdId = hid;
       role = m.role as Role;
       return m.role as Role;
@@ -169,14 +190,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof rawArgs.householdId === "number") {
         await requireMember(rawArgs.householdId);
       } else {
-        const m = await firstMembership(db, user.id);
+        const m = await firstMembership(db, user.id, user.email);
         if (m) {
           householdId = m.householdId;
           role = m.role as Role;
         }
       }
     } else if (actionName === "createHousehold") {
-      const m = await firstMembership(db, user.id);
+      const m = await firstMembership(db, user.id, user.email);
       if (m) {
         householdId = m.householdId;
         role = m.role as Role;
@@ -187,13 +208,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(403).json({ error: "Solo puede consultar las invitaciones enviadas a su propio correo." });
       }
     } else if (actionName === "respondInvitation" || actionName === "respondTandaInvitation") {
-      // La comprobación del correo invitado la hace la propia acción, que
-      // además crea la membresía al aceptar. Aquí solo se verifica que la
-      // invitación exista; el hogar se resuelve dentro de la acción.
+      // La comprobación del correo invitado la hace la propia acción; al
+      // aceptar, respondInvitation crea la membresía del hogar (eso SÍ da
+      // acceso) y respondTandaInvitation solo deja al invitado como
+      // participante de la tanda, sin membresía. Aquí solo se verifica
+      // que la invitación exista; el hogar se resuelve dentro de la acción.
     } else if (actionName === "resolveInvite" || actionName === "acceptGeneralInvite" || actionName === "requestHouseholdJoinByCode" || actionName === "getJoinRequestStatusByCode") {
       // Acciones por token de invitación o código del hogar: el hogar (si lo
       // hay) se resuelve dentro de la acción desde el token o el código; no
       // exigen membresía previa.
+    } else if (actionName === "listMyTandas") {
+      // Tandas invitadas: no exige membresía de ningún hogar; la propia
+      // acción solo devuelve tandas en las que el usuario participa por
+      // correo y de cuyo hogar NO es miembro de verdad.
     } else if (actionName === "createGeneralInvitation") {
       // Invitación general (cuenta personal): no pertenece a ningún hogar;
       // solo exige estar autenticado.
@@ -221,8 +248,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof rawArgs.householdId === "number") {
         await requireMember(rawArgs.householdId);
       } else {
-        const m = await firstMembership(db, user.id);
+        const m = await firstMembership(db, user.id, user.email);
         if (m) return res.status(403).json({ error: "Solo el dueño de la app puede revisar los usuarios de la app." });
+      }
+    } else if (TANDA_PARTICIPANT_ACTIONS.has(actionName)) {
+      // Acciones de participante de tanda: el hogar se resuelve desde la
+      // tanda (no desde lo que el cliente afirme) y se permite ser miembro
+      // del hogar O participante (no excluido) de ESA tanda. El rango
+      // (organizador/tesorero/suplente o participante propio) lo verifica
+      // después la propia acción con tandaAccess.
+      let tandaId: number | null = null;
+      if (typeof rawArgs.tandaId === "number") tandaId = rawArgs.tandaId;
+      else if (actionName === "setParticipantCard" && typeof rawArgs.id === "number") {
+        const rows = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.id, rawArgs.id)).limit(1);
+        tandaId = rows[0]?.tandaId ?? null;
+      }
+      if (tandaId == null) return res.status(400).json({ error: "Falta el identificador de la tanda." });
+      const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, tandaId)).limit(1);
+      if (!tdRows[0]) return res.status(404).json({ error: "Tanda no encontrada." });
+      const hid = tdRows[0].householdId;
+      const m = await membershipFor(db, user.id, hid);
+      if (m && !(await isTandaOnlyMember(db, user.id, user.email, hid))) {
+        householdId = hid;
+        role = m.role as Role;
+      } else {
+        const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, tandaId));
+        const mine = parts.find(p => (p.email || "").trim().toLowerCase() === user.email.toLowerCase() && (p as unknown as { excluded?: number }).excluded !== 1);
+        if (!mine) throw new Error("No pertenece a este hogar.");
+        householdId = hid;
+        role = "member";
       }
     } else if (typeof rawArgs.householdId === "number") {
       await requireMember(rawArgs.householdId);
