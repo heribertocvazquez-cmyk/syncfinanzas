@@ -2111,6 +2111,11 @@ export const Actions = {
       if (code.length !== 6) throw new Error("El código del hogar no es válido. Revise el código con el administrador del hogar.");
       const t = await resolveInviteToken(db, code);
       if (!t || !isHouseholdCodeToken(t)) throw new Error("El código del hogar no es válido. Revise el código con el administrador del hogar.");
+      // Un código reemplazado al regenerar o vencido ya no resuelve: sin
+      // esta comprobación, la búsqueda devolvía el nombre del hogar para
+      // el código viejo (el revoke sí ocurría, pero la búsqueda lo
+      // ignoraba). Mismo mensaje que requestHouseholdJoinByCode.
+      if (!tokenIsUsable(t)) throw new Error("Este código ya no funciona. Pida al administrador que genere uno nuevo.");
       if (t.householdId == null) throw new Error("El código del hogar no es válido.");
       const hhRows = await db.select().from(schema.households).where(eq(schema.households.id, t.householdId)).limit(1);
       const householdName = hhRows[0]?.name ?? null;
