@@ -5,6 +5,7 @@
 // es solo la evaluación; la decisión de construir se toma aparte.
 import { useEffect, useState } from "react";
 import { Stars, Label, inputCls, btnPrimary } from "../lib/uiShared";
+import { CollapsibleCard } from "./CollapsibleCard";
 import {
   FEEDBACK_STATES,
   FEEDBACK_STATE_LABELS,
@@ -111,6 +112,53 @@ export function FeedbackReviewRow(p: {
           {p.busy ? "Guardando…" : "Guardar evaluación"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Cola de opiniones agrupada: Pendientes (por_revisar) y Revisados (todo
+ *  lo demás). Al guardar una evaluación, la opinión cambia de estado y se
+ *  mueve sola de grupo al recargar la lista. Cada grupo muestra su conteo. */
+export function FeedbackReviewList(p: {
+  items: FeedbackReviewItem[];
+  busy: boolean;
+  onSave: (v: { id: number; estado: FeedbackState; respuesta: string | null }) => void;
+}) {
+  const pendientes = p.items.filter((f) => (f.estado || "por_revisar") === "por_revisar");
+  const revisados = p.items.filter((f) => (f.estado || "por_revisar") !== "por_revisar");
+  return (
+    <div className="mt-2 space-y-2">
+      <CollapsibleCard
+        asSection
+        defaultOpen
+        toggleLabel="las opiniones pendientes"
+        title={<span className="font-display font-bold">Pendientes ({pendientes.length})</span>}
+      >
+        {pendientes.length === 0 ? (
+          <p className="text-sm text-[var(--dim)] py-2">Sin opiniones pendientes.</p>
+        ) : (
+          <div className="divide-y divide-[var(--border)]">
+            {pendientes.map((f) => (
+              <FeedbackReviewRow key={f.id} f={f} busy={p.busy} onSave={p.onSave} />
+            ))}
+          </div>
+        )}
+      </CollapsibleCard>
+      <CollapsibleCard
+        asSection
+        toggleLabel="las opiniones revisadas"
+        title={<span className="font-display font-bold">Revisados ({revisados.length})</span>}
+      >
+        {revisados.length === 0 ? (
+          <p className="text-sm text-[var(--dim)] py-2">Sin opiniones revisadas.</p>
+        ) : (
+          <div className="divide-y divide-[var(--border)]">
+            {revisados.map((f) => (
+              <FeedbackReviewRow key={f.id} f={f} busy={p.busy} onSave={p.onSave} />
+            ))}
+          </div>
+        )}
+      </CollapsibleCard>
     </div>
   );
 }

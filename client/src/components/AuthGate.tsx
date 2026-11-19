@@ -29,9 +29,8 @@ export interface InvitePreview {
   householdName: string | null;
   tandaName: string | null;
   usable: boolean;
-  /** Enlace genérico del hogar (sin correo ni invitación concreta):
-   *  solo identifica el hogar para solicitar entrar; el administrador
-   *  debe aprobar la solicitud. */
+  /** Enlace para probar la app (sin correo ni invitación concreta):
+   *  solo dice quién invitó; no da acceso a ningún hogar. */
   generic?: boolean;
 }
 
@@ -174,7 +173,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           <div className="mt-4 rounded-2xl border-2 border-[var(--gold)] bg-[var(--surface2)] p-4" role="status">
             <p className="font-display font-bold">Usted recibió una invitación</p>
             <p className="text-sm text-[var(--dim)] mt-1">
-              {invitePreview.kind === "household" && invitePreview.generic && <>Le invitan al hogar <b>“{invitePreview.householdName}”</b>{invitePreview.inviterName ? <> · le invitó {invitePreview.inviterName}</> : null}. Cree su cuenta y solicite entrar; el administrador del hogar debe aprobar su solicitud.</>}
+              {invitePreview.kind === "household" && invitePreview.generic && <>Le invitan a probar SyncFinanzas{invitePreview.inviterName ? <> · le invitó {invitePreview.inviterName}</> : null}. Cree su cuenta y empiece con su propio espacio.</>}
               {invitePreview.kind === "household" && !invitePreview.generic && <>Para unirse al hogar <b>“{invitePreview.householdName}”</b>{invitePreview.inviterName ? <> · le invitó {invitePreview.inviterName}</> : null}.</>}
               {invitePreview.kind === "tanda" && <>Para participar en la tanda <b>“{invitePreview.tandaName}”</b>{invitePreview.inviterName ? <> · le invitó {invitePreview.inviterName}</> : null}.</>}
               {invitePreview.kind === "general" && <>Para crear su cuenta personal en SyncFinanzas{invitePreview.inviterName ? <> · le invitó {invitePreview.inviterName}</> : null}.</>}
@@ -182,7 +181,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
             <p className="text-sm mt-1">
               {invitePreview.usable
                 ? invitePreview.kind === "household" && invitePreview.generic
-                  ? "Cree su cuenta y luego solicite entrar al hogar; el administrador debe aprobar su solicitud antes de que pueda ver los datos del hogar."
+                  ? "Cree su cuenta; después podrá crear su propio espacio. Este enlace no le da acceso al hogar de quien le invitó."
                   : "Cree su cuenta con el correo invitado y luego podrá aceptar o rechazar la invitación, sin crear un hogar nuevo por error."
                 : "Esta invitación ya fue utilizada o venció. Solicite una invitación nueva a la persona que lo invitó."}
             </p>

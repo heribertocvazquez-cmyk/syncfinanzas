@@ -21,6 +21,7 @@ import { Actions } from "../server/src/actions.js";
 import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { buildCtx } from "../server/src/space-shim.js";
+import { resolveAppUrl } from "../server/src/appUrl.js";
 import { errorResponse } from "../server/src/error-response.js";
 import { getUserFromToken, resolveSessionUser } from "../server/src/supabase.js";
 
@@ -140,14 +141,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const rawArgs = body.args ?? {};
 
     // URL pública de la aplicación: es la base de los enlaces de invitación
-    // por correo (https://<app>.vercel.app/invite?token=...). Se toma de
-    // APP_URL si está configurada, si no del dominio de Vercel o del origen
-    // de la petición.
-    const origin = (req.headers.origin as string | undefined) ?? "";
-    const appUrl =
-      process.env.APP_URL?.replace(/\/$/, "") ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "") ||
-      origin.replace(/\/$/, "");
+    // por correo (https://<app>.vercel.app/invite?token=...). Siempre
+    // producción (resolveAppUrl): VERCEL_URL en una vista previa es el
+    // dominio de esa vista previa y el origen es el dominio que el usuario
+    // haya abierto; ninguno sirve para un enlace que recibe otra persona.
+    const appUrl = resolveAppUrl(process.env.APP_URL);
 
     const db = getDb();
     let householdId: number | null = null;
@@ -182,9 +180,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // La comprobación del correo invitado la hace la propia acción, que
       // además crea la membresía al aceptar. Aquí solo se verifica que la
       // invitación exista; el hogar se resuelve dentro de la acción.
-    } else if (actionName === "resolveInvite" || actionName === "acceptGeneralInvite" || actionName === "requestHouseholdJoin" || actionName === "getJoinRequestStatus") {
-      // Acciones por token de invitación: el hogar (si lo hay) se resuelve
-      // dentro de la acción desde el token; no exigen membresía previa.
+    } else if (actionName === "resolveInvite" || actionName === "acceptGeneralInvite" || actionName === "requestHouseholdJoinByCode" || actionName === "getJoinRequestStatusByCode") {
+      // Acciones por token de invitación o código del hogar: el hogar (si lo
+      // hay) se resuelve dentro de la acción desde el token o el código; no
+      // exigen membresía previa.
     } else if (actionName === "createGeneralInvitation") {
       // Invitación general (cuenta personal): no pertenece a ningún hogar;
       // solo exige estar autenticado.

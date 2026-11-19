@@ -25,9 +25,11 @@ import { LoadingSplash } from "./components/LoadingSplash";
 import { TandasModule } from "./components/TandasModule";
 import { HomeTandasCard } from "./components/HomeTandasCard";
 import { GenericHouseholdInvite } from "./components/GenericHouseholdInvite";
+import { HouseholdCode } from "./components/HouseholdCode";
+import { JoinHouseholdByCode } from "./components/JoinHouseholdByCode";
 import { JoinRequestRow } from "./components/JoinRequestRow";
-import { GenericInviteRequest, type JoinRequestStatus } from "./components/GenericInviteRequest";
-import { FeedbackReviewRow } from "./components/FeedbackReview";
+import { UpdateBellNotice } from "./components/UpdateBellNotice";
+import { FeedbackReviewList } from "./components/FeedbackReview";
 import type { FeedbackState } from "./lib/feedback";
 import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview } from "./components/TandaDetail";
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
@@ -630,9 +632,9 @@ export function App(){
   const handleInstallClick=()=>{ if(installPrompt){ void doInstall(); } else { setInstallStepsOpen(true); } };
   const dismissInstall=()=>{ setInstallDismissed(true); try{ localStorage.setItem("sf-install-dismissed","1"); }catch{} };
   // Aviso de actualización: cuando el service worker nuevo queda en espera,
-  // la app muestra el aviso con el botón Actualizar (pancarta arriba de
-  // Inicio y entrada en la campanilla). Al actualizar solo cambia el código;
-  // la sesión y los datos no se tocan.
+  // la campanilla muestra el aviso con el botón Actualizar (es la única
+  // vía para actualizar). Al actualizar solo cambia el código; la sesión
+  // y los datos no se tocan.
   const [darkMode,setDarkMode]=useState(()=>{ try{ return document.documentElement.classList.contains("dark"); }catch{ return false; } });
   // Cambia el tema y guarda la elección ("sf-theme"); sin elección guardada
   // la app arranca en modo oscuro (main.tsx). Se usa desde Configuración.
@@ -666,7 +668,7 @@ export function App(){
     setUpdateChecking(true); setUpdateCheckMsg(null);
     const r=await checkForAppUpdate();
     setUpdateChecking(false);
-    if(r==="update"){ setUpdateAvailable(true); setUpdateCheckMsg("Hay una nueva versión. Pulse Actualizar arriba."); }
+    if(r==="update"){ setUpdateAvailable(true); setUpdateCheckMsg("Hay una nueva versión. Pulse Actualizar en la campanilla."); }
     else if(r==="latest"){ setUpdateCheckMsg("Ya tiene la versión más reciente."); }
     else { setUpdateCheckMsg("No se pudo revisar la actualización."); }
   };
@@ -701,7 +703,7 @@ export function App(){
   const notifQuery=useQuery({queryKey:["notifications"],queryFn:()=>api.listNotifications({householdId:data!.household!.id}),enabled:!!data?.household});
   const unreadCount=notifQuery.data?.unreadCount??0;
   // La campanilla también avisa de una versión nueva en espera: cuenta como
-  // un aviso sin leer más, para llegar a Actualizar sin subir hasta arriba.
+  // un aviso sin leer más.
   const bellCount = unreadCount + (updateAvailable ? 1 : 0);
   const bellLabel = updateAvailable
     ? (unreadCount>0 ? `Notificaciones: ${unreadCount} sin leer y una nueva versión disponible` : "Notificaciones: hay una nueva versión disponible")
@@ -794,9 +796,12 @@ export function App(){
     if(step1 && step2 && chartsSeen) dismissFirstGuide();
   },[firstGuideOpen, data, chartsSeen]);
 
-  // Invitación por enlace directo (?token=...): se resuelve al entrar, se
-  // muestra el banner y se acepta o rechaza con las acciones existentes,
-  // que verifican el correo invitado y entran al mismo hogar/tanda.
+  // Invitación por enlace directo (?token=...): se resuelve al entrar y se
+  // muestra el banner. Las invitaciones por correo se aceptan o rechazan
+  // con las acciones existentes, que verifican el correo invitado y entran
+  // al mismo hogar/tanda. El enlace genérico del hogar es solo la
+  // invitación a probar la app: quien lo abre empieza con su propio
+  // espacio (botón Empezar), sin solicitar entrar a ningún hogar.
   type InvitePreviewFull = InvitePreview & { invitationId: number | null; tandaInvitationId: number | null; expiresAt: string };
   const [tokenRaw,setTokenRaw]=useState<string|null>(null);
   const [tokenInvite,setTokenInvite]=useState<InvitePreviewFull|null>(null);
@@ -816,29 +821,17 @@ export function App(){
     setTokenRaw(token);
     void fetch(`/api/invite?token=${encodeURIComponent(token)}`).then(r=>r.json()).then((j: InvitePreviewFull & { ok?: boolean })=>{ if (j && j.ok) setTokenInvite(j); }).catch(()=>{});
   },[]);
-  // Estado de la solicitud de ingreso con enlace genérico: se consulta al
-  // llegar con ese enlace, para mostrar «pendiente» en lugar del formulario.
-  const [joinStatus,setJoinStatus]=useState<JoinRequestStatus|null>(null);
-  useEffect(()=>{
-    if (!tokenInvite || tokenInvite.kind!=="household" || !tokenInvite.generic || !tokenRaw) { setJoinStatus(null); return; }
-    let alive=true;
-    void api.getJoinRequestStatus({token: tokenRaw}).then((r)=>{ if (alive) setJoinStatus(r.status); }).catch(()=>{ if (alive) setJoinStatus("none"); });
-    return ()=>{ alive=false; };
-  },[tokenInvite, tokenRaw]);
-  const acceptTokenInvite=useMutation({mutationFn:async(v?:{first?:string;last?:string})=>{
+  const acceptTokenInvite=useMutation({mutationFn:async(_v?:{first?:string;last?:string})=>{
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
     if (tokenInvite.kind==="general") { if (!tokenRaw) throw new Error("Falta el enlace de invitación."); return await api.acceptGeneralInvite({token: tokenRaw}); }
-    if (tokenInvite.kind==="household" && tokenInvite.generic) { if (!tokenRaw) throw new Error("Falta el enlace de invitación."); return await api.requestHouseholdJoin({token: tokenRaw, firstName: v?.first || joinFirst, lastName: v?.last || joinLast || undefined}); }
     if (tokenInvite.kind==="household" && tokenInvite.invitationId) return await api.respondInvitation({id: tokenInvite.invitationId, accept: true, firstName: joinFirst||undefined, lastName: joinLast||undefined});
     if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: true, name: [joinFirst, joinLast].filter(Boolean).join(" ")||undefined});
     throw new Error("No se pudo identificar la invitación del enlace.");
-  },onSuccess:()=>{ if (tokenInvite?.kind==="household" && tokenInvite?.generic) { setJoinStatus("pending"); } else { setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} } inv(); }});
+  },onSuccess:()=>{ setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); }});
   const rejectTokenInvite=useMutation({mutationFn:async()=>{
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
     // La invitación general no crea nada: rechazarla es simplemente descartarla.
     if (tokenInvite.kind==="general") return { ok: true as const };
-    // La invitación genérica no se rechaza aquí: simplemente no se solicita entrar.
-    if (tokenInvite.kind==="household" && tokenInvite.generic) throw new Error("La invitación genérica no se rechaza aquí; simplemente no solicite entrar.");
     if (tokenInvite.kind==="household" && tokenInvite.invitationId) return await api.respondInvitation({id: tokenInvite.invitationId, accept: false});
     if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: false});
     throw new Error("No se pudo identificar la invitación del enlace.");
@@ -851,7 +844,8 @@ export function App(){
   // Ventana emergente para elegir el modo (Personal o Familiar) al crear el
   // espacio: se abre sola la primera vez que se muestra la pantalla de
   // entrada sin hogar (salvo que se haya llegado con una invitación por
-  // enlace, en cuyo caso se entra al hogar invitado sin crear uno nuevo).
+  // correo, en cuyo caso se entra al hogar invitado sin crear uno nuevo;
+  // el enlace para probar la app no entra a ningún hogar).
   const [modeModalOpen,setModeModalOpen]=useState(false); const [modeModalShown,setModeModalShown]=useState(false);
   useEffect(()=>{ if(data && !data.household && !tokenInvite && !modeModalShown){ setModeModalOpen(true); setModeModalShown(true); } },[data,tokenInvite,modeModalShown]);
   const [hhInvResult,setHhInvResult]=useState<InviteSend|null>(null);
@@ -1113,6 +1107,7 @@ export function App(){
     drawSel, setDrawSel, fundKind, setFundKind, fundAmount, setFundAmount, fundNote, setFundNote,
     partName, setPartName, partCard, setPartCard, cardInput, setCardInput,
     tInvEmail, setTInvEmail, tInvName, setTInvName, tInvResult, tJoinName, setTJoinName,
+    myEmail: myEmail || (meEarly?.email ?? "").trim().toLowerCase(),
     rateName, setRateName, rateStars, setRateStars, rateComment, setRateComment,
     tandaProofReview, setTandaProofReview, mpOrders, mpOrderKey, mpClearOrder,
     copiedLink, copyLink, tandaInviteMessage, setReceiptView,
@@ -1129,7 +1124,7 @@ export function App(){
   const saveProfEdit=useMutation({mutationFn:async()=>{ const pr=data!.profiles.find(x=>x.id===editProfId); if(!pr) throw new Error("Perfil"); return await api.saveProfile({id:pr.id,householdId:data!.household!.id,name:editProfName,lastName:editProfLast,kind:pr.kind as "adult"|"dependent",dependentType:pr.dependentType||undefined,monthlyIncome:pr.monthlyIncome,fixedCommitments:pr.fixedCommitments,email:pr.email||undefined}); },onSuccess:()=>{inv();setEditProfId(null);}});
   const createInv=useMutation({mutationFn:async()=>await api.createInvitation({householdId:data!.household!.id,email:invEmail2,invitedName:invName2||undefined}),onSuccess:(r)=>{inv();setHhInvResult({emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl});setInvEmail2("");setInvName2("");}});
   const respondInv2=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:acceptFirst[v.id]||undefined,lastName:acceptLast[v.id]||undefined}),onSuccess:(r)=>{ inv(); if(r.profileId) pickProfile(r.profileId); }});
-  // Aprobar o rechazar una solicitud de ingreso (enlace genérico). Solo el
+  // Aprobar o rechazar una solicitud de ingreso (código del hogar). Solo el
   // administrador ve los botones; el servidor vuelve a verificar el rol.
   const respondJoinReq=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondJoinRequest({id:v.id,accept:v.accept}),onSuccess:(r,v)=>{ inv(); setSavedNotice(v.accept ? (r.accepted ? "La persona ya es integrante del hogar." : "Aprobada. La persona debe aceptar la invitación desde su cuenta para entrar.") : "Solicitud rechazada."); }});
   const delInv=useMutation({mutationFn:async(id:number)=>await api.deleteInvitation({id}),onSuccess:inv});
@@ -1395,21 +1390,16 @@ export function App(){
           </div>
           {tokenInvite && !tokenDone && (
             <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2" role="status">
-              <h2 className="font-display font-bold text-lg">{tokenInvite.kind==="household" && tokenInvite.generic ? "Invitación al hogar" : "Invitación recibida por correo"}</h2>
-              {tokenInvite.kind==="household" && tokenInvite.generic && <p className="text-sm">Le invitan al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Para entrar, solicite el acceso; el administrador del hogar debe aprobar su solicitud. El enlace por sí solo no le da acceso a los datos del hogar.</p>}
+              <h2 className="font-display font-bold text-lg">{tokenInvite.kind==="household" && tokenInvite.generic ? "Invitación a probar la app" : "Invitación recibida por correo"}</h2>
+              {tokenInvite.kind==="household" && tokenInvite.generic && <p className="text-sm">Le invitan a probar SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Cree su cuenta y empiece con su propio espacio; este enlace no le da acceso al hogar de quien le invitó ni genera ninguna solicitud.</p>}
               {tokenInvite.kind==="household" && !tokenInvite.generic && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará a ese hogar.</p>}
               {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante.</p>}
               {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
               {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Ya se usó o venció. Solicite una nueva.</p>}
               {tokenInvite.usable && tokenInvite.kind==="household" && tokenInvite.generic && (
-                <GenericInviteRequest
-                  householdName={tokenInvite.householdName}
-                  status={joinStatus ?? "none"}
-                  busy={acceptTokenInvite.isPending}
-                  error={acceptTokenInvite.error ? String(acceptTokenInvite.error) : null}
-                  onRequest={(first,last)=>acceptTokenInvite.mutate({first,last})}
-                  onAcceptApproved={async()=>{ try{ const r=await api.findInvitations({email: myEmail}); setInvFound(r.invitations); setInvSearched(true); setInvEmail(myEmail); }catch{ /* el error se muestra en la lista de invitaciones */ } }}
-                />
+                <div className="flex gap-2">
+                  <button type="button" className={btnPrimary} onClick={()=>{ setTokenInvite(null); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} }}>Empezar</button>
+                </div>
               )}
               {tokenInvite.usable && !(tokenInvite.kind==="household" && tokenInvite.generic) && (
                 <>
@@ -1829,13 +1819,7 @@ export function App(){
             </div>
             {notifQuery.isPending && <p className="text-sm text-[var(--dim)] mt-2">Cargando avisos…</p>}
             {notifQuery.data && notifQuery.data.notifications.length===0 && !updateAvailable && <p className="text-sm text-[var(--dim)] mt-2">Sin avisos por ahora.</p>}
-            {updateAvailable && (
-              <div className="mt-2 rounded-xl border-2 border-[var(--gold)] bg-[var(--surface2)] p-3" role="status">
-                <p className="text-sm font-bold">Hay una nueva versión de la app</p>
-                <p className="text-sm text-[var(--dim)] mt-0.5">Actualice para ver los últimos cambios. Su cuenta y sus datos no cambian.</p>
-                <button type="button" className={btnPrimary+" mt-2"} disabled={updateApplying} onClick={()=>{ setUpdateApplying(true); applyAppUpdate(); }}>{updateApplying?"Actualizando…":"Actualizar ahora"}</button>
-              </div>
-            )}
+            <UpdateBellNotice updateAvailable={updateAvailable} updateApplying={updateApplying} onUpdate={()=>{ setUpdateApplying(true); applyAppUpdate(); }} />
             <ul className="mt-2 space-y-2">
               {notifQuery.data?.notifications.map(n=>(
                 <li key={n.id}>
@@ -1852,7 +1836,6 @@ export function App(){
       </header>
 
       <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
-        {updateAvailable && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 flex items-center gap-2" role="status"><p className="text-sm flex-1"><b>Hay una nueva versión de SyncFinanzas.</b> Su cuenta y sus datos no cambian.</p><button type="button" className={btnPrimary} disabled={updateApplying} onClick={()=>{ setUpdateApplying(true); applyAppUpdate(); }}>{updateApplying?"Actualizando…":"Actualizar"}</button><button type="button" aria-label="Cerrar el aviso de actualización" onClick={()=>setUpdateAvailable(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-4 sm:p-5 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {savedNotice && <div ref={savedNoticeRef} className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 flex flex-wrap items-center gap-2" role="status"><span className="shrink-0 w-7 h-7 rounded-full bg-[var(--green)] text-white font-bold flex items-center justify-center text-sm">✓</span><p className="text-sm font-bold flex-1 min-w-40">{savedNotice}</p><button type="button" aria-label="Ir a Inicio" className="w-full sm:w-auto rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-6 py-3 text-base flex items-center justify-center gap-2 shrink-0" onClick={()=>{setSavedNotice(null);goTab("inicio");}}>↑ Ir a Inicio</button><button type="button" aria-label="Cerrar el aviso" onClick={()=>setSavedNotice(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
@@ -2432,6 +2415,7 @@ export function App(){
                 )}
                 {createInv.error && <p className="text-sm text-[var(--red)] mt-2">{String(createInv.error)}</p>}
                 <GenericHouseholdInvite householdId={hh.id} householdName={hh.name} isAdmin={isAdmin} api={api} copyLink={copyLink} copiedLink={copiedLink} />
+                <HouseholdCode householdId={hh.id} householdName={hh.name} isAdmin={isAdmin} api={api} copyLink={copyLink} copiedLink={copiedLink} />
                 <div className="divide-y divide-[var(--border)] mt-2">
                   <p className="text-sm text-[var(--dim)] py-2">Sin invitaciones registradas.</p>
                 </div>
@@ -2457,6 +2441,7 @@ export function App(){
                 )}
                 {createInv.error && <p className="text-sm text-[var(--red)] mt-2">{String(createInv.error)}</p>}
                 <GenericHouseholdInvite householdId={hh.id} householdName={hh.name} isAdmin={isAdmin} api={api} copyLink={copyLink} copiedLink={copiedLink} />
+                <HouseholdCode householdId={hh.id} householdName={hh.name} isAdmin={isAdmin} api={api} copyLink={copyLink} copiedLink={copiedLink} />
                 <p className="text-sm text-[var(--dim)] mt-1">{data.invitations.length} {data.invitations.length===1?"invitación":"invitaciones"} · {invitationCounts(data.invitations).pending} pendientes{data.invitations.filter(i=>i.requested&&i.status==="pending").length>0 && <> · {data.invitations.filter(i=>i.requested&&i.status==="pending").length} solicitudes</>}</p>
                 </>}
               >
@@ -2467,13 +2452,14 @@ export function App(){
                     ) : (
                     <div key={iv.id} className="py-2.5 text-sm">
                       <div className="flex justify-between gap-2 flex-wrap"><span><b>{iv.email}</b>{iv.invitedName?` · ${iv.invitedName}`:""}</span><span className={`text-xs font-bold rounded-full px-2 py-0.5 ${iv.status==="accepted"?"bg-green-100 text-green-800":iv.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{iv.status==="accepted"?"Aceptada":iv.status==="rejected"?"Rechazada":"Pendiente"}</span></div>
-                      {iv.status==="pending" && <div className="mt-2 space-y-2"><div className="grid grid-cols-2 gap-2"><input aria-label={`Nombre de quien acepta ${iv.email}`} placeholder="Su nombre" className={inputCls} value={acceptFirst[iv.id]||iv.invitedName||""} onChange={e=>setAcceptFirst({...acceptFirst,[iv.id]:e.target.value})} /><input aria-label={`Apellido de quien acepta ${iv.email}`} placeholder="Su apellido" className={inputCls} value={acceptLast[iv.id]||""} onChange={e=>setAcceptLast({...acceptLast,[iv.id]:e.target.value})} /></div><div className="flex gap-2 flex-wrap"><button aria-label={`Aceptar invitación de ${iv.email}`} className={btnPrimary} onClick={()=>respondInv2.mutate({id:iv.id,accept:true})}>Aceptar y entrar</button><button aria-label={`Rechazar invitación de ${iv.email}`} className={btnGhost} onClick={()=>respondInv2.mutate({id:iv.id,accept:false})}>Rechazar</button>{isAdmin && <><button aria-label={`Reenviar invitación a ${iv.email}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"household",invitationId:iv.id})} disabled={resendInv.isPending}>{resendInv.isPending?"Reenviando…":"Reenviar invitación"}</button><button aria-label={`Borrar invitación de ${iv.email}`} className="text-xs underline text-[var(--red)]" onClick={()=>delInv.mutate(iv.id)}>Borrar</button></>}</div></div>}
+                      {iv.status==="pending" && <div className="mt-2 space-y-2">{(()=>{ const isInvitee = myEmail.trim().toLowerCase() !== "" && iv.email.trim().toLowerCase() === myEmail.trim().toLowerCase(); return isInvitee ? (<><div className="grid grid-cols-2 gap-2"><input aria-label={`Nombre de quien acepta ${iv.email}`} placeholder="Su nombre" className={inputCls} value={acceptFirst[iv.id]||iv.invitedName||""} onChange={e=>setAcceptFirst({...acceptFirst,[iv.id]:e.target.value})} /><input aria-label={`Apellido de quien acepta ${iv.email}`} placeholder="Su apellido" className={inputCls} value={acceptLast[iv.id]||""} onChange={e=>setAcceptLast({...acceptLast,[iv.id]:e.target.value})} /></div><div className="flex gap-2 flex-wrap"><button aria-label={`Aceptar invitación de ${iv.email}`} className={btnPrimary} onClick={()=>respondInv2.mutate({id:iv.id,accept:true})}>Aceptar y entrar</button><button aria-label={`Rechazar invitación de ${iv.email}`} className={btnGhost} onClick={()=>respondInv2.mutate({id:iv.id,accept:false})}>Rechazar</button>{isAdmin && <><button aria-label={`Reenviar invitación a ${iv.email}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"household",invitationId:iv.id})} disabled={resendInv.isPending}>{resendInv.isPending?"Reenviando…":"Reenviar invitación"}</button><button aria-label={`Borrar invitación de ${iv.email}`} className="text-xs underline text-[var(--red)]" onClick={()=>delInv.mutate(iv.id)}>Borrar</button></>}</div></>) : (<><p className="text-sm">Invitación enviada a {iv.invitedName?`${iv.invitedName} (${iv.email})`:iv.email} — pendiente de aceptar.</p>{isAdmin && <div className="flex gap-2 flex-wrap"><button aria-label={`Reenviar invitación a ${iv.email}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"household",invitationId:iv.id})} disabled={resendInv.isPending}>{resendInv.isPending?"Reenviando…":"Reenviar invitación"}</button><button aria-label={`Borrar invitación de ${iv.email}`} className="text-xs underline text-[var(--red)]" onClick={()=>delInv.mutate(iv.id)}>Borrar</button></div>}</>); })()}</div>}
                     </div>
                     )
                   ))}
                 </div>
               </CollapsibleCard>
               )}
+              <JoinHouseholdByCode api={api} defaultFirstName={meEarly?.name ?? ""} defaultLastName={meEarly?.lastName ?? ""} />
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><h3 className="font-display font-bold text-lg">Fecha de corte del hogar: día {hh.cutoffDay}</h3><p className="text-sm text-[var(--dim)] mt-1">El mes se consulta por calendario; la fecha de corte está en Hogar.</p></div>
             </div>
           </section>
@@ -2831,11 +2817,7 @@ export function App(){
                 {fbQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando opiniones…</p>
                 : fbQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar las opiniones.</p>
                 : !fbQuery.data || fbQuery.data.feedback.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin opiniones todavía. Cuando un tester envíe la suya, aparecerá aquí.</p>
-                : <div className="divide-y divide-[var(--border)] mt-2">
-                  {fbQuery.data.feedback.map(f=>(
-                    <FeedbackReviewRow key={f.id} f={f} busy={setFbStatus.isPending} onSave={(v)=>setFbStatus.mutate(v)} />
-                  ))}
-                </div>}
+                : <FeedbackReviewList items={fbQuery.data.feedback} busy={setFbStatus.isPending} onSave={(v)=>setFbStatus.mutate(v)} />}
             </CollapsibleCard>
             <CollapsibleCard
               open={devUsersOpen}

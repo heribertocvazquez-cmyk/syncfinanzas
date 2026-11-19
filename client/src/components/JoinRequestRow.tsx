@@ -1,4 +1,4 @@
-// Fila de una solicitud de ingreso al hogar (enlace genérico) en la tarjeta
+// Fila de una solicitud de ingreso al hogar (código del hogar) en la tarjeta
 // «Invitaciones al hogar»: quien solicitó no tiene enlace de invitación,
 // así que no se le muestra el formulario de aceptación; el administrador
 // la aprueba o la rechaza, y cualquier integrante ve que está pendiente.

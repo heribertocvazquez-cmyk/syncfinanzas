@@ -11,7 +11,7 @@ import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { notifyTandaOrganizer } from "./tandaNotify.js";
 import { supabaseAdmin } from "./supabase.js";
-import { findHouseholdGenericToken, GENERIC_HOUSEHOLD_INVITE_TTL_DAYS, isHouseholdGenericToken, issueInviteToken, inviteUrl, markToken, markTokensForInvitation, replaceHouseholdGenericTokens, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
+import { findHouseholdCodeToken, findHouseholdGenericToken, GENERIC_HOUSEHOLD_INVITE_TTL_DAYS, isHouseholdCodeToken, isHouseholdGenericToken, issueHouseholdCodeToken, issueInviteToken, inviteUrl, markToken, markTokensForInvitation, normalizeHouseholdCode, replaceHouseholdGenericTokens, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
 import { mailConfigured, sendInviteEmail } from "./mail.js";
 
 const vis = z.enum(["private", "shared"]);
@@ -802,7 +802,7 @@ export const Actions = {
       } catch { /* columna aún no creada */ }
       const invsR = await db.select().from(schema.invitations).where(eq(schema.invitations.householdId, hid));
       // Qué invitaciones tienen enlace (por correo): las solicitudes de
-      // ingreso por enlace genérico NO tienen token; el cliente las muestra
+      // ingreso por código del hogar NO tienen token; el cliente las muestra
       // con Aprobar / Rechazar en lugar del formulario de aceptación.
       const invTokRows = invsR.length > 0 ? await db.select({ invitationId: schema.invitationTokens.invitationId }).from(schema.invitationTokens).where(inArray(schema.invitationTokens.invitationId, invsR.map(i => i.id))) : [];
       const invWithToken = new Set(invTokRows.map(r => r.invitationId));
@@ -1779,7 +1779,7 @@ export const Actions = {
       const db = ctx.db;
       const email = args.email.trim().toLowerCase();
       const all = await db.select().from(schema.invitations);
-      // Las solicitudes de ingreso por enlace genérico NO tienen token de
+      // Las solicitudes de ingreso por código del hogar NO tienen token de
       // invitación: no son invitaciones que se puedan aceptar desde aquí;
       // las aprueba o rechaza el administrador en «Invitaciones al hogar».
       const tokRows = await db.select({ invitationId: schema.invitationTokens.invitationId }).from(schema.invitationTokens);
@@ -1800,7 +1800,7 @@ export const Actions = {
     request: z.object({ token: z.string().min(10) }),
     response: z.object({
       ok: z.literal(true),
-      kind: z.enum(["household", "tanda", "general"]),
+      kind: z.enum(["household", "tanda", "general", "household_code"]),
       email: z.string(),
       invitedName: z.string().nullable(),
       inviterName: z.string().nullable(),
@@ -1812,8 +1812,8 @@ export const Actions = {
       tandaInvitationId: z.number().nullable(),
       expiresAt: z.string(),
       usable: z.boolean(),
-      /** Enlace genérico del hogar (sin correo ni invitación concreta):
-       *  solo identifica el hogar para solicitar entrar. */
+      /** Enlace para probar la app (sin correo ni invitación concreta):
+       *  solo dice quién invitó; no da acceso al hogar. */
       generic: z.boolean(),
     }),
     async handler(ctx, args) {
@@ -1940,7 +1940,7 @@ export const Actions = {
       const rows = await db.select().from(schema.invitations).where(eq(schema.invitations.id, args.id));
       const inv = rows[0]; if (!inv) throw new Error("Invitación no encontrada.");
       if (inv.status !== "pending") throw new Error("Esta invitación ya fue respondida.");
-      // Una solicitud de ingreso por enlace genérico (sin token) no se
+      // Una solicitud de ingreso por código del hogar (sin token) no se
       // acepta ni se rechaza desde aquí: solo el administrador del hogar
       // la aprueba o rechaza en «Invitaciones al hogar». Sin este freno,
       // quien solicita podría aprobarse solo.
@@ -1973,20 +1973,20 @@ export const Actions = {
   }),
   deleteInvitation: defineAction({ description: "Deletes an invitation record (admin housekeeping).", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await markTokensForInvitation(db, args.id, null, "revoked"); await db.delete(schema.invitations).where(eq(schema.invitations.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
-  // ---- Invitación genérica al hogar (con aprobación del administrador) ----
+  // ---- Enlace para probar la app (antes: invitación genérica al hogar) ----
   // Un solo enlace reutilizable por hogar (sin correo): quien lo abre crea
-  // su cuenta y solicita entrar; el enlace por sí solo NO da acceso a nada.
-  // Solo la aprobación del administrador crea la membresía, verificada en
-  // el servidor. Sin SQL nuevo: el token genérico vive en
-  // invitation_tokens (kind "household", email "", sin invitationId) y la
-  // solicitud en invitations (sin token; getOverview la marca requested).
+  // su cuenta y empieza con SU PROPIO espacio. El enlace NO da acceso al
+  // hogar de quien invita ni genera solicitud de entrada: solo dice quién
+  // invitó (atribución). Para entrar a un hogar está el código del hogar
+  // (abajo) o la invitación por correo. Sin SQL nuevo: el token vive en
+  // invitation_tokens (kind "household", email "", sin invitationId).
   createGenericHouseholdInvite: defineAction({
-    description: "Creates (or regenerates) the reusable generic household invite link. Only the household admin can do it. The previous link is invalidated when regenerating. The raw link is returned only at creation/regeneration time: it is never stored in plain text, so it cannot be shown again later.",
+    description: "Creates (or regenerates) the reusable trial link for a household: whoever opens it creates their account and starts with their OWN space. The link gives no access to the inviter's household and creates no join request; it only records who invited (attribution). Only the household admin can do it. The previous link is invalidated when regenerating. The raw link is returned only at creation/regeneration time: it is never stored in plain text, so it cannot be shown again later.",
     request: z.object({ householdId: z.number(), regenerate: z.boolean().optional() }),
     response: z.object({ ok: z.literal(true), inviteUrl: z.string().nullable(), hasActive: z.boolean(), reused: z.boolean(), expiresAt: z.string().nullable() }),
     async handler(ctx, args): Promise<{ ok: true; inviteUrl: string | null; hasActive: boolean; reused: boolean; expiresAt: string | null }> {
       await rateLimit(`createGenericHouseholdInvite:${ctx.user.id}`, 10, 60_000);
-      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede crear el enlace genérico.");
+      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede crear el enlace para probar la app.");
       const db = ctx.db;
       const hhRows = await db.select().from(schema.households).where(eq(schema.households.id, args.householdId)).limit(1);
       if (!hhRows[0]) throw new Error("Hogar no encontrado.");
@@ -2006,7 +2006,7 @@ export const Actions = {
         inviterName: await inviterDisplayName(ctx, args.householdId),
         createdByUserId: ctx.user.id,
       });
-      await logActivity(ctx, args.householdId, "Enlace genérico de invitación creado", `Vence ${issued.expiresAt.toISOString().slice(0, 10)}`);
+      await logActivity(ctx, args.householdId, "Enlace para probar la app creado", `Vence ${issued.expiresAt.toISOString().slice(0, 10)}`);
       ctx.invalidateQueries();
       return { ok: true, inviteUrl: inviteUrl(ctx.appUrl, issued.raw), hasActive: true, reused: false, expiresAt: issued.expiresAt.toISOString() };
     },
@@ -2016,24 +2016,72 @@ export const Actions = {
     request: z.object({ householdId: z.number() }),
     response: z.object({ ok: z.literal(true), hasActive: z.boolean(), expiresAt: z.string().nullable() }),
     async handler(ctx, args): Promise<{ ok: true; hasActive: boolean; expiresAt: string | null }> {
-      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede consultar el enlace genérico.");
+      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede consultar el enlace para probar la app.");
       const t = await findHouseholdGenericToken(ctx.db, args.householdId);
       return { ok: true, hasActive: !!t, expiresAt: t ? t.expiresAt.toISOString() : null };
     },
   }),
-  requestHouseholdJoin: defineAction({
-    description: "Requests to join a household through its generic invite link. Creates a pending join request (an invitations row WITHOUT a token). The requester sees nothing of the household until an admin approves it.",
-    request: z.object({ token: z.string().min(10), firstName: z.string().min(1), lastName: z.string().optional() }),
-    response: z.object({ ok: z.literal(true), id: z.number(), reused: z.boolean() }),
-    async handler(ctx, args): Promise<{ ok: true; id: number; reused: boolean }> {
-      await rateLimit(`requestHouseholdJoin:${ctx.user.id}`, 10, 60_000);
+  // ---- Código del hogar: pedir entrar a un hogar entre cuentas ----
+  // Segunda vía para entrar a un hogar (la primera es la invitación por
+  // correo del administrador). El administrador ve/copia/regenera el código
+  // de su hogar; quien lo tiene lo escribe en su app y solicita entrar; el
+  // administrador aprueba o rechaza con respondJoinRequest (la misma
+  // maquinaria de solicitudes: fila en invitations sin token). Antes de la
+  // aprobación, el solicitante no ve nada del hogar. Sin SQL nuevo: el
+  // código vive en invitation_tokens (kind "household_code", solo su hash).
+  createHouseholdCode: defineAction({
+    description: "Creates (or regenerates) the household code: a short 6-character code the admin shares with whoever should join the household. Only the household admin can do it. The previous code is invalidated when regenerating. The code is returned only at creation/regeneration time: it is never stored in plain text, so it cannot be shown again later.",
+    request: z.object({ householdId: z.number(), regenerate: z.boolean().optional() }),
+    response: z.object({ ok: z.literal(true), code: z.string().nullable(), hasActive: z.boolean(), expiresAt: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ ok: true; code: string | null; hasActive: boolean; expiresAt: string | null }> {
+      await rateLimit(`createHouseholdCode:${ctx.user.id}`, 10, 60_000);
+      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede crear el código del hogar.");
       const db = ctx.db;
-      const t = await resolveInviteToken(db, args.token.trim());
-      if (!t || !isHouseholdGenericToken(t)) throw new Error("El enlace de invitación no es válido. Solicite una invitación nueva.");
-      if (!tokenIsUsable(t)) throw new Error("Este enlace ya venció. Pida al administrador que genere uno nuevo.");
-      if (t.householdId == null) throw new Error("El enlace de invitación no es válido.");
+      const hhRows = await db.select().from(schema.households).where(eq(schema.households.id, args.householdId)).limit(1);
+      if (!hhRows[0]) throw new Error("Hogar no encontrado.");
+      const existing = await findHouseholdCodeToken(db, args.householdId);
+      if (existing && !args.regenerate) {
+        // El código ya existe y en texto plano no se guarda: no se puede
+        // volver a mostrar. El administrador lo comparte desde donde lo
+        // guardó, o genera uno nuevo.
+        return { ok: true, code: null, hasActive: true, expiresAt: existing.expiresAt.toISOString() };
+      }
+      const issued = await issueHouseholdCodeToken(db, {
+        householdId: args.householdId,
+        inviterName: await inviterDisplayName(ctx, args.householdId),
+        createdByUserId: ctx.user.id,
+      });
+      await logActivity(ctx, args.householdId, "Código del hogar creado", `Vence ${issued.expiresAt.toISOString().slice(0, 10)}`);
+      ctx.invalidateQueries();
+      return { ok: true, code: issued.code, hasActive: true, expiresAt: issued.expiresAt.toISOString() };
+    },
+  }),
+  getHouseholdCode: defineAction({
+    description: "Returns whether the household has an active household code and when it expires. It never returns the code itself (the code is not stored in plain text). Admin only.",
+    request: z.object({ householdId: z.number() }),
+    response: z.object({ ok: z.literal(true), hasActive: z.boolean(), expiresAt: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ ok: true; hasActive: boolean; expiresAt: string | null }> {
+      if (ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede consultar el código del hogar.");
+      const t = await findHouseholdCodeToken(ctx.db, args.householdId);
+      return { ok: true, hasActive: !!t, expiresAt: t ? t.expiresAt.toISOString() : null };
+    },
+  }),
+  requestHouseholdJoinByCode: defineAction({
+    description: "Requests to join a household with its household code. Creates a pending join request (an invitations row WITHOUT a token). The requester sees nothing of the household until an admin approves it.",
+    request: z.object({ code: z.string().min(6).max(12), firstName: z.string().min(1), lastName: z.string().optional() }),
+    response: z.object({ ok: z.literal(true), id: z.number(), reused: z.boolean(), householdName: z.string().nullable() }),
+    async handler(ctx, args): Promise<{ ok: true; id: number; reused: boolean; householdName: string | null }> {
+      await rateLimit(`requestHouseholdJoinByCode:${ctx.user.id}`, 10, 60_000);
+      const db = ctx.db;
+      const code = normalizeHouseholdCode(args.code);
+      if (code.length !== 6) throw new Error("El código del hogar no es válido. Revise el código con el administrador del hogar.");
+      const t = await resolveInviteToken(db, code);
+      if (!t || !isHouseholdCodeToken(t)) throw new Error("El código del hogar no es válido. Revise el código con el administrador del hogar.");
+      if (!tokenIsUsable(t)) throw new Error("Este código ya no funciona. Pida al administrador que genere uno nuevo.");
+      if (t.householdId == null) throw new Error("El código del hogar no es válido.");
       const hhRows = await db.select().from(schema.households).where(eq(schema.households.id, t.householdId)).limit(1);
-      if (!hhRows[0]) throw new Error("El hogar de este enlace ya no existe.");
+      if (!hhRows[0]) throw new Error("El hogar de este código ya no existe.");
+      const householdName = hhRows[0].name ?? null;
       const members = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, t.householdId));
       if (members.some(m => m.userId === ctx.user.id)) throw new Error("Ya es integrante de este hogar.");
       const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, t.householdId));
@@ -2045,23 +2093,25 @@ export const Actions = {
       if (pending) {
         const toks = await db.select().from(schema.invitationTokens).where(eq(schema.invitationTokens.invitationId, pending.id)).limit(1);
         if (toks[0]) throw new Error("Usted ya tiene una invitación pendiente para este hogar. Acéptela para entrar.");
-        return { ok: true, id: pending.id, reused: true };
+        return { ok: true, id: pending.id, reused: true, householdName };
       }
       const [r] = await db.insert(schema.invitations).values({ householdId: t.householdId, email, invitedName: name || null, status: "pending" }).returning({ id: schema.invitations.id });
       await logActivity(ctx, t.householdId, "Solicitud para entrar al hogar", `${name || email} · ${email}`);
       ctx.invalidateQueries();
-      return { ok: true, id: r?.id ?? 0, reused: false };
+      return { ok: true, id: r?.id ?? 0, reused: false, householdName };
     },
   }),
-  getJoinRequestStatus: defineAction({
-    description: "Returns the requester's join-request status for a household generic invite link: none (no request yet), pending, approved (admin approved; the requester still has to accept the invitation), rejected, or member.",
-    request: z.object({ token: z.string().min(10) }),
+  getJoinRequestStatusByCode: defineAction({
+    description: "Returns the requester's join-request status for a household code: none (no request yet), pending, approved (admin approved; the requester still has to accept the invitation), rejected, or member.",
+    request: z.object({ code: z.string().min(6).max(12) }),
     response: z.object({ ok: z.literal(true), status: z.enum(["none", "pending", "approved", "rejected", "member"]), householdName: z.string().nullable() }),
     async handler(ctx, args): Promise<{ ok: true; status: "none" | "pending" | "approved" | "rejected" | "member"; householdName: string | null }> {
       const db = ctx.db;
-      const t = await resolveInviteToken(db, args.token.trim());
-      if (!t || !isHouseholdGenericToken(t)) throw new Error("El enlace de invitación no es válido. Solicite una invitación nueva.");
-      if (t.householdId == null) throw new Error("El enlace de invitación no es válido.");
+      const code = normalizeHouseholdCode(args.code);
+      if (code.length !== 6) throw new Error("El código del hogar no es válido. Revise el código con el administrador del hogar.");
+      const t = await resolveInviteToken(db, code);
+      if (!t || !isHouseholdCodeToken(t)) throw new Error("El código del hogar no es válido. Revise el código con el administrador del hogar.");
+      if (t.householdId == null) throw new Error("El código del hogar no es válido.");
       const hhRows = await db.select().from(schema.households).where(eq(schema.households.id, t.householdId)).limit(1);
       const householdName = hhRows[0]?.name ?? null;
       const members = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, t.householdId));
@@ -2080,7 +2130,7 @@ export const Actions = {
     },
   }),
   respondJoinRequest: defineAction({
-    description: "Approves or rejects a pending household join request (generic invite link). Admin only. Approving adds the requester to the household as a member, exactly like accepting a normal invitation; rejecting removes the request.",
+    description: "Approves or rejects a pending household join request (household code). Admin only. Approving adds the requester to the household as a member, exactly like accepting a normal invitation; rejecting removes the request.",
     request: z.object({ id: z.number(), accept: z.boolean() }),
     response: z.object({ ok: z.literal(true), id: z.number(), accepted: z.boolean() }),
     async handler(ctx, args): Promise<{ ok: true; id: number; accepted: boolean }> {

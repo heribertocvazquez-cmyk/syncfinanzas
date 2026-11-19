@@ -3,11 +3,15 @@
 // datos necesarios para mostrar la invitación antes de crear la cuenta o
 // iniciar sesión: tipo, correo invitado, quién invita y a qué hogar/tanda.
 // Nunca devuelve el hash del token ni datos de otros usuarios.
+// El enlace genérico del hogar es la invitación a probar la app: quien lo
+// abre crea su cuenta y empieza con su propio espacio (no pide entrar al
+// hogar). El código del hogar NO es un enlace: si alguien lo pega como
+// token, se rechaza (el código se escribe dentro de la app).
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { eq } from "drizzle-orm";
 import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
-import { resolveInviteToken, tokenIsUsable, isHouseholdGenericToken } from "../server/src/invites.js";
+import { resolveInviteToken, tokenIsUsable, isHouseholdCodeToken, isHouseholdGenericToken } from "../server/src/invites.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).json({ error: "Método no permitido." });
@@ -17,6 +21,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const db = getDb();
     const t = await resolveInviteToken(db, token);
     if (!t) return res.status(404).json({ error: "El enlace de invitación no es válido." });
+    if (isHouseholdCodeToken(t)) return res.status(404).json({ error: "Este código no es un enlace de invitación. Escríbalo dentro de la app, en Hogar → Solicitar entrar a un hogar." });
     let householdName: string | null = null;
     let tandaName: string | null = null;
     if (t.householdId != null) {

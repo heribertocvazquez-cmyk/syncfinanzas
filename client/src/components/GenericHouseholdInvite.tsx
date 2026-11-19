@@ -1,9 +1,12 @@
-// Sección «Invitación genérica» de la tarjeta «Invitaciones al hogar»:
+// Sección «Invitar a probar la app» de la tarjeta «Invitaciones al hogar»:
 // un solo enlace reutilizable por hogar para compartir por donde se quiera.
 // Solo el administrador la ve y la usa. El enlace se muestra solo al
 // crearlo o regenerarlo: el token en texto plano no se guarda en la base,
 // así que no se puede volver a mostrar después. Generar uno nuevo invalida
-// el anterior.
+// el anterior. El enlace invita a PROBAR LA APP: quien lo abre crea su
+// cuenta y empieza con su propio espacio; NO da acceso a este hogar ni
+// genera solicitud de entrada. Para entrar a este hogar está el código del
+// hogar (HouseholdCode) o la invitación por correo.
 import { useEffect, useState } from "react";
 
 const btnPrimary = "rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
@@ -17,10 +20,10 @@ function fmtExpiry(iso: string): string {
   }
 }
 
-/** Mensaje para compartir el enlace genérico por WhatsApp (o copiarlo):
- *  el enlace va primero, seguido de los pasos para entrar. */
+/** Mensaje para compartir el enlace para probar la app por WhatsApp (o
+ *  copiarlo): el enlace va primero, seguido de qué hace quien lo abre. */
 export function genericInviteMessage(url: string, householdName: string): string {
-  return `${url}\nLe invito a unirse al hogar ${householdName} en SyncFinanzas.\nPara entrar:\n1. Abra este enlace.\n2. Cree su cuenta con su correo y una contraseña.\n3. Solicite entrar al hogar; el administrador debe aprobar su solicitud.`;
+  return `${url}\nLe invito a probar SyncFinanzas, la app para llevar el dinero del hogar.\nQuien lo abre crea su cuenta y empieza con su propio espacio. Este enlace no da acceso al hogar ${householdName} ni genera solicitud de entrada.`;
 }
 
 export type GenericLinkApi = {
@@ -70,9 +73,9 @@ export function GenericHouseholdInvite(p: {
       if (r.inviteUrl) {
         setLink(r.inviteUrl);
         setStatus({ hasActive: true, expiresAt: r.expiresAt });
-        setNotice(regenerate ? "Enlace nuevo generado. El anterior ya no funciona." : "Enlace genérico creado.");
+        setNotice(regenerate ? "Enlace nuevo generado. El anterior ya no funciona." : "Enlace para probar la app creado.");
       } else {
-        setNotice("Ya hay un enlace genérico activo. Compártalo desde donde lo guardó, o genere uno nuevo.");
+        setNotice("Ya hay un enlace para probar la app activo. Compártalo desde donde lo guardó, o genere uno nuevo.");
         setStatus({ hasActive: true, expiresAt: r.expiresAt });
       }
       setConfirmRegen(false);
@@ -87,14 +90,14 @@ export function GenericHouseholdInvite(p: {
 
   return (
     <div className="mt-3 border-t border-[var(--border)] pt-3 space-y-2">
-      <h4 className="font-display font-bold">Invitación genérica</h4>
+      <h4 className="font-display font-bold">Invitar a probar la app</h4>
       <p className="text-sm text-[var(--dim)]">
-        Un solo enlace para compartir con quien quiera. Quien lo abra deberá crear su cuenta y solicitar entrar; usted
-        aprueba cada solicitud. El enlace por sí solo no da acceso al hogar.
+        Un solo enlace para compartir con quien quiera. Quien lo abra crea su cuenta y empieza con su propio espacio;
+        este enlace no da acceso a su hogar ni genera solicitudes de entrada.
       </p>
       {link && (
         <div className="text-sm space-y-2 border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-          <p className="font-bold">Enlace genérico listo</p>
+          <p className="font-bold">Enlace para probar la app listo</p>
           <p className="break-all bg-[var(--surface)] border border-[var(--border)] rounded-xl p-2 text-xs">{link}</p>
           <div className="flex gap-2 flex-wrap">
             <button type="button" className={btnPrimary + " flex-1"} onClick={() => p.copyLink(message)}>
@@ -114,12 +117,12 @@ export function GenericHouseholdInvite(p: {
       )}
       {status?.hasActive && !link && (
         <p className="text-sm">
-          Ya hay un enlace genérico activo{status.expiresAt ? ` · vence el ${fmtExpiry(status.expiresAt)}` : ""}.
+          Ya hay un enlace para probar la app activo{status.expiresAt ? ` · vence el ${fmtExpiry(status.expiresAt)}` : ""}.
         </p>
       )}
       {!status?.hasActive && !link && (
         <button type="button" className={btnPrimary} onClick={() => void create(false)} disabled={busy}>
-          {busy ? "Creando…" : "Crear enlace genérico"}
+          {busy ? "Creando…" : "Crear enlace para probar la app"}
         </button>
       )}
       {status?.hasActive && !confirmRegen && (

@@ -268,12 +268,15 @@ export const activityLog = pgTable("activity_log", {
 
 // Enlaces de invitación por correo: solo se guarda el hash SHA-256 del
 // token (nunca el token en texto plano). Un solo uso, vigencia de 7 días.
-// kind: household (unirse a un hogar), tanda (participar en una tanda) o
-// general (crear su cuenta personal en SyncFinanzas).
+// kind: household (unirse a un hogar), tanda (participar en una tanda),
+// general (crear su cuenta personal en SyncFinanzas) o household_code
+// (código del hogar para solicitar entrar). La columna es TEXT en la base
+// (supabase/schema.sql), así que este enum es solo de tipos: agregar
+// "household_code" NO necesita SQL nuevo.
 export const invitationTokens = pgTable("invitation_tokens", {
   id: serial("id").primaryKey(),
   tokenHash: text("token_hash").notNull().unique(),
-  kind: text("kind", { enum: ["household", "tanda", "general"] }).notNull().default("household"),
+  kind: text("kind", { enum: ["household", "tanda", "general", "household_code"] }).notNull().default("household"),
   email: text("email").notNull(),
   householdId: integer("household_id"),
   tandaId: integer("tanda_id"),

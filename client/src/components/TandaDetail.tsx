@@ -53,6 +53,11 @@ export type TandaDetailDeps = {
   tInvName: StrMap; setTInvName: SetStrMap;
   tInvResult: Record<number, TandaInviteSend>;
   tJoinName: StrMap; setTJoinName: SetStrMap;
+  // Correo de la sesión actual (minúsculas): solo la persona invitada
+  // (sesión con el correo invitado) ve Aceptar/Rechazar en una invitación
+  // de tanda pendiente. Quien la mandó u otra persona ve solo el estado
+  // con Reenviar; el servidor vuelve a verificar el correo al responder.
+  myEmail: string;
   rateName: StrMap; setRateName: SetStrMap;
   rateStars: StrMap; setRateStars: SetStrMap;
   rateComment: StrMap; setRateComment: SetStrMap;
@@ -245,7 +250,7 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
   const {
     drawSel, setDrawSel, fundKind, setFundKind, fundAmount, setFundAmount, fundNote, setFundNote,
     partName, setPartName, partCard, setPartCard, cardInput, setCardInput,
-    tInvEmail, setTInvEmail, tInvName, setTInvName, tInvResult, tJoinName, setTJoinName,
+    tInvEmail, setTInvEmail, tInvName, setTInvName, tInvResult, tJoinName, setTJoinName, myEmail,
     rateName, setRateName, rateStars, setRateStars, rateComment, setRateComment,
     tandaProofReview, setTandaProofReview, mpOrders, mpOrderKey, mpClearOrder,
     copiedLink, copyLink, tandaInviteMessage, setReceiptView,
@@ -390,17 +395,32 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
               {!tRes.emailConfigured && <p className="text-xs text-[var(--dim)]">El correo no está configurado; comparta el enlace por WhatsApp.</p>}
             </div>
           ); })()}
-          {td.invitations.filter(iv=>iv.status==="pending").map(iv=>(
+          {td.invitations.filter(iv=>iv.status==="pending").map(iv=>{
+            // Solo la invitada ve Aceptar/Rechazar: la sesión activa debe
+            // ser la del correo invitado. Quien mandó la invitación (o
+            // cualquier otra persona) ve solo el estado con Reenviar; el
+            // enlace para copiar/compartir sale al crear o al reenviar (el
+            // bloque «Enlace de invitación listo» de arriba). Sin correo de
+            // sesión todavía, no se muestra la acción a nadie.
+            const isInvitee = myEmail.trim().toLowerCase() !== "" && iv.email.trim().toLowerCase() === myEmail.trim().toLowerCase();
+            return (
             <div key={iv.id} className="border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-2 space-y-2 bg-[var(--surface)]">
+              {isInvitee ? (<>
               <p className="text-sm"><b>Invitación pendiente</b> para {iv.email}{iv.invitedName?` (${iv.invitedName})`:""}.</p>
               <input aria-label={`Nombre con el que acepta la invitación de ${iv.email}`} placeholder="Nombre con el que participará" className={inputCls} value={tJoinName[iv.id]||iv.invitedName||""} onChange={e=>setTJoinName({...tJoinName,[iv.id]:e.target.value})} />
               <div className="flex gap-2 flex-wrap">
                 <button aria-label={`Aceptar invitación de ${iv.email} a ${td.name}`} className={btnPrimary} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:true})} disabled={respondTandaInv.isPending}>Aceptar y participar</button>
                 <button aria-label={`Rechazar invitación de ${iv.email} a ${td.name}`} className={btnGhost} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:false})} disabled={respondTandaInv.isPending}>Rechazar</button>
-                {p.canManage && <button aria-label={`Reenviar invitación de ${iv.email} a ${td.name}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"tanda",invitationId:iv.id,tandaId:td.id})}>Reenviar invitación</button>}
               </div>
+              </>) : (<>
+              <p className="text-sm">Invitación enviada a {iv.invitedName?`${iv.invitedName} (${iv.email})`:iv.email} — pendiente de aceptar.</p>
+              {p.canManage && <div className="flex gap-2 flex-wrap">
+                <button aria-label={`Reenviar invitación de ${iv.email} a ${td.name}`} className="text-xs underline font-bold" onClick={()=>resendInv.mutate({kind:"tanda",invitationId:iv.id,tandaId:td.id})}>Reenviar invitación</button>
+              </div>}
+              </>)}
             </div>
-          ))}
+            );
+          })}
           {respondTandaInv.error && <p className="text-sm text-[var(--red)] mt-1">{String(respondTandaInv.error)}</p>}
           {td.invitations.filter(iv=>iv.status!=="pending").length>0 && <p className="text-xs text-[var(--dim)] mt-2">{td.invitations.filter(iv=>iv.status==="accepted").length} aceptada(s) · {td.invitations.filter(iv=>iv.status==="rejected").length} rechazada(s).</p>}
         </div>

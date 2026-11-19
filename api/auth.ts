@@ -16,6 +16,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { getDb, closeDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { rateLimitDb } from "../server/src/space-shim.js";
+import { resolveAppUrl } from "../server/src/appUrl.js";
 import { clearSessionCookies, revokeSession, setSessionCookies, supabaseAnon } from "../server/src/supabase.js";
 import { errorResponse } from "../server/src/error-response.js";
 import { eq } from "drizzle-orm";
@@ -89,7 +90,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // previa o el desarrollo local mandarían el enlace a otro lado): se
       // usa APP_URL (documentada en el README) con el dominio de
       // producción como valor fijo si no está configurada.
-      const siteUrl = (process.env.APP_URL?.replace(/\/$/, "")) || "https://syncfinanzas.vercel.app";
+      const siteUrl = resolveAppUrl(process.env.APP_URL);
       await supabaseAnon().auth.resetPasswordForEmail(email, {
         redirectTo: `${siteUrl}/`,
       });
