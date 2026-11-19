@@ -1416,10 +1416,10 @@ export const Actions = {
   deleteAccount: defineAction({ description: "Deletes an account.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.accounts).where(eq(schema.accounts.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
   saveCategory: defineAction({
-    description: "Creates or updates a category with subcategories.",
-    request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1), kind: z.enum(["income","expense"]), subcategories: z.array(z.string()).default([]), isActive: z.number().default(1) }),
+    description: "Creates or updates a category with subcategories. Creating a category whose name already exists in the household (same kind, ignoring case and extra spaces) reuses it and returns its id instead of duplicating it.",
+    request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1).max(40), kind: z.enum(["income","expense"]), subcategories: z.array(z.string()).default([]), isActive: z.number().default(1) }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const subs=JSON.stringify(args.subcategories); if(args.id){ await db.update(schema.categories).set({name:args.name,kind:args.kind,subcategories:subs,isActive:args.isActive}).where(eq(schema.categories.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.categories).values({householdId:args.householdId,name:args.name,kind:args.kind,subcategories:subs,isSystem:0,isActive:1}).returning({id:schema.categories.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const subs=JSON.stringify(args.subcategories); const name=args.name.trim().replace(/\s+/g," "); if(!name) throw new Error("Escriba el nombre de la categoría."); if(args.id){ await db.update(schema.categories).set({name,kind:args.kind,subcategories:subs,isActive:args.isActive}).where(eq(schema.categories.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const existing=await db.select().from(schema.categories).where(and(eq(schema.categories.householdId,args.householdId),eq(schema.categories.kind,args.kind))); const dup=existing.find(c=>c.name.trim().replace(/\s+/g," ").toLowerCase()===name.toLowerCase()); if(dup){ ctx.invalidateQueries(); return {ok:true,id:dup.id}; } const [r]=await db.insert(schema.categories).values({householdId:args.householdId,name,kind:args.kind,subcategories:subs,isSystem:0,isActive:1}).returning({id:schema.categories.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
 
   addSubcategory: defineAction({

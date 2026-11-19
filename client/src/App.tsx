@@ -974,7 +974,7 @@ export function App(){
     if(target==="mv"){ if(mvCat==="" || appliedRuleMv){ setMvCat(String(r.categoryId)); setAppliedRuleMv({keyword:r.keyword,categoryName:cat.name}); } }
     else { if(persCat==="" || appliedRulePers){ setPersCat(String(r.categoryId)); setAppliedRulePers({keyword:r.keyword,categoryName:cat.name}); } }
   };
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();resetMvForm();if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}setSavedNotice("Movimiento guardado.");}});
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();resetMvForm();if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}setSavedNotice("Movimiento guardado.");}});
   const [confirmDeleteMvId,setConfirmDeleteMvId]=useState<number|null>(null);
   const [confirmDelInvId,setConfirmDelInvId]=useState<number|null>(null);
   const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:()=>{inv();setConfirmDeleteMvId(null);}});
@@ -1075,7 +1075,7 @@ export function App(){
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persAccountError,setPersAccountError]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();resetPersForm();setSavedNotice("Gasto del día guardado.");}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();resetPersForm();setSavedNotice("Gasto del día guardado.");}});
   // Mike dinámico: preguntas con cifras reales del mes que se está viendo,
   // calculadas en el dispositivo con los datos ya cargados (sin llamadas nuevas
   // ni servicios externos). Las respuestas usan solo los movimientos que el
@@ -1101,8 +1101,8 @@ export function App(){
   // Revisión en vivo de lo que el usuario está capturando: presupuesto
   // restante, posible duplicado y monto sobre el promedio de la categoría.
   // Son solo avisos: nunca bloquean el guardado.
-  const mvReview = useMemo(() => data ? reviewMovement(data, { type: mvType, amount: Number(mvAmount) || 0, categoryId: mvCat ? Number(mvCat) : null, concept: mvConcept, date: mvDate, excludeId: editingMv ?? undefined }) : [], [data, mvType, mvAmount, mvCat, mvConcept, mvDate, editingMv]);
-  const persReview = useMemo(() => data ? reviewMovement(data, { type: "expense", amount: Number(persAmt) || 0, categoryId: persCat ? Number(persCat) : null, concept: persConcept, date: todayISO() }) : [], [data, persAmt, persCat, persConcept]);
+  const mvReview = useMemo(() => data ? reviewMovement(data, { type: mvType, amount: Number(mvAmount) || 0, categoryId: mvCat && mvCat!=="__new__" ? Number(mvCat) : null, concept: mvConcept, date: mvDate, excludeId: editingMv ?? undefined }) : [], [data, mvType, mvAmount, mvCat, mvConcept, mvDate, editingMv]);
+  const persReview = useMemo(() => data ? reviewMovement(data, { type: "expense", amount: Number(persAmt) || 0, categoryId: persCat && persCat!=="__new__" ? Number(persCat) : null, concept: persConcept, date: todayISO() }) : [], [data, persAmt, persCat, persConcept]);
   // Acceso directo para registrar un gasto rápido (?accion=nuevo-gasto):
   // al entrar con ese parámetro, después de iniciar sesión y con el espacio
   // creado, se abre el formulario de gasto con el importe listo para escribir.
@@ -1248,7 +1248,7 @@ export function App(){
   const delInv=useMutation({mutationFn:async(id:number)=>await api.deleteInvitation({id}),onSuccess:inv});
 
   // subcategorías editables + lectura automática del comprobante
-  const [newSubName,setNewSubName]=useState(""); const [newSubByCat,setNewSubByCat]=useState<Record<number,string>>({});
+  const [newSubName,setNewSubName]=useState(""); const [newCatName,setNewCatName]=useState(""); const [newSubByCat,setNewSubByCat]=useState<Record<number,string>>({});
   const addSub=useMutation({mutationFn:async(v:{categoryId:number;name:string})=>await api.addSubcategory(v),onSuccess:inv});
   const removeSub=useMutation({mutationFn:async(v:{categoryId:number;name:string})=>await api.removeSubcategory(v),onSuccess:inv});
   // Lectura de comprobantes en el dispositivo (Tesseract.js, gratis, sin
@@ -1330,15 +1330,15 @@ export function App(){
   const [ocrDetailPers,setOcrDetailPers]=useState<ReceiptRead|null>(null);
   const [ocrLabelMv,setOcrLabelMv]=useState(""); const [ocrLabelPers,setOcrLabelPers]=useState("");
   const [ocrNewCatName,setOcrNewCatName]=useState("");
-  const createOcrCat=useMutation({mutationFn:async(v:{target:"mv"|"pers";name:string})=>await api.saveCategory({householdId:data!.household!.id,name:v.name,kind:"expense",subcategories:[],isActive:1}),onSuccess:(r,v)=>{inv(); if(v.target==="mv"){ if(r.id) setMvCat(String(r.id)); setOcrLabelMv(""); } else { if(r.id) setPersCat(String(r.id)); setOcrLabelPers(""); } setOcrNewCatName(""); setSavedNotice("Categoría creada y seleccionada.");}});
+  const createCat=useMutation({mutationFn:async(v:{target:"mv"|"pers";name:string;kind:"income"|"expense"})=>await api.saveCategory({householdId:data!.household!.id,name:v.name,kind:v.kind,subcategories:[],isActive:1}),onSuccess:(r,v)=>{inv(); if(v.target==="mv"){ if(r.id) setMvCat(String(r.id)); setOcrLabelMv(""); } else { if(r.id) setPersCat(String(r.id)); setOcrLabelPers(""); } setOcrNewCatName(""); setNewCatName(""); setSavedNotice("Categoría creada y seleccionada.");}});
   // Reinicio completo de los formularios de movimiento: tras guardar, el
   // formulario debe quedar como recién abierto (sin foto, sin nota del
   // lector, sin concepto ni importe, fecha de hoy, paso 1). Antes solo se
   // limpiaban algunos campos y la nota «Leído del comprobante» (con el
   // nombre leído) y la fecha leída se quedaban, así que el siguiente gasto
   // heredaba el anterior.
-  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvAccountError(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setOcrDateCheckMv(null); setOcrDateErrorMv(""); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); };
-  const resetPersForm=()=>{ setPersAmt(""); setPersConcept(""); setPersReceipt(null); setPersCat(""); setPersAccount(""); setPersAccountError(""); setAppliedRulePers(null); setPersStep(1); setPersMore(false); setOcrDetailPers(null); setOcrLabelPers(""); setOcrNewCatName(""); setOcrNoticePers(""); setOcrErrorPers(""); setOcrErrDetailPers(""); setOcrProgressPers(""); setOcrBusyPers(false); setVoiceNoticePers(""); setVoiceErrorPers(""); setVoiceBusyPers(false); };
+  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvAccountError(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setOcrDateCheckMv(null); setOcrDateErrorMv(""); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); setNewCatName(""); };
+  const resetPersForm=()=>{ setPersAmt(""); setPersConcept(""); setPersReceipt(null); setPersCat(""); setPersAccount(""); setPersAccountError(""); setAppliedRulePers(null); setPersStep(1); setPersMore(false); setOcrDetailPers(null); setOcrLabelPers(""); setOcrNewCatName(""); setOcrNoticePers(""); setOcrErrorPers(""); setOcrErrDetailPers(""); setOcrProgressPers(""); setOcrBusyPers(false); setVoiceNoticePers(""); setVoiceErrorPers(""); setVoiceBusyPers(false); setNewCatName(""); };
   // Registro rápido desde Inicio: se queda en Inicio y abre el formulario
   // de movimientos en un pop-up, sin ir a Movimientos. Al guardar, el
   // pop-up se cierra y el tablero se actualiza. El ref espeja el estado
@@ -1767,18 +1767,24 @@ export function App(){
   </>}
   {mvStep===2 && <>
   {mvType!=="transfer" && <>
-    <div><Label htmlFor="mv-cat">{mvType==="income"?"Tipo de ingreso":"Tipo de gasto"}</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");setAppliedRuleMv(null);}}><option value="">Sin categoría</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+    <div><Label htmlFor="mv-cat">{mvType==="income"?"Tipo de ingreso":"Tipo de gasto"}</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");setAppliedRuleMv(null);}}><option value="">Sin categoría</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}<option value="__new__">+ Nueva categoría…</option></select></div>
+    {mvCat==="__new__" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
+    <p className="text-sm">Escriba el nombre de la categoría nueva.</p>
+    <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" placeholder="Ej. Barbería" maxLength={40} className={inputCls} value={newCatName} onChange={e=>setNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría y usarla" className={btnPrimary} disabled={!newCatName.trim() || createCat.isPending} onClick={()=>createCat.mutate({target:"mv",name:newCatName.trim(),kind:mvType==="income"?"income":"expense"})}>{createCat.isPending?"Creando…":"Crear y usar"}</button></div>
+    <button type="button" className="text-xs underline mt-2" onClick={()=>{setMvCat("");setNewCatName("");}}>Cancelar</button>
+    {createCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createCat.error)}</p>}
+  </div>}
     <div><Label htmlFor="mv-sub">Subcategoría</Label><select id="mv-sub" aria-label="Subcategoría del movimiento" className={inputCls} value={mvSub} onChange={e=>setMvSub(e.target.value)} disabled={!selectedCat}><option value="">{selectedCat?"Seleccione…":"Primero seleccione la categoría"}</option>{(selectedCat?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}<option value="__new__">+ Nueva subcategoría…</option></select>                {mvSub==="__new__" && selectedCat && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-2.5 bg-[var(--surface2)]"><p className="text-xs">¿Agregar “{newSubName||"…"}” a {selectedCat.name}?</p><div className="flex gap-2 mt-2"><input aria-label="Nombre de la nueva subcategoría" placeholder="Nombre de la subcategoría" className={inputCls} value={newSubName} onChange={e=>setNewSubName(e.target.value)} /><button type="button" aria-label="Confirmar y agregar la nueva subcategoría" className={btnPrimary} disabled={!newSubName.trim() || addSub.isPending} onClick={()=>addSub.mutate({categoryId:selectedCat.id,name:newSubName.trim()},{onSuccess:()=>{setMvSub(newSubName.trim());setNewSubName("");}})}>Sí, agregar</button></div>{addSub.error && <p className="text-xs text-[var(--red)] mt-1">{String(addSub.error)}</p>}</div>}
     </div>
   </>}
   {mvType==="transfer" && <p className="text-sm text-[var(--dim)]">Las transferencias no llevan categoría.</p>}
   {ocrLabelMv && mvCat==="" && mvType!=="transfer" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
     <p className="text-sm">La categoría sugerida «{ocrLabelMv}» no está en su hogar. Puede crearla ya ajustada a este ticket.</p>
-    <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" className={inputCls} value={ocrNewCatName} onChange={e=>setOcrNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría sugerida y usarla" className={btnPrimary} disabled={!ocrNewCatName.trim() || createOcrCat.isPending} onClick={()=>createOcrCat.mutate({target:"mv",name:ocrNewCatName.trim()})}>{createOcrCat.isPending?"Creando…":"Crear y usar"}</button></div>
+    <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" className={inputCls} value={ocrNewCatName} onChange={e=>setOcrNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría sugerida y usarla" className={btnPrimary} disabled={!ocrNewCatName.trim() || createCat.isPending} onClick={()=>createCat.mutate({target:"mv",name:ocrNewCatName.trim(),kind:"expense"})}>{createCat.isPending?"Creando…":"Crear y usar"}</button></div>
     <button type="button" className="text-xs underline mt-2" onClick={()=>setOcrLabelMv("")}>Omitir, elegiré otra</button>
-    {createOcrCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createOcrCat.error)}</p>}
+    {createCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createCat.error)}</p>}
   </div>}
-  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
+  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} disabled={mvCat==="__new__"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
   </>}
   {mvStep===3 && <>
   <div><Label htmlFor="mv-concept">Concepto</Label><div className="flex gap-2"><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls+" flex-1"} value={mvConcept} onChange={e=>{setMvConcept(e.target.value);applyRuleTo(e.target.value,"mv");}} placeholder="Ej. Súper semanal" />{(mvType==="expense"||mvType==="debt_payment") && <button type="button" aria-label={voiceBusyMv?"Escuchando…":"Dictar el gasto por voz"} title="Dictar por voz" className="shrink-0 w-11 rounded-xl border border-[var(--border)] bg-[var(--surface2)] flex items-center justify-center" disabled={voiceBusyMv} onClick={()=>startVoice("mv")}>{micIcon}</button>}</div>
@@ -2616,14 +2622,20 @@ export function App(){
                   <button type="button" className={btnPrimary+" w-full"} disabled={!persAmt} onClick={()=>{setPersStep(2); scrollFormTop("pers-exp-form");}}>Siguiente</button>
                   </>}
                   {persStep===2 && <>
-                  <div><Label htmlFor="pers-cat">Tipo de gasto</Label><select id="pers-cat" aria-label="Tipo de gasto del día" className={inputCls} value={persCat} onChange={e=>{setPersCat(e.target.value);setAppliedRulePers(null);}}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  <div><Label htmlFor="pers-cat">Tipo de gasto</Label><select id="pers-cat" aria-label="Tipo de gasto del día" className={inputCls} value={persCat} onChange={e=>{setPersCat(e.target.value);setAppliedRulePers(null);}}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}<option value="__new__">+ Nueva categoría…</option></select></div>
+                  {persCat==="__new__" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
+                    <p className="text-sm">Escriba el nombre de la categoría nueva.</p>
+                    <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" placeholder="Ej. Barbería" maxLength={40} className={inputCls} value={newCatName} onChange={e=>setNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría y usarla" className={btnPrimary} disabled={!newCatName.trim() || createCat.isPending} onClick={()=>createCat.mutate({target:"pers",name:newCatName.trim(),kind:"expense"})}>{createCat.isPending?"Creando…":"Crear y usar"}</button></div>
+                    <button type="button" className="text-xs underline mt-2" onClick={()=>{setPersCat("");setNewCatName("");}}>Cancelar</button>
+                    {createCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createCat.error)}</p>}
+                  </div>}
                   {ocrLabelPers && persCat==="" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
                     <p className="text-sm">La categoría sugerida «{ocrLabelPers}» no está en su hogar. Puede crearla ya ajustada a este ticket.</p>
-                    <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" className={inputCls} value={ocrNewCatName} onChange={e=>setOcrNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría sugerida y usarla" className={btnPrimary} disabled={!ocrNewCatName.trim() || createOcrCat.isPending} onClick={()=>createOcrCat.mutate({target:"pers",name:ocrNewCatName.trim()})}>{createOcrCat.isPending?"Creando…":"Crear y usar"}</button></div>
+                    <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" className={inputCls} value={ocrNewCatName} onChange={e=>setOcrNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría sugerida y usarla" className={btnPrimary} disabled={!ocrNewCatName.trim() || createCat.isPending} onClick={()=>createCat.mutate({target:"pers",name:ocrNewCatName.trim(),kind:"expense"})}>{createCat.isPending?"Creando…":"Crear y usar"}</button></div>
                     <button type="button" className="text-xs underline mt-2" onClick={()=>setOcrLabelPers("")}>Omitir, elegiré otra</button>
-                    {createOcrCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createOcrCat.error)}</p>}
+                    {createCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createCat.error)}</p>}
                   </div>}
-                  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setPersStep(1); scrollFormTop("pers-exp-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setPersStep(3); scrollFormTop("pers-exp-form");}}>Siguiente</button></div>
+                  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setPersStep(1); scrollFormTop("pers-exp-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} disabled={persCat==="__new__"} onClick={()=>{setPersStep(3); scrollFormTop("pers-exp-form");}}>Siguiente</button></div>
                   </>}
                   {persStep===3 && <>
                   <div><Label htmlFor="pers-concept">Concepto del gasto</Label><div className="flex gap-2"><input id="pers-concept" aria-label="Concepto del gasto del día" className={inputCls+" flex-1"} value={persConcept} onChange={e=>{setPersConcept(e.target.value);applyRuleTo(e.target.value,"pers");}} placeholder="Ej. Alimentos, transporte, café…" /><button type="button" aria-label={voiceBusyPers?"Escuchando…":"Dictar el gasto por voz"} title="Dictar por voz" className="shrink-0 w-11 rounded-xl border border-[var(--border)] bg-[var(--surface2)] flex items-center justify-center" disabled={voiceBusyPers} onClick={()=>startVoice("pers")}>{micIcon}</button></div>
