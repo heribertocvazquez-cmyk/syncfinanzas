@@ -1,6 +1,7 @@
 // Mike: respuestas preparadas + respuestas dinámicas con datos
 // reales + revisión de movimientos + aprendizaje en el dispositivo +
-// asistente de ahorro conversacional + avisos proactivos.
+// asistente de ahorro conversacional + detección de avisos pendientes
+// (solo enciende el foco de la estrella; nada aparece solo).
 // Sin servicios externos, sin claves, sin costo, sin SQL nuevo.
 //
 // Lo que aprende Mike y dónde se guarda (todo en el navegador):
@@ -12,9 +13,9 @@
 // - localStorage "sf-help-last-opening": el último mensaje de apertura del
 //   chat, para que al abrir de nuevo salga otro distinto y nunca se repita
 //   dos veces seguidas ni se apile el mismo.
-// - sessionStorage "sf-help-greeted": "1" cuando el saludo proactivo ya se
-//   mostró en esta sesión (un aviso suave por sesión, que se puede
-//   descartar, nunca un popup que bloquee).
+// - sessionStorage "sf-help-nudges": avisos ya detectados en esta sesión
+//   (una vez por sesión cada uno), para que el foco de la estrella no se
+//   repita.
 // Nada de esto sale del dispositivo ni se guarda en la base de datos.
 import type { Tab } from "../App";
 import type { api } from "../api";
@@ -369,7 +370,6 @@ export function reviewMovement(ov: OverviewData, d: MovementDraft): string[] {
 
 // ---- Aprendizaje en el dispositivo (sin IA externa, sin costo) ----
 export const HELP_LEARN_KEY = "sf-help-learn";
-export const HELP_GREETED_KEY = "sf-help-greeted";
 export type HelpLearning = { v: 1; questions: Record<string, number>; overBudget: Record<string, string[]>; concepts: Record<string, { count: number; amount: number; last: string }> };
 export function loadHelpLearning(): HelpLearning {
   try {
@@ -428,14 +428,6 @@ export function topHelpQuestion(l: HelpLearning): string | null {
   for (const [q, n] of Object.entries(l.questions)) if (n > bestN) { bestN = n; best = q; }
   return bestN >= 2 ? best : null;
 }
-// Saludo proactivo: corto, solo el nombre. La burbuja arriba de la
-// estrella dice «Hola, soy Mike.» y nada más; lo que Mike puede hacer y
-// los tips viven en el mensaje de apertura del chat y en sus respuestas.
-export function buildGreeting(ov: OverviewData): { text: string; personal: string | null } | null {
-  if (!ov.household) return null;
-  return { text: "Hola, soy Mike.", personal: null };
-}
-
 // ---- Asistente de ahorro conversacional (el «mago») ----
 // Conversación de varios turnos dentro del chat: cuando el usuario pregunta
 // cómo ahorrar más o que quiere ahorrar, Mike no contesta de una
@@ -545,14 +537,14 @@ export function wizardResultText(r: PlanAnalysis, goalName: string): string {
   return parts.join(" ");
 }
 
-// ---- Avisos proactivos de Mike (siempre activo) ----
-// El botón flotante ya está visible en toda la app; además Mike interviene
-// solo, con una burbujita arriba de la estrella (nunca un popup que
-// bloquee, con × para descartar). Cada aviso se muestra una sola vez por
-// sesión (sessionStorage "sf-help-nudges"): al abrir Movimientos o Gasto
-// del día pregunta qué quiere registrar o subir; si un presupuesto está
-// cerca de su límite o ya se pasó, avisa; si un plan de ahorro está en
-// riesgo, sugiere revisarlo. El saludo de entrada sigue teniendo prioridad.
+// ---- Avisos pendientes de Mike (solo el foco de la estrella) ----
+// El botón flotante ya está visible en toda la app; Mike detecta cuándo
+// hay algo pendiente, pero ya no muestra ninguna burbuja en automático:
+// el aviso solo enciende el foco encima de la estrella. Cada aviso se
+// detecta una sola vez por sesión (sessionStorage "sf-help-nudges"): al
+// abrir Movimientos o Gasto del día pregunta qué quiere registrar o
+// subir; si un presupuesto está cerca de su límite o ya se pasó, avisa;
+// si un plan de ahorro está en riesgo, sugiere revisarlo.
 export type HelpNudgeAction = { label: string; ask?: string; go?: Tab };
 export type HelpNudge = { id: string; text: string; actions: HelpNudgeAction[] };
 export const HELP_NUDGES_KEY = "sf-help-nudges";

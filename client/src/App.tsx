@@ -38,7 +38,7 @@ import type { FeedbackState } from "./lib/feedback";
 import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview } from "./components/TandaDetail";
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
 import { DRAWER_GROUPS, orderDrawerTabs } from "./lib/drawerOrder";
-import { HELP_FAQS, HELP_GREETED_KEY, buildGreeting, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
+import { HELP_FAQS, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { api, fetchSession, signOut } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
@@ -322,43 +322,34 @@ function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => v
 }
 
 // ---- Mike (respuestas preparadas + respuestas dinámicas con datos reales) ----
-// Botón flotante con una estrella dorada, visible SIEMPRE en toda la app
-// mientras el chat está cerrado, en modo Personal y Familiar. La estrella
-// es estática y se arrastra: el usuario la toca y la mueve con el dedo (o
-// el ratón) a cualquier punto de la pantalla y queda ahí; la posición se
-// guarda en el dispositivo (localStorage "sf-help-fab-pos"). Un toque abre
-// el chat; arrastrar no lo abre. Cuando Mike tiene una idea, una pregunta
-// o un aviso para el usuario (saludo o aviso pendiente), la estrella lleva
-// un foco encima, sin animación. Al tocarlo abre una ventanita de chat que
+// Botón flotante con una estrella dorada, sin nombre visible, en toda la
+// app mientras el chat está cerrado, en modo Personal y Familiar. La
+// estrella es estática y se arrastra: el usuario la toca y la mueve con el
+// dedo (o el ratón) a cualquier punto de la pantalla y queda ahí; la
+// posición se guarda en el dispositivo (localStorage "sf-help-fab-pos").
+// Un toque abre el chat; arrastrar no lo abre. Nada aparece solo: no hay
+// burbuja de saludo ni avisos que salgan en automático. Cuando Mike tiene
+// algo pendiente (qué quiere registrar, presupuesto cerca de su límite,
+// plan de ahorro en riesgo), la estrella lleva un foco encima, sin
+// animación, y nada más. Al tocarlo abre una ventanita de chat que
 // responde dudas de uso con una base de respuestas preparadas por palabras
 // clave (sin claves ni servicios de pago) y preguntas dinámicas calculadas
 // en el dispositivo con los datos del hogar (en qué se gasta de más, dónde
 // ahorrar, cómo va la meta, cuánto queda). Al abrir, el chat abre con un
 // solo mensaje que cambia cada vez: ofrece ayuda o da un tip o una solución
 // con datos reales, sin repetir el anterior; al cerrar, la conversación se
-// borra para que al abrir de nuevo no se repita ni se apile el mismo. La
-// presentación de Mike vive en la burbuja arriba de la estrella, no dentro
-// del chat: la burbuja es crema (#F7F1E7) con letra oscura para que se
-// diferencie del fondo, y dice solo «Hola, soy Mike.». Cada respuesta es
-// corta, en tono formal de usted, y trae un botón que lleva directo al
-// lugar cuando la vista ya tiene navegación (onGo). La lógica vive en
-// ./lib/helpDynamic. Sin `open`/`onOpenChange` se maneja solo (así lo usa
-// el asistente de creación de espacio). Con `open`/`onOpenChange` lo
-// controla la app.
-// Con `greeting`, al entrar a la app aparece una burbujita crema de saludo
-// arriba de la estrella una vez por sesión, que se puede descartar; al
-// tocarla se abre el chat. Nunca bloquea la pantalla. Con `hidden` (menú
-// abierto) el botón se oculta, porque el cajón ya tiene su entrada a Mike.
+// borra para que al abrir de nuevo no se repita ni se apile el mismo. Cada
+// respuesta es corta, en tono formal de usted, y trae un botón que lleva
+// directo al lugar cuando la vista ya tiene navegación (onGo). La lógica
+// vive en ./lib/helpDynamic. Sin `open`/`onOpenChange` se maneja solo (así
+// lo usa el asistente de creación de espacio). Con `open`/`onOpenChange`
+// lo controla la app. Con `hidden` (menú abierto) el botón se oculta,
+// porque el cajón ya tiene su entrada a Mike.
 // Además Mike es un asistente de ahorro conversacional: si el usuario
 // pregunta cómo ahorrar más, no contesta de una vez, pregunta el motivo (con
 // sus metas como opciones), el monto y el plazo, y piensa con sus datos
 // reales para darle los parámetros (aporte mensual, recortes por categoría,
-// plazo) con un botón para armar el plan en Metas. Y siempre está activo:
-// con `nudge` interviene solo con una burbujita arriba de la estrella (qué
-// quiere registrar, presupuesto cerca de su límite, plan de ahorro en
-// riesgo), una sola vez por sesión cada aviso, con × para descartar, nunca
-// un popup que bloquee. El saludo de entrada tiene prioridad sobre los
-// avisos.
+// plazo) con un botón para armar el plan en Metas.
 // Posición de la estrella de Mike. Se guarda en el dispositivo
 // (localStorage "sf-help-fab-pos") como coordenadas en píxeles desde la
 // esquina superior izquierda de la ventana; null = posición por defecto
@@ -381,7 +372,7 @@ function loadFabPos(): { x: number; y: number } | null {
     return clampFabPos(v.x, v.y);
   } catch { return null; }
 }
-export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, greeting, onDismissGreeting, overview, nudge, onDismissNudge, hidden }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void; dynamicFaqs?: HelpFaq[]; greeting?: { text: string; personal?: string | null } | null; onDismissGreeting?: () => void; overview?: OverviewData | null; nudge?: HelpNudge | null; onDismissNudge?: () => void; hidden?: boolean }) {
+export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynamicFaqs, overview, nudge, hidden }: { onGo?: (tab: Tab) => void; open?: boolean; onOpenChange?: (v: boolean) => void; dynamicFaqs?: HelpFaq[]; overview?: OverviewData | null; nudge?: HelpNudge | null; hidden?: boolean }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const tipAddedRef = useRef(false);
@@ -391,9 +382,9 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
   // y cada apertura agregaba el mismo tip, por eso salía 3 veces seguidas.
   const setOpen = (v: boolean) => { if (!v) { tipAddedRef.current = false; setMsgs([]); setWizard(null); setInput(""); } if (onOpenChange) onOpenChange(v); else setInternalOpen(v); };
   const [input, setInput] = useState("");
-  // El chat abre limpio, sin mensaje de presentación ni preguntas listadas:
-  // la presentación de Mike vive en la burbuja arriba de la estrella. Solo
-  // la caja de texto y, mientras el usuario escribe, las predicciones.
+  // El chat abre con un solo mensaje de apertura (ver el efecto de abajo),
+  // sin preguntas listadas: solo la caja de texto y, mientras el usuario
+  // escribe, las predicciones.
   const [msgs, setMsgs] = useState<HelpMsg[]>([]);
   // Al abrir el chat, Mike dice UN mensaje que cambia cada vez: ofrece ayuda
   // o da un tip o una solución con datos reales (ver pickOpeningMessage en
@@ -502,42 +493,14 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  // La burbuja de saludo o aviso va arriba de la estrella, como un globo de
-  // idea; si la estrella está arriba de la pantalla, la burbuja va abajo de
-  // ella para no salirse. Se alinea al lado con más espacio.
-  const vw = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : 390;
-  const fabCenterX = fabPos ? fabPos.x + FAB_SIZE / 2 : vw - 16 - FAB_SIZE / 2;
-  const bubbleBelow = fabPos ? fabPos.y < 170 : false;
-  const bubbleRight = fabCenterX > vw / 2;
-  const hasIdea = Boolean(greeting || nudge);
-  // Una sola burbuja: el saludo tiene prioridad sobre los avisos.
-  const bubble = greeting
-    ? { kind: "greeting" as const, text: greeting.text, personal: greeting.personal ?? null, actions: [] as { label: string; ask?: string; go?: Tab }[] }
-    : nudge
-      ? { kind: "nudge" as const, text: nudge.text, personal: null as string | null, actions: nudge.actions }
-      : null;
-  const dismissBubble = () => { if (bubble?.kind === "greeting") onDismissGreeting?.(); else if (bubble?.kind === "nudge") onDismissNudge?.(); };
+  // La estrella no lleva nombre ni burbuja: nada aparece solo. El foco
+  // encima solo indica que Mike tiene algo pendiente (`nudge`); al tocar
+  // la estrella se abre el chat, donde está el mensaje de apertura.
+  const hasIdea = Boolean(nudge);
   return (
     <>
       {!open && !hidden && (
         <div className="fixed z-40 w-12 h-12" style={fabPos ? { left: fabPos.x, top: fabPos.y } : { right: 16, bottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
-          {bubble && controlledOpen !== undefined && (
-            <div data-help-bubble role="status" className="absolute z-10 w-[min(240px,calc(100vw-24px))] rounded-2xl bg-[#F7F1E7] text-[#1A2A3A] border border-[#E0CBA8] shadow-lg px-3 py-2 cursor-pointer" style={bubbleBelow ? { top: "calc(100% + 10px)", ...(bubbleRight ? { right: 0 } : { left: 0 }) } : { bottom: "calc(100% + 10px)", ...(bubbleRight ? { right: 0 } : { left: 0 }) }} onClick={()=>{ setOpen(true); dismissBubble(); }}>
-              <span aria-hidden="true" className="absolute w-3 h-3 rotate-45 bg-[#F7F1E7]" style={bubbleBelow ? { top: -6, ...(bubbleRight ? { right: 14 } : { left: 14 }) } : { bottom: -6, ...(bubbleRight ? { right: 14 } : { left: 14 }) }} />
-              <div className="flex items-start gap-1.5">
-                <p className="text-sm font-semibold flex-1">{bubble.text}</p>
-                <button type="button" aria-label={bubble.kind === "greeting" ? "Descartar el saludo de Mike" : "Descartar el aviso de Mike"} onClick={(e)=>{ e.stopPropagation(); dismissBubble(); }} className="shrink-0 w-6 h-6 rounded-full bg-white/70 border border-[#D8C9A8] text-[#1A2A3A] text-base leading-none font-bold">×</button>
-              </div>
-              {bubble.personal && <p className="text-xs text-[#5A6B7A] mt-0.5">{bubble.personal}</p>}
-              {bubble.actions.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {bubble.actions.map(a=>(
-                    <button key={a.label} type="button" className="rounded-full border border-[#B9A77E] text-[#1A2A3A] px-2.5 py-1 text-xs font-semibold" onClick={(e)=>{ e.stopPropagation(); if (a.ask) { setOpen(true); ask(a.ask); } else if (a.go && onGo) { setOpen(false); onGo(a.go); } dismissBubble(); }}>{a.label}</button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
           <button ref={fabRef} type="button" data-help-fab aria-label={hasIdea ? "Abrir a Mike: tengo una idea para usted" : "Abrir a Mike"} onPointerDown={onFabPointerDown} onPointerMove={onFabPointerMove} onPointerUp={onFabPointerUp} onPointerCancel={onFabPointerCancel} onClick={onFabClick} className="help-fab-static relative w-12 h-12 rounded-full bg-[var(--gold)] text-[#13262E] shadow-xl flex items-center justify-center shrink-0">
             <svg aria-hidden="true" viewBox="0 0 24 24" className="w-6 h-6 pointer-events-none" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
             {hasIdea && (
@@ -1021,17 +984,12 @@ export function App(){
   // ni servicios externos). Las respuestas usan solo los movimientos que el
   // usuario ya ve en pantalla (en Familiar, compartidos más sus privados).
   const dynamicFaqs = useMemo(() => data ? dynamicHelpFaqs(data) : [], [data]);
-  const [greetingDismissed, setGreetingDismissed] = useState(false);
-  const greeting = useMemo(() => {
-    if (!data?.household || greetingDismissed) return null;
-    try { if (sessionStorage.getItem(HELP_GREETED_KEY)) return null; } catch {}
-    return buildGreeting(data);
-  }, [data, greetingDismissed]);
-  const dismissGreeting = () => { try { sessionStorage.setItem(HELP_GREETED_KEY, "1"); } catch {} setGreetingDismissed(true); };
-  // Avisos proactivos de Mike: al abrir Movimientos o Gasto del día
-  // pregunta qué quiere registrar; si un presupuesto está cerca de su
-  // límite o un plan de ahorro está en riesgo, avisa. Cada aviso sale una
-  // sola vez por sesión (ver ./lib/helpDynamic) y se puede descartar.
+  // Avisos de Mike: al abrir Movimientos o Gasto del día, si un
+  // presupuesto está cerca de su límite o un plan de ahorro está en
+  // riesgo, Mike lo detecta. Ya no sale ninguna burbuja en automático:
+  // el aviso solo enciende el foco encima de la estrella (una vez por
+  // sesión cada aviso, ver ./lib/helpDynamic). Al tocar la estrella se
+  // abre el chat, donde está el mensaje de apertura.
   const [activeNudge, setActiveNudge] = useState<HelpNudge | null>(null);
   useEffect(() => {
     if (!data?.household) return;
@@ -1039,7 +997,6 @@ export function App(){
     if (n) { markNudgeShown(n.id); setActiveNudge(cur => (cur && cur.id === n.id ? cur : n)); }
     else setActiveNudge(cur => (cur === null ? cur : null));
   }, [data, tab]);
-  const dismissNudge = () => setActiveNudge(null);
   // Mike aprende del uso: al cargar el resumen, anota en el dispositivo
   // qué categorías se pasaron de presupuesto este mes y qué conceptos se
   // repiten (ver ./lib/helpDynamic). No se envía nada fuera del dispositivo.
@@ -2898,7 +2855,7 @@ export function App(){
         )}
       </main>
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
-      <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} hidden={menuOpen} dynamicFaqs={dynamicFaqs} greeting={greeting} onDismissGreeting={dismissGreeting} overview={data} nudge={activeNudge} onDismissNudge={dismissNudge} />
+      <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} hidden={menuOpen} dynamicFaqs={dynamicFaqs} overview={data} nudge={activeNudge} />
       {feedbackOpen && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Enviar comentarios">
         <TesterFeedbackForm embedded initialNombre={meEarly ? fullName(meEarly) : ""} initialCorreo={myEmail} onClose={()=>setFeedbackOpen(false)} />
       </div>}
