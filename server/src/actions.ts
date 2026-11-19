@@ -9,7 +9,7 @@ import {
 } from "./mercadopago.js";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import * as schema from "./schema.js";
-import { notifyTandaOrganizer } from "./tandaNotify.js";
+import { notifyTandaOrganizer, notifyTandaOrganizerAcceptOtherEmail } from "./tandaNotify.js";
 import { supabaseAdmin } from "./supabase.js";
 import { findHouseholdCodeToken, findHouseholdGenericToken, GENERIC_HOUSEHOLD_INVITE_TTL_DAYS, isHouseholdCodeToken, isHouseholdGenericToken, issueHouseholdCodeToken, issueInviteToken, inviteUrl, markToken, markTokensForInvitation, normalizeHouseholdCode, replaceHouseholdGenericTokens, resolveInviteToken, tokenIsUsable, type InviteKind } from "./invites.js";
 import { mailConfigured, sendInviteEmail } from "./mail.js";
@@ -35,7 +35,7 @@ async function logActivity(ctx: Ctx, householdId: number, action: string, detail
 // la operación principal: si la tabla aún no existe (falta correr
 // supabase/notifications.sql), la inserción falla en silencio y la app
 // sigue funcionando sin avisos.
-type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion"; title: string; body: string; amount?: number | null; target: string };
+type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion" | "aceptacion_otro_correo"; title: string; body: string; amount?: number | null; target: string };
 async function notifyHousehold(ctx: Ctx, householdId: number, n: NotifInput, excludeUserId?: string | null) {
   try {
     const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
@@ -2460,7 +2460,7 @@ export const Actions = {
     },
   }),
   respondTandaInvitation: defineAction({
-    description: "Accepts or rejects a tanda invitation. Accepting adds the person as a visible participant of that tanda with the name they choose (never taken from their email), and also brings them into the tanda's household (member profile + membership), like accepting a household invitation: without membership they would never see the tanda.",
+    description: "Accepts or rejects a tanda invitation. Accepting adds the person as a visible participant of that tanda with the name they choose (never taken from their email), and also brings them into the tanda's household (member profile + membership), like accepting a household invitation: without membership they would never see the tanda. The invitation link (token) is the credential: the person may accept with any account email; when it differs from the invited email, the organizer is notified with both emails.",
     request: z.object({ id: z.number(), accept: z.boolean(), name: z.string().optional() }),
     response: z.object({ ok: z.literal(true), participantId: z.number().optional(), profileId: z.number().optional(), tandaId: z.number().optional(), householdId: z.number().optional() }),
     async handler(ctx, args): Promise<{ ok: true; participantId?: number; profileId?: number; tandaId?: number; householdId?: number }> {
@@ -2468,17 +2468,33 @@ export const Actions = {
       const rows = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.id, args.id));
       const inv = rows[0]; if (!inv) throw new Error("Invitación de tanda no encontrada.");
       if (inv.status !== "pending") throw new Error("Esta invitación ya fue respondida.");
-      if (inv.email.toLowerCase() !== ctx.user.email.toLowerCase()) throw new Error("Esta invitación de tanda fue enviada a otro correo electrónico. Inicie sesión con el correo invitado.");
+      // El enlace (token) es la credencial: quien lo tiene puede aceptar
+      // con el correo de su cuenta, aunque no sea el invitado. Si el
+      // correo no coincide, el organizador recibe un aviso con los dos
+      // correos; la aceptación no se bloquea.
+      const realEmail = ctx.user.email;
+      const emailMismatch = inv.email.toLowerCase() !== realEmail.toLowerCase();
       if (!args.accept) { await db.update(schema.tandaInvitations).set({ status: "rejected" }).where(eq(schema.tandaInvitations.id, args.id)); await markTokensForInvitation(db, null, inv.id, "rejected"); ctx.invalidateQueries(); return { ok: true, tandaId: inv.tandaId }; }
       const name = (args.name || inv.invitedName || "").trim();
       if (!name) throw new Error("Escriba el nombre con el que participará en la tanda.");
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, inv.tandaId)); const td = tdRows[0]; if (!td) throw new Error("Tanda no encontrada");
       const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, inv.tandaId));
-      let participantId = parts.find(p=>(p.email||"").toLowerCase()===inv.email.toLowerCase())?.id;
+      // El participante se reconoce por el correo REAL de la cuenta (así
+      // lo resuelve tandaAccess al buscar «mi participante»): si ya hay
+      // una fila con el correo invitado (el organizador lo anotó antes),
+      // se reutiliza y se actualiza al correo real.
+      let participantId = parts.find(p=>(p.email||"").toLowerCase()===realEmail.toLowerCase())?.id;
+      if (!participantId) {
+        const byInvited = parts.find(p=>(p.email||"").toLowerCase()===inv.email.toLowerCase());
+        if (byInvited) {
+          participantId = byInvited.id;
+          await db.update(schema.tandaParticipants).set({ email: realEmail }).where(eq(schema.tandaParticipants.id, byInvited.id));
+        }
+      }
       if (!participantId) {
         if (parts.length >= td.participantCount) throw new Error("La tanda ya está llena.");
         const nowD = new Date(); const joined = `${nowD.getFullYear()}-${String(nowD.getMonth()+1).padStart(2,"0")}-${String(nowD.getDate()).padStart(2,"0")}`;
-        const [r] = await db.insert(schema.tandaParticipants).values({ householdId: inv.householdId, tandaId: inv.tandaId, name, email: inv.email, joinedDate: joined }).returning({ id: schema.tandaParticipants.id });
+        const [r] = await db.insert(schema.tandaParticipants).values({ householdId: inv.householdId, tandaId: inv.tandaId, name, email: realEmail, joinedDate: joined }).returning({ id: schema.tandaParticipants.id });
         participantId = r?.id;
       }
       await db.update(schema.tandaInvitations).set({ status: "accepted" }).where(eq(schema.tandaInvitations.id, args.id));
@@ -2488,13 +2504,18 @@ export const Actions = {
       // hogar: sin membresía nunca vería la tanda, porque el hogar se
       // resuelve desde household_members.
       const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, inv.householdId));
-      const already = profs.find(pr=>(pr.email||"").toLowerCase()===inv.email.toLowerCase());
+      // El perfil se reconoce por el correo REAL de la cuenta; si ya hay
+      // uno con el correo invitado, se reutiliza y se actualiza.
+      const already = profs.find(pr=>(pr.email||"").toLowerCase()===realEmail.toLowerCase())
+        ?? profs.find(pr=>(pr.email||"").toLowerCase()===inv.email.toLowerCase());
       let profileId = already?.id;
       if (!already) {
         const [firstWord, ...rest] = name.split(/\s+/);
         const first = firstWord || name;
-        const [r] = await db.insert(schema.profiles).values({ householdId: inv.householdId, userId: ctx.user.id, name: first, lastName: rest.join(" ") || null, role: "member", email: inv.email, kind: "adult", monthlyIncome: 0, fixedCommitments: 0 }).returning({ id: schema.profiles.id });
+        const [r] = await db.insert(schema.profiles).values({ householdId: inv.householdId, userId: ctx.user.id, name: first, lastName: rest.join(" ") || null, role: "member", email: realEmail, kind: "adult", monthlyIncome: 0, fixedCommitments: 0 }).returning({ id: schema.profiles.id });
         profileId = r?.id;
+      } else if ((already.email || "").toLowerCase() !== realEmail.toLowerCase()) {
+        await db.update(schema.profiles).set({ email: realEmail }).where(eq(schema.profiles.id, already.id));
       }
       if (profileId) {
         await db.update(schema.profiles).set({ userId: ctx.user.id }).where(eq(schema.profiles.id, profileId));
@@ -2503,8 +2524,16 @@ export const Actions = {
           await db.insert(schema.householdMembers).values({ householdId: inv.householdId, userId: ctx.user.id, profileId, role: "member" });
         }
       }
-      await logActivity(ctx, inv.householdId, "Nuevo participante en la tanda", `${name} · ${td.name}`);
+      // El registro deja constancia del correo con el que se aceptó
+      // realmente, no solo del invitado.
+      await logActivity(ctx, inv.householdId, "Nuevo participante en la tanda", emailMismatch ? `${name} · ${td.name} · aceptó con ${realEmail} (invitación a ${inv.email})` : `${name} · ${td.name}`);
       await notifyHousehold(ctx, inv.householdId, { type: "nuevo_integrante", title: "Nuevo participante en la tanda", body: `${name} se unió a la tanda ${td.name}.`, target: "tandas" }, ctx.user.id);
+      // Si aceptó con otro correo, el organizador recibe un aviso con los
+      // dos correos (el enlace es la credencial; la aceptación no se
+      // bloquea). Nunca bloquea la aceptación si no hay a quién avisar.
+      if (emailMismatch) {
+        await notifyTandaOrganizerAcceptOtherEmail(db, { householdId: inv.householdId, organizerProfileId: td.organizerProfileId ?? null, acceptorName: name, tandaName: td.name, realEmail, invitedEmail: inv.email, excludeUserId: ctx.user.id });
+      }
       ctx.invalidateQueries(); return { ok: true, participantId, profileId, tandaId: inv.tandaId, householdId: inv.householdId };
     },
   }),

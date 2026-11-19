@@ -401,7 +401,7 @@ export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
   householdId: integer("household_id").notNull(),
   userId: uuid("user_id").notNull(),
-  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "presupuesto_80", "gasto_anomalo", "suscripcion_sube", "tarjeta_corte", "tarjeta_pago", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida", "ajuste_gasto", "ajuste_sobrante", "pago_tanda", "nueva_opinion"] }).notNull(),
+  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "presupuesto_80", "gasto_anomalo", "suscripcion_sube", "tarjeta_corte", "tarjeta_pago", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida", "ajuste_gasto", "ajuste_sobrante", "pago_tanda", "nueva_opinion", "aceptacion_otro_correo"] }).notNull(),
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   amount: doublePrecision("amount"),

@@ -101,3 +101,64 @@ export async function notifyTandaOrganizer(
     return { notifiedUserId: null };
   }
 }
+
+// Aviso al organizador de una tanda cuando alguien acepta su invitación
+// con otro correo distinto al invitado. El enlace (token) es la
+// credencial: quien lo tiene puede aceptar con el correo de su cuenta, y
+// el organizador debe saber con qué correo entró realmente la persona
+// (la invitación se envió a otro). El aviso va SOLO al organizador —
+// nunca a todo el hogar — igual que el de comprobante de pago. Nunca
+// bloquea la aceptación: si la tabla de avisos aún no existe (falta
+// correr supabase/notifications.sql) o el organizador no tiene usuario,
+// no se crea nada y la aceptación sigue.
+export type TandaAcceptOtherEmailNotif = {
+  type: "aceptacion_otro_correo";
+  title: string;
+  body: string;
+  amount: null;
+  target: "tandas";
+};
+
+export function buildTandaAcceptOtherEmailNotification(args: {
+  acceptorName: string;
+  tandaName: string;
+  realEmail: string;
+  invitedEmail: string;
+}): TandaAcceptOtherEmailNotif {
+  return {
+    type: "aceptacion_otro_correo",
+    title: "Invitación aceptada con otro correo",
+    body: `${args.acceptorName} aceptó la invitación a la tanda «${args.tandaName}» con ${args.realEmail} (invitación enviada a ${args.invitedEmail}).`,
+    amount: null,
+    target: "tandas",
+  };
+}
+
+export async function notifyTandaOrganizerAcceptOtherEmail(
+  db: Pick<Db, "select" | "insert">,
+  args: {
+    householdId: number;
+    organizerProfileId: number | null;
+    acceptorName: string;
+    tandaName: string;
+    realEmail: string;
+    invitedEmail: string;
+    excludeUserId?: string | null;
+  },
+): Promise<{ notifiedUserId: string | null }> {
+  try {
+    const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, args.householdId));
+    const org = args.organizerProfileId != null ? profs.find((p) => p.id === args.organizerProfileId) : null;
+    const admin = profs.find((p) => p.role === "admin");
+    const targetUserId: string | null = org?.userId ?? admin?.userId ?? null;
+    if (!targetUserId) return { notifiedUserId: null };
+    if (args.excludeUserId && targetUserId === args.excludeUserId) return { notifiedUserId: null };
+    const n = buildTandaAcceptOtherEmailNotification(args);
+    await db
+      .insert(schema.notifications)
+      .values([{ householdId: args.householdId, userId: targetUserId, type: n.type, title: n.title, body: n.body, amount: n.amount, target: n.target, isRead: 0 }]);
+    return { notifiedUserId: targetUserId };
+  } catch {
+    return { notifiedUserId: null };
+  }
+}

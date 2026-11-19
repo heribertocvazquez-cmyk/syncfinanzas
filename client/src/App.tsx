@@ -835,7 +835,7 @@ export function App(){
   const inviteMessage=(url:string)=>`${url}\nLe invito a SyncFinanzas, la app para llevar el dinero del hogar.\nPara entrar:\n1. Abra este enlace.\n2. Cree su cuenta con su correo y una contraseña.\n3. Acepte la invitación y entre al hogar.`;
   // Mensaje de invitación a una tanda: el enlace va primero, seguido de los
   // pasos para entrar. El mismo mensaje se copia y se comparte por WhatsApp.
-  const tandaInviteMessage=(url:string,tandaName:string)=>`${url}\nLe invito a participar en la tanda ${tandaName} en SyncFinanzas.\nPara entrar:\n1. Abra este enlace.\n2. Cree su cuenta con el correo invitado y una contraseña.\n3. Acepte la invitación y participe en la tanda.`;
+  const tandaInviteMessage=(url:string,tandaName:string)=>`${url}\nLe invito a participar en la tanda ${tandaName} en SyncFinanzas.\nPara entrar:\n1. Abra este enlace.\n2. Cree su cuenta con su correo y una contraseña.\n3. Acepte la invitación y participe en la tanda.`;
   useEffect(()=>{
     const token = readInviteToken();
     if (!token) return;
@@ -882,9 +882,10 @@ export function App(){
   // arriba): antes solo existía en la pantalla sin hogar, así que quien ya
   // tenía un espacio (por ejemplo, el Personal creado al registrarse)
   // abría el enlace y caía en silencio a su espacio vacío, sin ver jamás
-  // la invitación. El correo de la invitación debe coincidir con el de la
-  // sesión: si no coincide, se dice claro en lugar de dejar aceptar y
-  // fallar después. Si el enlace ya no vale, también se avisa.
+  // la invitación. En una tanda, el enlace es la credencial: si el correo
+  // de la sesión no coincide con el invitado, se acepta con el correo de
+  // la sesión y se avisa al organizador (en el hogar, el correo distinto
+  // sigue bloqueado). Si el enlace ya no vale, también se avisa.
   const tokenEmailMismatch = !!tokenInvite && tokenInvite.email !== "" && myEmail !== "" && tokenInvite.email.trim().toLowerCase() !== myEmail.trim().toLowerCase();
   const renderTokenInviteBanner = () => (
     <>
@@ -896,13 +897,14 @@ export function App(){
           {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante.</p>}
           {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
           {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Ya se usó o venció. Solicite una nueva.</p>}
-          {tokenInvite.usable && tokenEmailMismatch && <p className="text-sm text-[var(--red)]">Esta invitación fue enviada a <b>{tokenInvite.email}</b>. Usted entró con <b>{myEmail}</b>. Inicie sesión con el correo invitado.</p>}
+          {tokenInvite.usable && tokenEmailMismatch && tokenInvite.kind==="tanda" && <p className="text-sm text-[var(--red)]">Esta invitación fue enviada a <b>{tokenInvite.email}</b>. Usted entró con <b>{myEmail}</b>. Si acepta, se incorporará a la tanda con <b>{myEmail}</b> y {tokenInvite.inviterName ? <><b>{tokenInvite.inviterName}</b> será avisado</> : "el organizador será avisado"}.</p>}
+          {tokenInvite.usable && tokenEmailMismatch && tokenInvite.kind!=="tanda" && <p className="text-sm text-[var(--red)]">Esta invitación fue enviada a <b>{tokenInvite.email}</b>. Usted entró con <b>{myEmail}</b>. Inicie sesión con el correo invitado.</p>}
           {tokenInvite.usable && tokenInvite.kind==="household" && tokenInvite.generic && (
             <div className="flex gap-2">
               <button type="button" className={btnPrimary} onClick={()=>{ setTokenInvite(null); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} }}>Empezar</button>
             </div>
           )}
-          {tokenInvite.usable && !tokenEmailMismatch && !(tokenInvite.kind==="household" && tokenInvite.generic) && (
+          {tokenInvite.usable && (!tokenEmailMismatch || tokenInvite.kind==="tanda") && !(tokenInvite.kind==="household" && tokenInvite.generic) && (
             <>
               <div className="grid grid-cols-2 gap-2">
                 <input aria-label="Su nombre al aceptar la invitación del enlace" placeholder="Nombre" className={inputCls} value={joinFirst} onChange={e=>setJoinFirst(e.target.value)} />
