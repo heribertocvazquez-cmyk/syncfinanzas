@@ -14,7 +14,7 @@ import { readStoredProfile, resolveActiveProfile, writeStoredProfile } from "./l
 import { clearStoredHousehold, readStoredHousehold, writeStoredHousehold } from "./lib/activeHousehold";
 import { HouseholdSwitcher } from "./components/HouseholdSwitcher";
 import { categoryCounts, guideCounts, invitationCounts, sumBudgets, sumCashCounts, sumContributions, sumGoals, sumMonthMovements } from "./lib/cardSummaries";
-import { visibleNotifications } from "./lib/notifications";
+import { findTandaForNotification, visibleNotifications } from "./lib/notifications";
 import { MovementsFilter } from "./components/MovementsFilter";
 import { DEFAULT_MOVEMENTS_FILTER, filterMovements, type MovementsFilterValue } from "./lib/movementsFilter";
 import { buildBalanceBreakdown } from "./lib/balanceBreakdown";
@@ -741,7 +741,14 @@ export function App(){
   // aparecen en la campanilla. Solo ese tipo y esa tanda; los demás
   // avisos no se tocan.
   const markTandaPartNotifRead=useMutation({mutationFn:async(v:{householdId:number;tandaId:number})=>await api.markTandaParticipantNotificationsRead(v),onSuccess:()=>qc.invalidateQueries({queryKey:["notifications"]})});
-  const openNotif=(n:{id:number;target:string})=>{ void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); goTab(n.target as Tab); };
+  // Al tocar un aviso de tanda (recordatorio, nuevo participante, pago)
+  // se abre el DETALLE de esa tanda —no solo la lista— resolviendo el id
+  // por el nombre que nombra el cuerpo del aviso (la tabla de avisos no
+  // guarda tandaId). Sin tanda conocida, cae a la pestaña del aviso.
+  // Importante: el detalle de un invitado solo de tanda se abre desde
+  // listMyTandas (su Personal); nunca se pide el overview del hogar del
+  // invitador, que el servidor rechaza («No pertenece a este hogar.»).
+  const openNotif=(n:{id:number;target:string;type:string;body:string})=>{ void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); const tandaId=findTandaForNotification(n, allTandas); if(tandaId!=null){ openTandaDetail(tandaId); return; } goTab(n.target as Tab); };
   // Reglas de auto-categorización: si el concepto contiene la palabra, la
   // app pone sola esa categoría. Si la tabla aún no existe (falta correr
   // supabase/category-rules.sql), la lista sale vacía.

@@ -133,8 +133,7 @@ function TandaMonthCalendar({td, p, pickTandaProof}:{td:Tanda; p:TandaPerms; pic
   const activeParts = td.participants.filter(p=>p.excluded!==1);
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="font-display font-bold text-sm">Calendario del mes</h4>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex items-center gap-1">
           <button type="button" aria-label="Mes anterior" className={btnGhost} onClick={()=>shiftMonth(-1)}>‹</button>
           <span className="text-sm font-bold min-w-[132px] text-center">{monthLabel}</span>
@@ -197,7 +196,8 @@ function TandaMonthCalendar({td, p, pickTandaProof}:{td:Tanda; p:TandaPerms; pic
 }
 
 // Revisión del comprobante de pago de tanda antes de guardar. Vive en un
-// solo sitio — justo después del calendario, siempre visible — tanto si el
+// solo sitio — justo después del calendario, dentro de su tarjeta
+// plegable (abierta por defecto mientras dura la revisión) — tanto si el
 // participante sube el comprobante desde el botón directo del encabezado
 // como desde la fila de «Pagos por participante»: el flujo es el mismo
 // (pickTandaProof → revisión con importe leído y aviso si no coincide con
@@ -210,10 +210,11 @@ function TandaProofReviewPanel({ td, review, setReview, uploadProof, confirm }: 
   uploadProof: { isPending: boolean; error: Error | null };
   confirm: () => void;
 }) {
-  const periodDate = td.calendar.find(c=>c.index===review.quincenaIndex)?.date ?? null;
+  // El título del panel («Revisar comprobante · nombre · Periodo n ·
+  // fecha») lo lleva la tarjeta plegable que lo envuelve; aquí solo
+  // queda el contenido de la revisión.
   return (
     <div className="border border-[var(--gold)] rounded-2xl p-4 bg-[var(--surface2)] space-y-2">
-      <p className="font-display font-bold text-sm">Revisar comprobante · {review.participantName} · Periodo {review.quincenaIndex+1}{periodDate?` · ${fmtDate(periodDate)}`:""}</p>
       <div className="flex items-center gap-2">
         <img src={review.preview} alt="Foto del comprobante del depósito" className="w-11 h-11 object-cover rounded-xl border border-[var(--border)]" />
         <p className="text-sm">Pago de la tanda: <b className="whitespace-nowrap">{money(td.amountPerQuincena)}</b></p>
@@ -266,30 +267,44 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
   const meetingItems = td.attendance.items.filter(
     (it) => !(td.participants.find((pp) => pp.id === it.participantId)?.excluded === 1),
   );
+  // Resúmenes de una línea para las secciones plegadas (reporte
+  // 2026-11-19 16:02): próximo pago del calendario del mes y fecha del
+  // periodo en revisión del comprobante.
+  const nextPayCal = td.calendar.find((c) => c.date >= todayISO());
+  const reviewPeriodDate = tandaProofReview ? td.calendar.find((c) => c.index === tandaProofReview.quincenaIndex)?.date ?? null : null;
   return (
     <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-3">
-      <div className="flex justify-between flex-wrap gap-2">
-        <div>
+      <CollapsibleCard
+        asSection
+        title={<div className="flex justify-between flex-wrap gap-2">
           <h3 className="font-display font-bold text-lg">{td.name}</h3>
+          <div className="flex gap-2 items-start">
+            {p.canManage && <button aria-label={`Eliminar tanda ${td.name}`} className={btnGhost} onClick={()=>delTanda.mutate(td.id)}>Eliminar</button>}
+            {delTanda.error && <p className="text-sm text-[var(--red)]">{String(delTanda.error)}</p>}
+          </div>
+        </div>}
+        above={<>
           <p className="text-xs text-[var(--dim)]">{td.participantCount} participantes · {money(td.amountPerQuincena)} por {td.frequency==="semanal"?"semana":td.frequency==="mensual"?"mes":"quincena"} · recaudación cada {td.cadenceDays} días · inicio {fmtDate(td.startDate)} · en cada periodo se entrega el monto total de <b className="whitespace-nowrap">{money(td.potPerQuincena)}</b></p>
           <p className="text-sm mt-1.5">Organiza <b>{td.organizerName||"—"}</b>{td.treasurerName?<> · Tesorero: <b>{td.treasurerName}</b></>:""}{td.substituteName?<> · Suplente: <b>{td.substituteName}</b></>:""} {td.organizerRating.count>0 ? <span><Stars value={td.organizerRating.avg} /> <b>{td.organizerRating.avg} de 5</b> · {td.organizerRating.count} calificación(es) otorgadas por los participantes{td.organizerRating.avg>=4.5 && td.organizerRating.count>=2 ? <> · <span className="bg-[var(--gold)] text-[#13262E] text-[11px] font-bold rounded-full px-2 py-0.5">RECOMENDADO POR LOS PARTICIPANTES</span></> : ""}</span> : <span className="text-[var(--dim)]">· Aún sin calificaciones.</span>}</p>
-          <p className="text-xs text-[var(--dim)] mt-1">Si alguien no paga: <b>{td.coverageRule==="fondo"?"Fondo solidario":td.coverageRule==="prorroga"?"Prórroga":"Reparto entre los demás"}</b>{td.fineAmount>0?<> · Multa {money(td.fineAmount)} por retardo o falta</>:" · Sin multa"}{td.meetingDay?<> · Reunión los <b>{td.meetingDay}</b></>:""}{td.turnsLocked===1?<> · <b>Turnos fijados</b></>:""}</p>
-        </div>
-        <div className="flex gap-2 items-start">
-          {p.canManage && <button aria-label={`Eliminar tanda ${td.name}`} className={btnGhost} onClick={()=>delTanda.mutate(td.id)}>Eliminar</button>}
-          {delTanda.error && <p className="text-sm text-[var(--red)]">{String(delTanda.error)}</p>}
-        </div>
-      </div>
+        </>}
+      >
+        <p className="text-xs text-[var(--dim)] mt-1">Si alguien no paga: <b>{td.coverageRule==="fondo"?"Fondo solidario":td.coverageRule==="prorroga"?"Prórroga":"Reparto entre los demás"}</b>{td.fineAmount>0?<> · Multa {money(td.fineAmount)} por retardo o falta</>:" · Sin multa"}{td.meetingDay?<> · Reunión los <b>{td.meetingDay}</b></>:""}{td.turnsLocked===1?<> · <b>Turnos fijados</b></>:""}</p>
+      </CollapsibleCard>
       <div className="bg-[var(--surface2)] rounded-2xl p-4 sm:p-5">
-        <h4 className="font-display font-bold text-sm">Sorteo</h4>
-        {p.canManage && <div className="flex flex-wrap gap-2 items-center mt-2">
-          <select aria-label={`Modo de sorteo de ${td.name}`} className={inputCls+" w-auto"} value={drawSel[td.id]||td.drawMode} onChange={e=>setDrawSel({...drawSel,[td.id]:e.target.value as "random"|"weighted"})}><option value="random">Al azar</option><option value="weighted">Por cumplimiento</option></select>
-          <button aria-label={`Hacer sorteo de ${td.name}`} className={btnPrimary} onClick={()=>drawTanda.mutate({id:td.id,mode:(drawSel[td.id]||td.drawMode) as "random"|"weighted"})} disabled={td.participants.length<2 || drawTanda.isPending || td.turnsLocked===1}>Hacer sorteo</button>
-        </div>}
-        {p.canManage && td.participants.length<2 && td.turnsLocked!==1 && <p className="text-xs text-[var(--red)] mt-1">Para el sorteo se necesitan al menos 2 participantes ({td.participants.length} de {td.participantCount} ahora). Agregue participantes en la sección de abajo.</p>}
-        <span className="text-xs text-[var(--dim)]">Modo guardado: <b>{td.drawMode==="weighted"?"Por cumplimiento":"Al azar"}</b>{td.turnsLocked===1 && <> · <b>Turnos fijados, no se puede repetir el sorteo</b></>}</span>
-        <p className="text-xs text-[var(--dim)] mt-2"><b>Al azar:</b> igual para todos. <b>Por cumplimiento:</b> premia la puntualidad.</p>
-        {drawTanda.error && <p className="text-sm text-[var(--red)] mt-1">{String(drawTanda.error)}</p>}
+        <CollapsibleCard
+          asSection
+          title={<h4 className="font-display font-bold text-sm">Sorteo</h4>}
+          above={<p className="text-xs text-[var(--dim)] mt-0.5">{td.drawMode==="weighted"?"Por cumplimiento":"Al azar"} · {td.participants.length} de {td.participantCount} participantes{td.turnsLocked===1?" · Turnos fijados":""}</p>}
+        >
+          {p.canManage && <div className="flex flex-wrap gap-2 items-center mt-2">
+            <select aria-label={`Modo de sorteo de ${td.name}`} className={inputCls+" w-auto"} value={drawSel[td.id]||td.drawMode} onChange={e=>setDrawSel({...drawSel,[td.id]:e.target.value as "random"|"weighted"})}><option value="random">Al azar</option><option value="weighted">Por cumplimiento</option></select>
+            <button aria-label={`Hacer sorteo de ${td.name}`} className={btnPrimary} onClick={()=>drawTanda.mutate({id:td.id,mode:(drawSel[td.id]||td.drawMode) as "random"|"weighted"})} disabled={td.participants.length<2 || drawTanda.isPending || td.turnsLocked===1}>Hacer sorteo</button>
+          </div>}
+          {p.canManage && td.participants.length<2 && td.turnsLocked!==1 && <p className="text-xs text-[var(--red)] mt-1">Para el sorteo se necesitan al menos 2 participantes ({td.participants.length} de {td.participantCount} ahora). Agregue participantes en la sección de abajo.</p>}
+          <span className="text-xs text-[var(--dim)]">Modo guardado: <b>{td.drawMode==="weighted"?"Por cumplimiento":"Al azar"}</b>{td.turnsLocked===1 && <> · <b>Turnos fijados, no se puede repetir el sorteo</b></>}</span>
+          <p className="text-xs text-[var(--dim)] mt-2"><b>Al azar:</b> igual para todos. <b>Por cumplimiento:</b> premia la puntualidad.</p>
+          {drawTanda.error && <p className="text-sm text-[var(--red)] mt-1">{String(drawTanda.error)}</p>}
+        </CollapsibleCard>
       </div>
       <div className="bg-[var(--surface2)] rounded-2xl p-4 sm:p-5 space-y-3">
         <CollapsibleCard
@@ -319,8 +334,11 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
           </div>
           {(setPay.error || addFine.error) && <p className="text-sm text-[var(--red)] mt-1">{String(setPay.error || addFine.error)}</p>}
         </CollapsibleCard>
-        <div>
-          <h4 className="font-display font-bold text-sm">Saldos separados</h4>
+        <CollapsibleCard
+          asSection
+          title={<h4 className="font-display font-bold text-sm">Saldos separados</h4>}
+          above={<p className="text-xs text-[var(--dim)] mt-0.5">Aportación {money(td.balances.aportacion)} · Fondo solidario {money(td.balances.fondo)} · Multas pendientes {money(td.balances.multasPendientes)}</p>}
+        >
           <div className="grid grid-cols-3 gap-2 mt-2 text-center">
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-xs text-[var(--dim)]">Aportación</p><p className="font-display font-bold text-sm whitespace-nowrap">{money(td.balances.aportacion)}</p></div>
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-2"><p className="text-xs text-[var(--dim)]">Fondo solidario</p><p className="font-display font-bold text-sm whitespace-nowrap">{money(td.balances.fondo)}</p></div>
@@ -333,7 +351,7 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
             <button aria-label={`Registrar movimiento de fondos de ${td.name}`} className={btnGhost} onClick={()=>addFundEntry.mutate({tandaId:td.id})} disabled={!fundAmount[td.id] || addFundEntry.isPending}>Registrar</button>
           </div>}
           {addFundEntry.error && <p className="text-sm text-[var(--red)] mt-1">{String(addFundEntry.error)}</p>}
-        </div>
+        </CollapsibleCard>
         {td.fines.length>0 && (
         <CollapsibleCard
           asSection
@@ -373,7 +391,6 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
           </div>
         {(setRole.error || voteExclude.error || removePart.error) && <p className="text-sm text-[var(--red)] mt-1">{String(setRole.error || voteExclude.error || removePart.error)}</p>}
         {setCard.error && <p className="text-sm text-[var(--red)] mt-1">{String(setCard.error)}</p>}
-        </CollapsibleCard>
         {td.participants.length<td.participantCount && p.canManage && <div className="flex flex-wrap gap-2 mt-3">
           <input aria-label={`Nombre del nuevo participante en ${td.name}`} placeholder="Nombre del participante" className={inputCls+" flex-1 min-w-[160px]"} value={partName[td.id]||""} onChange={e=>setPartName({...partName,[td.id]:e.target.value})} />
           <input aria-label={`Tarjeta simulada últimos 4 dígitos en ${td.name}`} placeholder="Últ. 4 díg. (opcional)" maxLength={4} inputMode="numeric" className={inputCls+" w-44"} value={partCard[td.id]||""} onChange={e=>setPartCard({...partCard,[td.id]:e.target.value.replace(/[^0-9]/g,"")})} />
@@ -432,10 +449,25 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
           {cancelTandaInv.error && <p className="text-sm text-[var(--red)] mt-1">{String(cancelTandaInv.error)}</p>}
           {td.invitations.filter(iv=>iv.status!=="pending").length>0 && <p className="text-xs text-[var(--dim)] mt-2">{td.invitations.filter(iv=>iv.status==="accepted").length} aceptada(s) · {td.invitations.filter(iv=>iv.status==="rejected").length} rechazada(s).</p>}
         </div>
+        </CollapsibleCard>
       </div>
-      <TandaMonthCalendar td={td} p={p} pickTandaProof={pickTandaProof} />
+      <div>
+        <CollapsibleCard
+          asSection
+          title={<h4 className="font-display font-bold text-sm">Calendario del mes</h4>}
+          above={<p className="text-xs text-[var(--dim)] mt-0.5">{td.calendar.length} periodos · {nextPayCal ? `próximo pago ${fmtDate(nextPayCal.date)}` : "sin pagos próximos"}</p>}
+        >
+          <TandaMonthCalendar td={td} p={p} pickTandaProof={pickTandaProof} />
+        </CollapsibleCard>
+      </div>
       {tandaProofReview && tandaProofReview.tandaId===td.id && (
-        <TandaProofReviewPanel td={td} review={tandaProofReview} setReview={setTandaProofReview} uploadProof={uploadProof} confirm={confirmTandaProof} />
+        <CollapsibleCard
+          asSection
+          defaultOpen
+          title={<h4 className="font-display font-bold text-sm">Revisar comprobante · {tandaProofReview.participantName} · Periodo {tandaProofReview.quincenaIndex+1}{reviewPeriodDate?` · ${fmtDate(reviewPeriodDate)}`:""}</h4>}
+        >
+          <TandaProofReviewPanel td={td} review={tandaProofReview} setReview={setTandaProofReview} uploadProof={uploadProof} confirm={confirmTandaProof} />
+        </CollapsibleCard>
       )}
       <div>
         <CollapsibleCard
@@ -510,8 +542,11 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
         {(uploadProof.error || verifyPay.error || remindPay.error || createMpOrder.error || checkMpOrder.error) && <p className="text-sm text-[var(--red)] mt-1">{String(uploadProof.error || verifyPay.error || remindPay.error || createMpOrder.error || checkMpOrder.error)}</p>}
         </CollapsibleCard>
       </div>
-      <div className="border-t border-[var(--border)] pt-3">
-        <h4 className="font-display font-bold text-sm">Calificación del organizador</h4>
+      <CollapsibleCard
+        asSection
+        title={<h4 className="font-display font-bold text-sm">Calificación del organizador</h4>}
+        above={<p className="text-xs text-[var(--dim)] mt-0.5">{td.organizerRating.count>0 ? `${td.organizerRating.avg} de 5 · ${td.organizerRating.count} calificación(es)` : "Aún sin calificaciones."}</p>}
+      >
         <p className="text-xs text-[var(--dim)]">Califique al organizador de 1 a 5.</p>
         {(p.isParticipant || p.isAdmin) && td.organizerProfileId !== td.myProfileId && <div className="flex flex-wrap gap-2 mt-2 items-end">
           <div><Label htmlFor={`rate-name-${td.id}`}>Tu nombre</Label><input id={`rate-name-${td.id}`} aria-label={`Tu nombre para calificar al organizador de ${td.name}`} placeholder="Ej. Participante" className={inputCls+" w-44"} value={rateName[td.id]||""} onChange={e=>setRateName({...rateName,[td.id]:e.target.value})} /></div>
@@ -521,7 +556,7 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
         </div>}
         {rateOrg.error && <p className="text-sm text-[var(--red)] mt-1">{String(rateOrg.error)}</p>}
         {td.ratings.length>0 && <div className="mt-2 space-y-1">{td.ratings.map(r=><p key={r.id} className="text-sm"><Stars value={r.stars} size="text-sm" /> <b>{r.raterName}</b>{r.comment?` — “${r.comment}”`:""}</p>)}</div>}
-      </div>
+      </CollapsibleCard>
     </div>
   );
 }

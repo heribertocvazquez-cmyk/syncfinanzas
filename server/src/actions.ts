@@ -829,7 +829,28 @@ type TandaRows = {
   todayStr: string;
 };
 async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect, rows: TandaRows, opts: { isAdmin: boolean; myProfileId: number | null }) {
-  const { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr } = rows;
+  const { profilesR, tandasR, tandaPartsR: partsFromRows, tandaPaysR, proofAmounts, mpOrderIds, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr } = rows;
+  let tandaPartsR = partsFromRows;
+  // Reparación de la fila del organizador (reporte 2026-11-19 16:02):
+  // las tandas creadas antes de 026e882 no tienen la fila del
+  // organizador como participante, y drawTanda —que sí repara— es
+  // inalcanzable porque el cliente deshabilita el botón con 1
+  // participante («1 de 2 ahora»). Al armar la vista, si quien mira es
+  // el organizador o admin del hogar, se agrega la fila y se relee la
+  // lista para que el conteo y el sorteo ya salgan con 2. La vista del
+  // invitado (isAdmin false y otro organizador) NO escribe: un
+  // participante solo de tanda no repara el hogar del invitador.
+  if (opts.isAdmin || (td.organizerProfileId != null && td.organizerProfileId === opts.myProfileId)) {
+    try {
+      const ensured = await ensureOrganizerParticipant(ctx.db, td);
+      if (ensured.length !== tandaPartsR.filter((x) => x.tandaId === td.id).length) {
+        tandaPartsR = [...tandaPartsR.filter((x) => x.tandaId !== td.id), ...ensured];
+      }
+    } catch {
+      // Reparación best-effort: si falla, la vista se arma igual con
+      // los participantes que ya existen.
+    }
+  }
   const statsForName = (name:string) => {
     const key = name.trim().toLowerCase();
     const myParts = tandaPartsR.filter(x=>x.name.trim().toLowerCase()===key);

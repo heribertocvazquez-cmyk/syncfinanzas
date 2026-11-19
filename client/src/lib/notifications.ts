@@ -23,3 +23,44 @@ export function visibleNotifications<T extends { type: string; target: string; i
     (n) => !((n.type === "nueva_opinion" || (n.type === "nuevo_integrante" && n.target === "tandas") || (n.type === "recordatorio_tanda" && n.target === "tandas")) && n.isRead),
   );
 }
+
+// Nombre de la tanda que nombra el cuerpo de un aviso, según su tipo.
+// Los cuerpos los escribe el servidor (server/src/actions.ts,
+// server/src/tandaNotify.ts):
+//  - recordatorio_tanda: «Recordatorio de pago de la tanda «Tanda
+//    Smoke», periodo 1 (21 nov 2026): el monto es $100.»
+//  - nuevo_integrante: «Ren Emille se unió a la tanda Tanda Smoke.»
+//  - pago_tanda: «Ren Emille subió el comprobante de su pago de la
+//    tanda Tanda Smoke, periodo 1. ...»
+// Sin nombre (u otro tipo) devuelve null: el toque cae a la pestaña.
+function tandaNameFromNotification(n: { type: string; body: string }): string | null {
+  const body = n.body || "";
+  if (n.type === "recordatorio_tanda") {
+    const m = body.match(/tanda «([^»]+)»/);
+    return m ? (m[1] ?? null) : null;
+  }
+  if (n.type === "nuevo_integrante") {
+    const m = body.match(/se unió a la tanda (.+)\.$/);
+    return m ? (m[1] ?? null) : null;
+  }
+  if (n.type === "pago_tanda") {
+    const m = body.match(/la tanda (.+?), /);
+    return m ? (m[1] ?? null) : null;
+  }
+  return null;
+}
+
+/** Id de la tanda a la que apunta un aviso con destino «tandas», por el
+ *  nombre que nombra su cuerpo (la tabla de avisos no guarda tandaId).
+ *  Devuelve null si el aviso no nombra ninguna tanda conocida: el toque
+ *  cae a la lista de Tandas. */
+export function findTandaForNotification<T extends { id: number; name: string }>(
+  n: { type: string; target: string; body: string },
+  tandas: T[],
+): number | null {
+  if (n.target !== "tandas") return null;
+  const name = tandaNameFromNotification(n);
+  if (!name) return null;
+  const key = name.trim().toLowerCase();
+  return tandas.find((t) => t.name.trim().toLowerCase() === key)?.id ?? null;
+}
