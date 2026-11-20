@@ -233,7 +233,7 @@ export function MovementsFilter({
                       aria-disabled={!enabled}
                       disabled={!enabled}
                       onClick={() => pickMonth(m)}
-                      className={`rounded-xl py-2 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${selected ? "bg-[#E8B84A] text-[#13262E]" : "bg-[var(--surface2)]"} ${enabled ? "" : "opacity-40"}`}
+                      className={`rounded-xl py-2 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] ${selected ? "bg-[var(--accent)] text-[var(--accent-text)]" : "bg-[var(--surface2)]"} ${enabled ? "" : "opacity-40"}`}
                     >
                       {label}
                     </button>

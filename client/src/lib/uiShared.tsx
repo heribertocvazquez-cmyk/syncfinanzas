@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 export function Stars({ value, size }: { value: number; size?: string }) {
   const full = Math.round(value);
   return (
-    <span className={`text-[var(--gold)] ${size || "text-base"}`} role="img" aria-label={`${value} de 5 estrellas`}>
+    <span className={`text-[var(--gold-text)] ${size || "text-base"}`} role="img" aria-label={`${value} de 5 estrellas`}>
       {"★★★★★".slice(0, full)}
       {"☆☆☆☆☆".slice(0, 5 - full)}
     </span>

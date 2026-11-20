@@ -34,8 +34,8 @@ try {
     scope: base,
     display: "standalone",
     orientation: "portrait",
-    background_color: "#F5F1E8",
-    theme_color: "#0E2F3D",
+    background_color: "#151515",
+    theme_color: "#151515",
     icons: [
       { src: new URL(appIcon192, base).href, sizes: "192x192", type: "image/png", purpose: "any" },
       { src: new URL(appIcon512, base).href, sizes: "512x512", type: "image/png", purpose: "any" },

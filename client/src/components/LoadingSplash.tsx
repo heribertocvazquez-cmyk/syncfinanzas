@@ -7,15 +7,15 @@ export function LoadingSplash() {
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center gap-4 px-6 text-center"
-      style={{ backgroundColor: "#0E2F3D" }}
+      style={{ backgroundColor: "#151515" }}
       role="status"
       aria-label="Cargando SyncFinanzas"
     >
       <img src="/icon-512.png" alt="SyncFinanzas" width={112} height={112} className="w-28 h-28" />
       <p className="font-display text-3xl font-extrabold text-white leading-none">SyncFinanzas</p>
-      <p className="text-sm font-semibold" style={{ color: "#D9A441" }}>Finanzas del hogar</p>
+      <p className="text-sm font-semibold" style={{ color: "#00C2B5" }}>Finanzas del hogar</p>
       <div className="mt-2 flex flex-col items-center gap-3">
-        <div className="w-8 h-8 rounded-full border-[3px] border-white/20 border-t-[#D9A441] animate-spin" aria-hidden="true" />
+        <div className="w-8 h-8 rounded-full border-[3px] border-white/20 border-t-[#00C2B5] animate-spin" aria-hidden="true" />
         <p className="text-xs text-white/60">Cargando…</p>
       </div>
     </div>

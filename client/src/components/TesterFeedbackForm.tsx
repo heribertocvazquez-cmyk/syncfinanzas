@@ -26,7 +26,7 @@ function StarInput({label, value, onChange}:{label:string; value:number; onChang
     <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">{label}</span>
     <div className="flex gap-1" role="radiogroup" aria-label={label}>
       {[1,2,3,4,5].map(n=>(
-        <button key={n} type="button" role="radio" aria-checked={value===n} aria-label={`${n} de 5 estrellas`} onClick={()=>onChange(n)} className="text-2xl leading-none text-[var(--gold)] px-0.5">{n<=value?"★":"☆"}</button>
+        <button key={n} type="button" role="radio" aria-checked={value===n} aria-label={`${n} de 5 estrellas`} onClick={()=>onChange(n)} className="text-2xl leading-none text-[var(--gold-text)] px-0.5">{n<=value?"★":"☆"}</button>
       ))}
     </div>
   </div>;

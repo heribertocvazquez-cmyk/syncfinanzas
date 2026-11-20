@@ -18,23 +18,67 @@
   --text-4xl: 36px; --text-4xl--line-height: 40px;
   --font-display: "Manrope", system-ui, sans-serif;
 }
-/* Modo claro: tono perla/hueso cálido, no blanco puro, para que no
-   lastime la vista. El modo oscuro queda como estaba. */
+/* PALETA MARFIL (regla 60·30·10, idea #18, @goexpoose).
+   60% Negro Piano #151515, 30% Marfil Antiguo #EEE3CC, 10% Turquesa Surf
+   #00C2B5 reservado para lo que se toca (botones, píldoras, resaltados).
+   El dorado desaparece del tema: --gold y --gold-text son turquesa (o su
+   variante oscura para texto sobre marfil). Contraste AA verificado con
+   contraste-marfil.py (ratios en el informe del cambio).
+   Ajustes frente a la vista previa: --gold-text #007A70 -> #006258 (el
+   #007A70 daba 4.11:1 sobre la tarjeta #EEE3CC, por debajo de AA 4.5:1);
+   --dim sobre marfil rgba(21,21,21,.58) -> .65 (4.11:1 -> 5.15:1);
+   --green sobre marfil #1B7A4D -> #166A42 (4.19:1 -> 5.20:1).
+   Regla: el turquesa NUNCA va como texto ni botón sobre marfil (1.76:1);
+   sobre marfil el texto de acento es el teal oscuro #006258 (5.71:1). */
+/* Modo claro marfil (opción secundaria): fondo Marfil Antiguo, tarjetas
+   en marfil claro #FBF7EC, héroe negro. El turquesa solo vive sobre negro
+   o como relleno, nunca como texto sobre marfil. */
 :root {
   color-scheme: light;
-  --bg: #F5F1E8; --surface: #FDFBF5; --surface2: #EDE6D3;
-  --text: #13262E; --dim: #5B6E73; --border: #DCD2BC;
-  --accent: #0E2F3D; --accent-text: #FFFFFF; --gold: #C5962C; --gold-text: #7A5C14; --green: #1B7A4D; --red: #B42318;
+  --bg: #EEE3CC; --surface: #FBF7EC; --surface2: #E7DCC2;
+  --text: #151515; --dim: rgba(21,21,21,.65); --border: rgba(21,21,21,.16);
+  --accent: #00C2B5; --accent-text: #062A27; --gold: #00C2B5; --gold-text: #006258; --green: #166A42; --red: #B42318;
+  --hero: #151515; --on-hero: #F3ECDB;
+  --fab: #151515; --fab-text: #00C2B5;
+  --badge: #B42318; --on-badge: #FFFFFF;
   --radius: 16px;
   --space-surface: var(--surface); --space-surface-alt: var(--surface2); --space-muted: var(--dim); --space-border: var(--border); --space-accent: var(--accent);
 }
-/* Modo oscuro (clase "dark" en <html>): mismos fondos oscuros que antes
-   daba la preferencia del sistema, con verde, rojo y dorado aclarados
-   para que los textos de esos colores se lean sobre fondo oscuro. */
+/* Modo oscuro marfil (PRINCIPAL, el que se abre por defecto): fondo Negro
+   Piano, tarjetas en Marfil Antiguo, acento Turquesa Surf. El texto
+   marfil sobre negro da 14.34:1 y el turquesa sobre negro 8.16:1. */
 :root.dark {
   color-scheme: dark;
-  --bg:#0C1A20; --surface:#13262E; --surface2:#1A323E; --text:#EFF6F4; --dim:#9AB0B5; --border:#23404C;
-  --accent:#E8B84A; --accent-text:#13262E; --gold:#D9A93F; --gold-text:#D9A93F; --green:#4CAF7D; --red:#F26D5F;
+  --bg:#151515; --surface:#EEE3CC; --surface2:#E7DCC2; --text:#EEE3CC; --dim:rgba(238,227,204,.6); --border:rgba(238,227,204,.18);
+  --accent:#00C2B5; --accent-text:#062A27; --gold:#00C2B5; --gold-text:#00C2B5; --green:#4CAF7D; --red:#F26D5F;
+  --hero:#232320; --on-hero:#F3ECDB;
+  --fab:#00C2B5; --fab-text:#062A27;
+  --badge:#F26D5F; --on-badge:#151515;
+}
+/* Tarjetas marfil en modo oscuro: dentro de una superficie clara el texto
+   vuelve a tinta oscura. Las variables se heredan, así que todo lo que
+   usa var(--text), var(--dim), var(--gold-text), var(--green) o var(--red)
+   dentro de una tarjeta cambia solo, sin tocar cada componente.
+   --bg NO se redefine aquí: los textos que usan var(--bg) (botones verdes
+   con texto claro) siguen funcionando en los dos modos. */
+:root.dark [class*="bg-[var(--surface)]"],
+:root.dark [class*="bg-[var(--surface2)]"] {
+  --text: #1B1B1B;
+  --dim: rgba(21,21,21,.65);
+  --border: rgba(21,21,21,.16);
+  --gold-text: #006258;
+  --green: #166A42;
+  --red: #B42318;
+}
+/* Tarjeta héroe (Disponible): oscura en los dos modos, con texto marfil
+   claro y turquesa/verde/rojo claros. Aplica en claro y en oscuro. */
+[class*="bg-[var(--hero)]"] {
+  --text: #F3ECDB;
+  --dim: rgba(243,236,219,.65);
+  --border: rgba(243,236,219,.2);
+  --gold-text: #00C2B5;
+  --green: #4CAF7D;
+  --red: #F26D5F;
 }
 @layer base {
   button, [role="button"], select, summary, input:not([type="checkbox"],[type="radio"]) { min-height: 2.25rem; }
@@ -48,11 +92,12 @@
   body { overscroll-behavior-y: none; }
 }
 input,select,textarea { font-size:16px; }
-/* Botón flotante de Mike: estrella dorada pequeña (48 px), estática, que
-   el usuario arrastra con el dedo (o el ratón) a cualquier punto de la
-   pantalla; la posición se guarda en el dispositivo (localStorage
-   "sf-help-fab-pos"). El foquito encima es solo un aviso estático de que
-   Mike tiene una idea, una pregunta o un aviso. Sin animaciones: Heriberto
-   pidió que el ayudante quede estático en la esquina y que "moverse"
-   signifique arrastrarlo, no que rebote o pulse. */
+/* Botón flotante de Mike: estrella turquesa en oscuro (48 px) y negra con
+   estrella turquesa en claro, estática, que el usuario arrastra con el
+   dedo (o el ratón) a cualquier punto de la pantalla; la posición se
+   guarda en el dispositivo (localStorage "sf-help-fab-pos"). El foquito
+   encima es solo un aviso estático de que Mike tiene una idea, una
+   pregunta o un aviso. Sin animaciones: Heriberto pidió que el ayudante
+   quede estático en la esquina y que "moverse" signifique arrastrarlo, no
+   que rebote o pulse. */
 .help-fab-static { touch-action: none; user-select: none; -webkit-user-select: none; }

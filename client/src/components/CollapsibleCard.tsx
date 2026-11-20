@@ -5,7 +5,7 @@ import { useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "re
 // «+» / se cierran con «−», para que las listas no abarquen toda la
 // pantalla. Plegada solo se ve el encabezado (title + resumen `above`).
 // El control «+» / «−» va ARRIBA, dentro del encabezado, a la derecha del
-// título: solo el símbolo en blanco. El encabezado queda FIJO (sticky) bajo
+// título: solo el símbolo, en el color de texto de la tarjeta. El encabezado queda FIJO (sticky) bajo
 // la barra superior de la app mientras se baja por el contenido abierto,
 // con fondo sólido de la tarjeta, para que el contenido pase por debajo sin
 // transparentarse y el «−» nunca haya que buscarlo abajo (decisión de
@@ -107,7 +107,7 @@ export function CollapsibleCard(p: {
           type="button"
           aria-expanded={open}
           aria-label={ariaLabel}
-          className="text-2xl leading-none font-bold text-white shrink-0 w-11 h-11 flex items-center justify-center [touch-action:manipulation]"
+          className="text-2xl leading-none font-bold text-[var(--text)] shrink-0 w-11 h-11 flex items-center justify-center [touch-action:manipulation]"
           onClick={toggle}
         >
           {symbol}
