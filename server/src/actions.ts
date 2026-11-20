@@ -107,7 +107,13 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
     const hh = await db.select().from(schema.households).where(eq(schema.households.id, args.householdId)).limit(1);
     const threshold = hh[0]?.approvalThreshold ?? 0;
     if (threshold > 0 && args.amount > threshold) {
-      await notifyHousehold(ctx, args.householdId, { type: "gasto_umbral", title: "Gasto mayor que el límite", body: `Un gasto de ${moneyShort(args.amount)} superó el límite de ${moneyShort(threshold)}.`, amount: args.amount, target: "movimientos" });
+      // Deduplicación (regla 2026-11-20): un solo aviso vivo por umbral
+      // superado. Mientras haya uno sin leer, no se crea otro; al leerlo
+      // (sale del panel) o eliminarlo, el siguiente gasto mayor que el
+      // límite avisa otra vez.
+      if (!(await unreadAlertExists(ctx, args.householdId, "gasto_umbral", `superó el límite de ${moneyShort(threshold)}`))) {
+        await notifyHousehold(ctx, args.householdId, { type: "gasto_umbral", title: "Gasto mayor que el límite", body: `Un gasto de ${moneyShort(args.amount)} superó el límite de ${moneyShort(threshold)}.`, amount: args.amount, target: "movimientos" });
+      }
     }
     if (args.categoryId) {
       const month = args.date.slice(0, 7);
@@ -136,7 +142,14 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
         }
         // (c2) Presupuesto excedido: solo al cruzarlo.
         if (before <= b.amount && after > b.amount) {
-          await notifyHousehold(ctx, args.householdId, { type: "presupuesto_excedido", title: "Presupuesto excedido", body: `El gasto de ${catName} llegó a ${moneyShort(after)} y superó su presupuesto de ${moneyShort(b.amount)}.`, amount: after, target: "presupuestos" });
+          // Deduplicación (regla 2026-11-20): un solo aviso vivo por
+          // categoría y mes. Mientras haya uno sin leer para esa categoría
+          // en este mes, no se crea otro (p. ej. al volver a cruzar tras
+          // bajar, o si hay dos presupuestos de la misma categoría); al
+          // leerlo o eliminarlo, el siguiente cruce avisa otra vez.
+          if (!(await unreadAlertExists(ctx, args.householdId, "presupuesto_excedido", `El gasto de ${catName} llegó a`, month))) {
+            await notifyHousehold(ctx, args.householdId, { type: "presupuesto_excedido", title: "Presupuesto excedido", body: `El gasto de ${catName} llegó a ${moneyShort(after)} y superó su presupuesto de ${moneyShort(b.amount)}.`, amount: after, target: "presupuestos" });
+          }
         }
       }
       // (d) Gasto anómalo: más del doble del promedio mensual de los últimos
@@ -308,6 +321,26 @@ async function planNotifExists(ctx: Ctx, householdId: number, type: string, sinc
   try {
     const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, householdId), eq(schema.notifications.type, type as NotifInput["type"]), gte(schema.notifications.createdAt, new Date(`${sinceYm}-01T00:00:00.000Z`))));
     return rows.some(r => r.body.includes(goalName));
+  } catch { return false; }
+}
+// ¿Ya existe un aviso SIN ATENDER de este tipo para esta situación?
+// Regla de Heriberto 2026-11-20: no se crea un aviso igual mientras haya
+// uno sin leer de la misma situación; cuando ese ya no está (se leyó y por
+// tanto salió del panel, o se eliminó) o la situación se corrigió, sí puede
+// crearse uno nuevo. A diferencia de planNotifExists (que bloquea aunque el
+// anterior ya se leyera), aquí solo cuentan los sin leer (isRead = 0). La
+// clave es el texto que identifica la situación dentro del cuerpo: para
+// presupuesto_excedido, el nombre de la categoría (y el mes, por
+// createdAt); para gasto_umbral, el umbral superado («superó el límite de
+// $X», así que si el umbral cambia es otra situación). Si la tabla aún no
+// existe, devuelve falso y el aviso se intenta crear (y falla en silencio,
+// como los demás).
+async function unreadAlertExists(ctx: Ctx, householdId: number, type: string, bodyKey: string, sinceYm?: string) {
+  try {
+    const conds = [eq(schema.notifications.householdId, householdId), eq(schema.notifications.type, type as NotifInput["type"]), eq(schema.notifications.isRead, 0)];
+    if (sinceYm) conds.push(gte(schema.notifications.createdAt, new Date(`${sinceYm}-01T00:00:00.000Z`)));
+    const rows = await ctx.db.select().from(schema.notifications).where(and(...conds));
+    return rows.some(r => r.body.includes(bodyKey));
   } catch { return false; }
 }
 // Revisa todos los planes aceptados del hogar y crea los avisos que toquen:

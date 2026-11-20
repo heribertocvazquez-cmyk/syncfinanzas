@@ -1,27 +1,18 @@
 // Avisos visibles en la campanilla, en función pura para poder probarla
-// en Node. Reglas:
-// - Opiniones de testers (reporte de Heriberto 2026-11-18 19:57): una
-//   vez revisadas, la notificación «Nueva opinión de tester» ya no debe
-//   aparecer. La marca como leída (al abrir la cola o al guardar una
-//   evaluación) ya funciona; lo que faltaba es que el panel listaba
-//   también las leídas, como historial.
-// - Nuevo participante en una tanda (reporte de Heriberto 2026-11-19
-//   11:01) y recordatorio de pago de tanda (reporte 2026-11-19 13:49):
-//   una vez que ya se vio el aviso, tampoco debe quedarse en la
-//   campanilla: al tocarlo se marca leído (openNotif) y al abrir el
-//   detalle de la tanda se marcan leídos sus avisos; en ambos casos
-//   desaparece del panel. Solo esos tipos con destino «tandas»: el aviso
-//   «Nuevo integrante en el hogar» (mismo tipo, destino «hogar») y los
-//   demás avisos leídos (pago de tanda, actualización, etc.) siguen
-//   visibles como historial, y los avisos sin leer siguen apareciendo.
+// en Node. Regla vigente (orden de Heriberto 2026-11-20 02:26): cuando se
+// pulsa una notificación, ya no debe volver a estar ahí — TODA notificación
+// leída desaparece del panel, sea del tipo que sea. Antes (rondas 0ed0993,
+// 27ff092 y 81844a5) solo se ocultaban las leídas de tres tipos y las demás
+// quedaban como historial; esa regla queda reemplazada: las leídas ya no
+// se pintan como historial. Las sin leer siguen apareciendo hasta
+// pulsarlas; «Marcar todas como leídas» las marca todas y, con esta regla,
+// todas desaparecen del panel.
 
-/** Avisos que se pintan en el panel de la campanilla. */
+/** Avisos que se pintan en el panel de la campanilla: solo los sin leer. */
 export function visibleNotifications<T extends { type: string; target: string; isRead: number }>(
   notifications: T[],
 ): T[] {
-  return notifications.filter(
-    (n) => !((n.type === "nueva_opinion" || (n.type === "nuevo_integrante" && n.target === "tandas") || (n.type === "recordatorio_tanda" && n.target === "tandas")) && n.isRead),
-  );
+  return notifications.filter((n) => !n.isRead);
 }
 
 // Nombre de la tanda que nombra el cuerpo de un aviso, según su tipo.
