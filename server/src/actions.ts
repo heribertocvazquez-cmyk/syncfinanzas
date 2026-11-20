@@ -615,7 +615,7 @@ async function loadAdjustmentBase(ctx: Ctx, householdId: number, goalId: number)
   const overruns = monthBudgets.map(b => { const spent = spentFor(b); return { budgetId: b.id, categoryId: b.categoryId, name: catName(b.categoryId), budget: b.amount, spent, over: round2(spent - b.amount) }; }).filter(r => r.over > 0).sort((a, b) => b.over - a.over);
   const totalOver = round2(overruns.reduce((s, r) => s + r.over, 0));
   const slacks = monthBudgets.map(b => { const spent = spentFor(b); return { budgetId: b.id, categoryId: b.categoryId, name: catName(b.categoryId), budget: b.amount, spent, slack: round2(b.amount - spent) }; }).filter(s => s.slack > 0).sort((a, b) => b.slack - a.slack);
-  const profiles = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, householdId));
+  const profiles = await householdMemberProfiles(db, householdId);
   const adults = profiles.filter(p => p.kind === "adult");
   const incomeProfiles = adults.reduce((s, p) => s + p.monthlyIncome, 0);
   const fixedCommitments = adults.reduce((s, p) => s + p.fixedCommitments, 0);
@@ -975,6 +975,28 @@ export async function isTandaOnlyMember(db: Ctx["db"], userId: string, userEmail
   return true;
 }
 
+// ---- Perfiles de MIEMBROS del hogar (sin invitados solo de tanda) ----
+// REGLA PERMANENTE: «Un invitado solo de tanda solo aparece en la tanda
+// — en su propio perfil ve la pestaña de la tanda, y para el organizador
+// aparece como participante de esa tanda — pero NUNCA aparece en el
+// conjunto del hogar (reparto, Miembros del hogar, Perfiles, «Hecho por»,
+// votación)». Este ayudante es la aplicación de esa regla: un perfil
+// cuenta como miembro si no tiene cuenta ligada (perfil familiar manual,
+// p. ej. la pareja agregada a mano) o si su userId —o su id, vía
+// household_members.profile_id— está en household_members de ese hogar.
+// Un invitado solo de tanda (respondTandaInvitation crea su fila en
+// profiles pero NUNCA en household_members) queda fuera de los listados
+// de miembros, pero su fila de perfil sigue existiendo para la tanda
+// (tandaAccess la usa para el rango y assembleTandaView para el nombre).
+// Consultas en secuencia, no en Promise.all (una sola conexión Postgres).
+async function householdMemberProfiles(db: Ctx["db"], householdId: number) {
+  const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, householdId));
+  const members = await db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
+  const memberUserIds = new Set(members.map(m => m.userId));
+  const memberProfileIds = new Set(members.map(m => m.profileId).filter((x): x is number => x != null));
+  return profs.filter(p => p.userId == null || memberUserIds.has(p.userId) || memberProfileIds.has(p.id));
+}
+
 // Esquema de la vista de una tanda (lo comparten getOverview y listMyTandas).
 const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAdmin: z.boolean(), myProfileId: z.number().nullable(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), mpOrderId: z.string().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) });
 
@@ -1301,6 +1323,12 @@ export const Actions = {
       // hasta agotar el tiempo de la función. En secuencia cada una tarda
       // milisegundos y el total sigue por debajo de 1 s.
       const profilesR = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, hid));
+      // Perfiles de MIEMBROS (regla permanente): los listados de miembros
+      // (reparto, Miembros del hogar, Perfiles, «Hecho por», votación)
+      // usan memberProfilesR. profilesR completo se conserva para
+      // myProfileId y para las vistas de tanda (assembleTandaView), donde
+      // el invitado solo de tanda SÍ aparece como participante.
+      const memberProfilesR = await householdMemberProfiles(db, hid);
       const accountsR = await db.select().from(schema.accounts).where(eq(schema.accounts.householdId, hid));
       const catsR = await db.select().from(schema.categories).where(eq(schema.categories.householdId, hid));
       const movsR = await db.select().from(schema.movements).where(eq(schema.movements.householdId, hid)).orderBy(desc(schema.movements.date), desc(schema.movements.id));
@@ -1481,7 +1509,7 @@ export const Actions = {
         return { id: b.id, categoryId: b.categoryId, month: b.month, amount: b.amount, visibility: b.visibility, spent: useSpent, remaining: Math.round((b.amount-useSpent)*100)/100, pct: b.amount>0? Math.round(useSpent/b.amount*100) : 0 };
       });
 
-      const adults = profilesR.filter(p=>p.kind==="adult");
+      const adults = memberProfilesR.filter(p=>p.kind==="adult");
       const totalIncomeAdults = adults.reduce((s,p)=>s+p.monthlyIncome,0);
       let contributionsNote = "";
       if (baseForContributions === 0) contributionsNote = "El reparto es $0 porque en el mes en curso no existe gasto compartido ni presupuesto compartido. Registre un gasto con visibilidad Compartida o cree un presupuesto compartido.";
@@ -1570,7 +1598,7 @@ export const Actions = {
 
       // ---- Personal mode ----
       const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
-      const ownerAdult = profilesR.find(p=>p.kind==="adult");
+      const ownerAdult = memberProfilesR.find(p=>p.kind==="adult");
       const incomeMovsMonth = monthMovs.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0);
       const salary = ownerAdult && ownerAdult.monthlyIncome>0 ? ownerAdult.monthlyIncome : incomeMovsMonth;
       const personalSpentMovs = monthMovs.filter(m=>m.type==="expense"||m.type==="debt_payment");
@@ -1640,7 +1668,7 @@ export const Actions = {
       return {
         household: { id: hh.id, name: hh.name, currency: hh.currency, cutoffDay: hh.cutoffDay, contributionRule: hh.contributionRule, approvalRule: hh.approvalRule, approvalThreshold: hh.approvalThreshold, mode: hh.mode },
         households,
-        profiles: profilesR.map(p=>({ id: p.id, name: p.name, lastName: p.lastName ?? null, role: p.role, email: p.email ?? null, kind: p.kind, dependentType: p.dependentType ?? null, monthlyIncome: p.monthlyIncome, fixedCommitments: p.fixedCommitments, capacity: Math.max(0, p.monthlyIncome - p.fixedCommitments) })),
+        profiles: memberProfilesR.map(p=>({ id: p.id, name: p.name, lastName: p.lastName ?? null, role: p.role, email: p.email ?? null, kind: p.kind, dependentType: p.dependentType ?? null, monthlyIncome: p.monthlyIncome, fixedCommitments: p.fixedCommitments, capacity: Math.max(0, p.monthlyIncome - p.fixedCommitments) })),
         myProfileId,
         accounts,
         categories: catsR.map(c=>{ let subs: string[]=[]; try{ subs=JSON.parse(c.subcategories) as string[] }catch{ subs=[] } return { id:c.id, name:c.name, kind:c.kind, isSystem:c.isSystem, isActive:c.isActive, subcategories: subs }; }),
@@ -2199,7 +2227,7 @@ export const Actions = {
       const monthlyAmount = remaining <= 0 ? 0 : Math.ceil(remaining / months);
       // Ingreso y compromisos: de los perfiles adultos; si no hay ingreso
       // registrado, se usa el ingreso promedio de los movimientos.
-      const profiles = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, args.householdId));
+      const profiles = await householdMemberProfiles(db, args.householdId);
       const adults = profiles.filter(p => p.kind === "adult");
       const incomeProfiles = adults.reduce((s, p) => s + p.monthlyIncome, 0);
       const fixedCommitments = adults.reduce((s, p) => s + p.fixedCommitments, 0);
@@ -2553,9 +2581,9 @@ export const Actions = {
     description: "Votes on an agreement and auto-updates its status by household rule.",
     request: z.object({ agreementId: z.number(), profileId: z.number(), vote: z.enum(["approve","reject"]), householdId: z.number() }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const existing=await db.select().from(schema.agreementVotes).where(eq(schema.agreementVotes.agreementId,args.agreementId)); const mine=existing.find(v=>v.profileId===args.profileId); if(mine){ await db.update(schema.agreementVotes).set({vote:args.vote}).where(eq(schema.agreementVotes.id,mine.id)); } else { await db.insert(schema.agreementVotes).values({agreementId:args.agreementId,profileId:args.profileId,vote:args.vote}); }
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const members=await householdMemberProfiles(db,args.householdId); if(!members.some(p=>p.id===args.profileId)) throw new Error("Ese perfil no es integrante del hogar."); const existing=await db.select().from(schema.agreementVotes).where(eq(schema.agreementVotes.agreementId,args.agreementId)); const mine=existing.find(v=>v.profileId===args.profileId); if(mine){ await db.update(schema.agreementVotes).set({vote:args.vote}).where(eq(schema.agreementVotes.id,mine.id)); } else { await db.insert(schema.agreementVotes).values({agreementId:args.agreementId,profileId:args.profileId,vote:args.vote}); }
       const votes=await db.select().from(schema.agreementVotes).where(eq(schema.agreementVotes.agreementId,args.agreementId));
-      const profiles=await db.select().from(schema.profiles).where(eq(schema.profiles.householdId,args.householdId)); const adults=profiles.filter(p=>p.kind==="adult"); const hhRows=await db.select().from(schema.households).where(eq(schema.households.id,args.householdId)); const rule=hhRows[0]?.approvalRule||"unanimous";
+      const adults=members.filter(p=>p.kind==="adult"); const hhRows=await db.select().from(schema.households).where(eq(schema.households.id,args.householdId)); const rule=hhRows[0]?.approvalRule||"unanimous";
       const approves=votes.filter(v=>v.vote==="approve").length; const rejects=votes.filter(v=>v.vote==="reject").length;
       let status:"proposal"|"approved"|"rejected"="proposal";
       if(rule==="unanimous"){ if(rejects>0) status="rejected"; else if(adults.length>0 && approves>=adults.length) status="approved"; } else { const need=Math.floor(adults.length/2)+1; if(approves>=need) status="approved"; else if(rejects>=need) status="rejected"; }

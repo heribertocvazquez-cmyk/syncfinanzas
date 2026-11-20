@@ -874,6 +874,7 @@ export function App(){
   };
   const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:()=>{inv();resetMvForm();if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}}});
   const [confirmDeleteMvId,setConfirmDeleteMvId]=useState<number|null>(null);
+  const [confirmDeleteProfId,setConfirmDeleteProfId]=useState<number|null>(null);
   const [confirmDelInvId,setConfirmDelInvId]=useState<number|null>(null);
   const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:()=>{inv();setConfirmDeleteMvId(null);}});
   const [confirmReverseId,setConfirmReverseId]=useState<number|null>(null);
@@ -974,7 +975,7 @@ export function App(){
   // profile
   const [profName,setProfName]=useState(""); const [profKind,setProfKind]=useState<"adult"|"dependent">("adult"); const [profType,setProfType]=useState("Hijo/a"); const [profIncome,setProfIncome]=useState("0"); const [profFixed,setProfFixed]=useState("0"); const [profEmail,setProfEmail]=useState("");
   const saveProf=useMutation({mutationFn:async()=>await api.saveProfile({householdId:data!.household!.id,name:profName,lastName:profLast,kind:profKind,dependentType:profKind==="dependent"?profType:undefined,monthlyIncome:Number(profIncome)||0,fixedCommitments:Number(profFixed)||0,email:profEmail||undefined}),onSuccess:()=>{inv();setProfName("");}});
-  const delProf=useMutation({mutationFn:async(id:number)=>await api.deleteProfile({id}),onSuccess:inv});
+  const delProf=useMutation({mutationFn:async(id:number)=>await api.deleteProfile({id}),onSuccess:()=>{inv();setConfirmDeleteProfId(null);}});
 
   // household edit
   const [editName,setEditName]=useState(""); const [editMode,setEditMode]=useState<"personal"|"familiar">("familiar"); const [editCutoff,setEditCutoff]=useState("1"); const [editContrib,setEditContrib]=useState<"equal"|"proportional">("equal"); const [editApproval,setEditApproval]=useState<"unanimous"|"majority">("unanimous"); const [editThreshold,setEditThreshold]=useState("1500");
@@ -2581,14 +2582,17 @@ export function App(){
             </form>
             <div className="space-y-2">
               {data.profiles.map(p=>(
-                <div key={p.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 flex justify-between gap-2">
+                <div key={p.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                  <div className="flex justify-between gap-2">
                   <div className="flex-1"><p className="font-display font-bold text-lg">{fullName(p)} <span className="text-xs font-normal bg-[var(--surface2)] rounded-full px-2 py-0.5">{p.kind==="adult"?"Adulto":`Dependiente · ${p.dependentType||""}`}</span> <span className={`text-xs font-bold rounded-full px-2 py-0.5 ${p.role==="admin"?"bg-[var(--gold)] text-[#13262E]":"bg-[var(--surface2)]"}`}>{p.role==="admin"?"Administrador del hogar":"Integrante"}</span></p>
                   {p.kind==="adult" ? <p className="text-sm text-[var(--dim)]">Ingreso {money(p.monthlyIncome)} · Compromisos {money(p.fixedCommitments)} · <b className="text-[var(--text)] whitespace-nowrap">Capacidad {money(p.capacity)}</b>{p.email?` · ${p.email}`:""}</p> : <p className="text-sm text-[var(--dim)]">No aporta ni vota.</p>}</div>
                   <div className="shrink-0 text-right space-y-1">
                     <button aria-label={`Editar nombre de ${fullName(p)}`} className="text-xs underline block" onClick={()=>{setEditProfId(p.id);setEditProfName(p.name);setEditProfLast(p.lastName||"");}}>Editar nombre</button>
-                    {isAdmin && <button aria-label={`Eliminar perfil de ${fullName(p)}`} className="text-xs underline text-[var(--red)] block" onClick={()=>delProf.mutate(p.id)}>Eliminar</button>}
+                    {isAdmin && <button aria-label={`Eliminar perfil de ${fullName(p)}`} className="text-xs underline text-[var(--red)] block" onClick={()=>setConfirmDeleteProfId(confirmDeleteProfId===p.id?null:p.id)}>Eliminar</button>}
                     {editProfId===p.id && <span className="flex gap-1 mt-1"><input aria-label="Editar nombre" className={inputCls+" w-28"} value={editProfName} onChange={e=>setEditProfName(e.target.value)} /><input aria-label="Editar apellido" className={inputCls+" w-28"} value={editProfLast} onChange={e=>setEditProfLast(e.target.value)} /><button aria-label="Guardar nombre editado" className={btnPrimary} onClick={()=>saveProfEdit.mutate()}>Guardar</button></span>}
                   </div>
+                  </div>
+                  {isAdmin && confirmDeleteProfId===p.id && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Está seguro de eliminar este perfil?</p><p className="text-xs text-[var(--dim)] mt-1">«{fullName(p)}». Esta acción no se puede deshacer.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la eliminación del perfil ${fullName(p)}`} className={btnPrimary} disabled={delProf.isPending} onClick={()=>delProf.mutate(p.id)}>{delProf.isPending?"Eliminando…":"Eliminar"}</button><button type="button" aria-label="Cancelar la eliminación del perfil" className={btnGhost} onClick={()=>setConfirmDeleteProfId(null)}>Cancelar</button></div></div>}
                 </div>
               ))}
               {data.profiles.length===0 && <Empty title="Sin perfiles" body="Agregue a los adultos del hogar." />}
