@@ -1988,7 +1988,7 @@ export function App(){
                 estilo app con su resumen de una línea; se abre dentro de
                 su propia viñeta y sale de «Metas y patrimonio». */}
             {pinnedGoal && <CollapsibleCard tone="gold" className="mb-4 md:mb-6"
-              title={<h2 className="font-display font-bold text-lg">{pinnedGoal.name} <span className="ml-1 text-xs font-bold rounded-full px-2 py-0.5 bg-[var(--gold)] text-[#13262E]">★ 5 · FIJADA ARRIBA</span></h2>}
+              title={<h2 className="font-display font-bold text-lg">{pinnedGoal.name} <span className="ml-1 inline-block whitespace-nowrap text-xs font-bold rounded-full px-2 py-0.5 bg-[var(--gold)] text-[#13262E]">★ 5</span></h2>}
               above={<p className="text-sm text-[var(--dim)] mt-1">{pinnedGoal.pct}% · {money(pinnedGoal.savedAmount)} de {money(pinnedGoal.targetAmount)} · {pinnedGoal.targetAmount-pinnedGoal.savedAmount>0?`Restan ${money(pinnedGoal.targetAmount-pinnedGoal.savedAmount)} para la meta`:"Meta alcanzada"}</p>}
             >
               <div className="h-2 bg-[var(--surface2)] rounded-full mt-2"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${pinnedGoal.pct}%`}} /></div>
