@@ -98,7 +98,7 @@ export type TandaDetailDeps = {
 };
 
 // Calendario mensual en rejilla para una tanda: lunes a domingo, con los
-// días de pago en dorado y los días de entrega en azul. Solo muestra
+// días de pago en turquesa y los días de entrega en azul. Solo muestra
 // fechas y estados; no cobra nada.
 const CAL_WEEKDAYS = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
 function parseISODate(iso:string){ const [y=2026,m=1,d=1]=iso.split("-").map(Number); return new Date(y,(m||1)-1,d||1); }
@@ -142,9 +142,9 @@ function TandaMonthCalendar({td, p, pickTandaProof}:{td:Tanda; p:TandaPerms; pic
           <button type="button" aria-label="Volver al mes actual" className={btnGhost} onClick={()=>setView({y:now.getFullYear(), m:now.getMonth()})}>Hoy</button>
         </div>
       </div>
-      <div className="bg-[#D8F1EC] border border-[#006258] rounded-2xl p-4 sm:p-5 space-y-1 mt-2">
-        <p className="text-sm font-bold text-[#00584F]">{payLine}</p>
-        <p className="text-sm font-bold text-[#1D5A75]">{recLine}</p>
+      <div className="bg-[var(--surface2)] border border-[var(--accent)] rounded-2xl p-4 sm:p-5 space-y-1 mt-2">
+        <p className="text-sm font-bold text-[var(--gold-text)]">{payLine}</p>
+        <p className="text-sm font-bold text-[var(--blue-ink)]">{recLine}</p>
         {(()=>{ const myId=p.myParticipantId; if(myId==null||!nextPay) return null; const myPay=td.payments.find(x=>x.participantId===myId&&x.quincenaIndex===nextPay.index); if(myPay?.status==="paid") return null; const me=td.participants.find(x=>x.id===myId); return (
           <label className={btnPrimary+" mt-2 inline-flex cursor-pointer"} aria-label={`Subir comprobante de su pago del periodo ${nextPay.index+1} de ${td.name}`}>Subir comprobante · {money(td.amountPerQuincena)}<input type="file" accept="image/*" className="hidden" aria-label={`Archivo del comprobante de su pago del periodo ${nextPay.index+1}`} onChange={e=>{ const f=e.target.files?.[0]; if(f) void pickTandaProof({tandaId:td.id,participantId:myId,participantName:me?.name||"Participante",quincenaIndex:nextPay.index,file:f}); e.target.value=""; }} /></label>
         ); })()}
@@ -161,17 +161,17 @@ function TandaMonthCalendar({td, p, pickTandaProof}:{td:Tanda; p:TandaPerms; pic
           const inner = (<>
             <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isToday?"bg-[var(--accent)] text-[var(--accent-text)]":""}`}>{d}</span>
             {c && <>
-              <span className="block mt-0.5 text-xs leading-[1.15] font-bold rounded px-0.5 py-px bg-[#C9EEE8] text-[#00584F]">Pagar {money(td.amountPerQuincena)}</span>
-              {c.receiverName && <span className="block mt-0.5 text-xs leading-[1.15] font-bold rounded px-0.5 py-px bg-[#DCEBF3] text-[#1D5A75] truncate">Recibe: {c.receiverName}</span>}
+              <span className="block mt-0.5 text-xs leading-[1.15] font-bold rounded px-0.5 py-px bg-[var(--accent)] text-[var(--accent-text)]">Pagar {money(td.amountPerQuincena)}</span>
+              {c.receiverName && <span className="block mt-0.5 text-xs leading-[1.15] font-bold rounded px-0.5 py-px bg-[var(--blue)] text-[var(--blue-text)] truncate">Recibe: {c.receiverName}</span>}
             </>}
           </>);
-          const cls = `min-h-[54px] rounded-lg border p-1 text-left align-top ${c ? "border-[#006258] bg-[#D8F1EC]" : "border-[var(--border)]"} ${isPast && c ? "opacity-60" : ""} ${isToday && !c ? "ring-2 ring-[var(--accent)]" : ""} ${selected===key ? "ring-2 ring-[#006258]" : ""}`;
+          const cls = `min-h-[54px] rounded-lg border p-1 text-left align-top ${c ? "border-[var(--accent)] bg-[var(--surface2)]" : "border-[var(--border)]"} ${isPast && c ? "opacity-60" : ""} ${isToday && !c ? "ring-2 ring-[var(--accent)]" : ""} ${selected===key ? "ring-2 ring-[var(--accent)]" : ""}`;
           return c
             ? <button key={key} type="button" aria-label={`Periodo ${c.index+1} el ${fmtDate(key)}${c.receiverName?`, recibe ${c.receiverName}`:""}`} className={cls} onClick={()=>setSelected(selected===key?null:key)}>{inner}</button>
             : <div key={key} className={cls}>{inner}</div>;
         })}
       </div>
-      <p className="text-xs text-[var(--dim)] mt-2"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#C9EEE8] border border-[#006258] align-middle mr-1" />Día de pago · <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[#DCEBF3] border border-[#2E86AB] align-middle mr-1" />Día de entrega.</p>
+      <p className="text-xs text-[var(--dim)] mt-2"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-[var(--accent)] border border-[var(--accent)] align-middle mr-1" />Día de pago · <span className="inline-block w-2.5 h-2.5 rounded-sm bg-[var(--blue)] border border-[var(--blue)] align-middle mr-1" />Día de entrega.</p>
       {sel && (
         <div className="bg-[var(--surface2)] rounded-2xl p-4 sm:p-5 mt-2">
           <div className="flex justify-between gap-2 items-start">

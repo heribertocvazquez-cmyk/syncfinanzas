@@ -29,7 +29,14 @@
    --dim sobre marfil rgba(21,21,21,.58) -> .65 (4.11:1 -> 5.15:1);
    --green sobre marfil #1B7A4D -> #166A42 (4.19:1 -> 5.20:1).
    Regla: el turquesa NUNCA va como texto ni botón sobre marfil (1.76:1);
-   sobre marfil el texto de acento es el teal oscuro #006258 (5.71:1). */
+   sobre marfil el texto de acento es el teal oscuro #006258 (5.71:1).
+   FASE 2 (2026-11-20, Heriberto: «así para todas las viñetas y textos
+   y menú y todo»): en modo oscuro TODAS las superficies son oscuras
+   como el héroe (#232320), con texto marfil y etiquetas turquesa — se
+   acabó la tarjeta marfil con texto oscuro en oscuro. Las reglas de
+   ámbito que forzaban tinta oscura dentro de las tarjetas se eliminaron
+   (eran el origen de los textos perdidos: ya no hay tarjeta clara en
+   oscuro). El modo claro queda intacto como opción secundaria. */
 /* Modo claro marfil (opción secundaria): fondo Marfil Antiguo, tarjetas
    en marfil claro #FBF7EC, héroe negro. El turquesa solo vive sobre negro
    o como relleno, nunca como texto sobre marfil. */
@@ -38,6 +45,7 @@
   --bg: #EEE3CC; --surface: #FBF7EC; --surface2: #E7DCC2;
   --text: #151515; --dim: rgba(21,21,21,.65); --border: rgba(21,21,21,.16);
   --accent: #00C2B5; --accent-text: #062A27; --gold: #00C2B5; --gold-text: #006258; --green: #166A42; --red: #B42318;
+  --blue: #DCEBF3; --blue-text: #1D5A75; --blue-ink: #1D5A75;
   --hero: #151515; --on-hero: #F3ECDB;
   --fab: #151515; --fab-text: #00C2B5;
   --badge: #B42318; --on-badge: #FFFFFF;
@@ -45,42 +53,30 @@
   --space-surface: var(--surface); --space-surface-alt: var(--surface2); --space-muted: var(--dim); --space-border: var(--border); --space-accent: var(--accent);
 }
 /* Modo oscuro marfil (PRINCIPAL, el que se abre por defecto): fondo Negro
-   Piano, tarjetas en Marfil Antiguo, acento Turquesa Surf. El texto
-   marfil sobre negro da 14.34:1 y el turquesa sobre negro 8.16:1. */
+   Piano, TODAS las tarjetas oscuras como el héroe (#232320) y las
+   superficies secundarias un poco más claras (#2E2E2A), texto marfil,
+   etiquetas turquesa. El texto marfil sobre #232320 da 12.38:1, el
+   turquesa sobre #232320 da 7.04:1 y el dim 65% da 6.48:1. Las variables
+   --blue son el azul de «Recibe» en Tandas: relleno claro en los dos
+   modos, texto oscuro sobre el relleno y tinta clara sobre superficies
+   oscuras. */
 :root.dark {
   color-scheme: dark;
-  --bg:#151515; --surface:#EEE3CC; --surface2:#E7DCC2; --text:#EEE3CC; --dim:rgba(238,227,204,.6); --border:rgba(238,227,204,.18);
+  --bg:#151515; --surface:#232320; --surface2:#2E2E2A; --text:#EEE3CC; --dim:rgba(243,236,219,.65); --border:rgba(238,227,204,.2);
   --accent:#00C2B5; --accent-text:#062A27; --gold:#00C2B5; --gold-text:#00C2B5; --green:#4CAF7D; --red:#F26D5F;
+  --blue:#8FC3DC; --blue-text:#0E2A38; --blue-ink:#8FC3DC;
   --hero:#232320; --on-hero:#F3ECDB;
   --fab:#00C2B5; --fab-text:#062A27;
   --badge:#F26D5F; --on-badge:#151515;
 }
-/* Tarjetas marfil en modo oscuro: dentro de una superficie clara el texto
-   vuelve a tinta oscura. Las variables se heredan, así que todo lo que
-   usa var(--text), var(--dim), var(--gold-text), var(--green) o var(--red)
-   dentro de una tarjeta cambia solo, sin tocar cada componente.
-   --bg NO se redefine aquí: los textos que usan var(--bg) (botones verdes
-   con texto claro) siguen funcionando en los dos modos.
-   CAUSA DEL DEFECTO 2026-11-20 (Heriberto: títulos y letras perdidas):
-   redefinir --text NO bastaba. El contenedor raíz de la app lleva
-   text-[var(--text)], así que `color` se calcula UNA VEZ en la raíz
-   (marfil #EEE3CC en oscuro) y se hereda ya resuelto a todos los
-   descendientes: dentro de la tarjeta --text valía #1B1B1B, pero el color
-   heredado seguía siendo marfil, y todo lo que no llevaba color propio
-   (títulos h2, botón fantasma «+ Ingreso», la × de cerrar, el icono de la
-   campanilla, el total de la dona) quedaba marfil sobre marfil. Por eso
-   estas reglas fijan TAMBIÉN `color` en el propio elemento de la
-   superficie: el color heredado sí cambia con la superficie. */
-:root.dark [class*="bg-[var(--surface)]"],
-:root.dark [class*="bg-[var(--surface2)]"] {
-  --text: #1B1B1B;
-  color: #1B1B1B;
-  --dim: rgba(21,21,21,.65);
-  --border: rgba(21,21,21,.16);
-  --gold-text: #006258;
-  --green: #166A42;
-  --red: #B42318;
-}
+/* Tarjetas oscuras en modo oscuro: NO hay regla de ámbito que fuerce
+   tinta oscura dentro de las superficies. La ronda anterior la necesitaba
+   porque las tarjetas eran marfil; con las tarjetas oscuras como el héroe
+   el texto marfil de la raíz ya es el correcto en todas partes, y una
+   regla así volvería a esconder los textos (fue la causa raíz de los
+   textos perdidos del 2026-11-20: `color` se hereda ya resuelto desde la
+   raíz). Si alguna superficie vuelve a ser clara en oscuro, habrá que
+   devolver una regla de ámbito para ella, con `color` además de --text. */
 /* Tarjeta héroe (Disponible): oscura en los dos modos, con texto marfil
    claro y turquesa/verde/rojo claros. Aplica en claro y en oscuro.
    También fija `color` por el mismo motivo: sin esto, en modo claro el
