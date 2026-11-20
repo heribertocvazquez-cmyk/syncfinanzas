@@ -69,6 +69,7 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   deleteFund: { table: "funds", idField: "id" },
   deleteGoal: { table: "goals", idField: "id" },
   addGoalSaving: { table: "goals", idField: "id" },
+  setGoalImportance: { table: "goals", idField: "id" },
   deleteAgreement: { table: "agreements", idField: "id" },
   deletePatrimony: { table: "patrimonyItems", idField: "id" },
   deleteInvitation: { table: "invitations", idField: "id" },

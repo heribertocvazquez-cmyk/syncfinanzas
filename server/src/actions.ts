@@ -1100,9 +1100,10 @@ export const Actions = {
       frequentMovements: z.array(z.object({ type: z.string(), amount: z.number(), key: z.string(), concept: z.string(), count: z.number(), last: z.string() })),
       budgets: z.array(z.object({ id: z.number(), categoryId: z.number(), month: z.string(), amount: z.number(), visibility: z.string(), spent: z.number(), remaining: z.number(), pct: z.number() })),
       funds: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number().nullable(), visibility: z.string(), balance: z.number() })),
-      fundMovements: z.array(z.object({ id: z.number(), fundId: z.number(), type: z.string(), amount: z.number(), date: z.string(), note: z.string().nullable() })),
-      goals: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number(), savedAmount: z.number(), targetDate: z.string().nullable(), visibility: z.string(), pct: z.number() })),
-      goalPlans: z.array(z.object({ goalId: z.number(), monthlyAmount: z.number(), months: z.number(), startMonth: z.string(), dueDay: z.number(), fundId: z.number().nullable(), status: z.string(), fundBalance: z.number(), contributedThisMonth: z.number(), expectedByNow: z.number(), onTrack: z.boolean(), monthsLeft: z.number(), projectedDate: z.string().nullable(), atRisk: z.boolean() })),
+      fundMovements: z.array(z.object({ id: z.number(), fundId: z.number(), type: z.string(), amount: z.number(), date: z.string(), note: z.string().nullable(), accountId: z.number().nullable() })),
+      accountSummaries: z.array(z.object({ accountId: z.number(), initialBalance: z.number(), income: z.number(), expense: z.number(), transfersIn: z.number(), transfersOut: z.number(), setAsides: z.array(z.object({ fundId: z.number(), name: z.string(), amount: z.number() })), balance: z.number() })),
+      goals: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number(), savedAmount: z.number(), targetDate: z.string().nullable(), visibility: z.string(), pct: z.number(), importance: z.number() })),
+      goalPlans: z.array(z.object({ goalId: z.number(), monthlyAmount: z.number(), months: z.number(), startMonth: z.string(), dueDay: z.number(), fundId: z.number().nullable(), status: z.string(), fundBalance: z.number(), contributedThisMonth: z.number(), expectedByNow: z.number(), onTrack: z.boolean(), monthsLeft: z.number(), projectedDate: z.string().nullable(), atRisk: z.boolean(), monthsByPlan: z.number(), monthsFromZero: z.number() })),
       spendingAdjustments: z.array(z.object({ id: z.number(), goalId: z.number(), goalName: z.string(), month: z.string(), kind: z.string(), status: z.string(), overCategoryName: z.string(), overAmount: z.number(), cuts: z.array(z.object({ budgetId: z.number().nullable(), categoryId: z.number().nullable(), name: z.string(), amount: z.number(), newBudget: z.number().nullable() })), newMonthlyAmount: z.number().nullable(), newMonths: z.number().nullable(), extendedMonths: z.number(), coversAll: z.boolean(), note: z.string(), createdAt: z.string() })),
       agreements: z.array(z.object({ id: z.number(), title: z.string(), description: z.string(), status: z.string(), votes: z.array(z.object({ profileId: z.number(), vote: z.string() })) })),
       patrimony: z.array(z.object({ id: z.number(), name: z.string(), kind: z.string(), category: z.string(), value: z.number(), owner: z.string().nullable() })),
@@ -1111,7 +1112,7 @@ export const Actions = {
       summary: z.object({
         totalBalance: z.number(), totalInFunds: z.number(), availableFree: z.number(),
         openingBalance: z.number(), priorMonthsNet: z.number(), fundsFromAccounts: z.number(), fundsReserved: z.number(),
-        monthIncome: z.number(), monthExpense: z.number(), monthNet: z.number(),
+        monthIncome: z.number(), monthExpense: z.number(), monthNet: z.number(), monthSetAside: z.number(),
         sharedExpenseMonth: z.number(), unassignedNet: z.number(), totalAssets: z.number(), totalLiabilities: z.number(), netWorth: z.number(),
         salaryIncome: z.number(), salarySpent: z.number(), salaryRemaining: z.number(), hasSalaryIncome: z.number(),
         currentMonth: z.string(),
@@ -1139,8 +1140,8 @@ export const Actions = {
       const hh = hhRows[0];
       if (!hh) {
         return {
-          household: null, households: [], profiles: [], myProfileId: null, invitations: [], accounts: [], categories: [], movements: [], totalMovements: 0, monthsWithMovements: [], defaultCashAccountId: null, categoryMonthlyTotals: [], frequentMovements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
-          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth, contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
+          household: null, households: [], profiles: [], myProfileId: null, invitations: [], accounts: [], categories: [], movements: [], totalMovements: 0, monthsWithMovements: [], defaultCashAccountId: null, categoryMonthlyTotals: [], frequentMovements: [], budgets: [], funds: [], fundMovements: [], accountSummaries: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
+          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, monthSetAside: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth, contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
         };
       }
       const hid = hh.id;
@@ -1200,6 +1201,18 @@ export const Actions = {
         const res = (await db.execute(sql`SELECT id, mp_order_id FROM tanda_payments WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; mp_order_id: string | null }[] } | { id: number; mp_order_id: string | null }[];
         const rows = Array.isArray(res) ? res : (res.rows ?? []);
         for (const row of rows) if (row.mp_order_id != null) mpOrderIds.set(row.id, row.mp_order_id);
+      } catch { /* columna aún no creada */ }
+      // Importancia 1–5 de cada meta (columna goals.importance,
+      // supabase/add-goals-importance.sql): se lee aparte con SQL directo
+      // y en silencio si la columna aún no existe, para que getOverview no
+      // se rompa antes de correr el SQL — igual que proof_amount y
+      // mp_order_id. Sin la columna, todas las metas quedan en 3 y nada
+      // se fija arriba de Inicio.
+      const importanceById = new Map<number, number>();
+      try {
+        const res = (await db.execute(sql`SELECT id, importance FROM goals WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; importance: number | null }[] } | { id: number; importance: number | null }[];
+        const rows = Array.isArray(res) ? res : (res.rows ?? []);
+        for (const row of rows) if (row.importance != null) importanceById.set(row.id, row.importance);
       } catch { /* columna aún no creada */ }
       const invsR = await db.select().from(schema.invitations).where(eq(schema.invitations.householdId, hid));
       // Qué invitaciones tienen enlace (por correo): las solicitudes de
@@ -1273,12 +1286,40 @@ export const Actions = {
       });
       const totalInFunds = funds.reduce((s,f)=>s+f.balance,0);
 
+      // Resumen de cada cuenta: cómo nace su saldo y cómo se descuenta
+      // (módulo Cuentas y «Dónde está su dinero»). Los apartados llevan
+      // una línea por fondo; las aportaciones sin cuenta no se asignan a
+      // ninguna cuenta. La suma debe dar el saldo de la cuenta.
+      const accountSummaries = accountsR.map(a => {
+        let income = 0; let expense = 0; let transfersIn = 0; let transfersOut = 0;
+        for (const m of activeMovs) {
+          if (m.accountId === a.id) {
+            if (m.type === "income") income += m.amount;
+            else if (m.type === "expense" || m.type === "debt_payment") expense += m.amount;
+            else if (m.type === "transfer") transfersOut += m.amount;
+          }
+          if (m.toAccountId === a.id && m.type === "transfer") transfersIn += m.amount;
+        }
+        const perFund = new Map<number, number>();
+        for (const fm of fundMovsR) {
+          const accId = (fm as unknown as { accountId?: number | null }).accountId;
+          if (accId === a.id) perFund.set(fm.fundId, (perFund.get(fm.fundId) ?? 0) + (fm.type === "contribution" ? fm.amount : -fm.amount));
+        }
+        const setAsides = [...perFund.entries()].filter(([, v]) => Math.round(v * 100) !== 0).map(([fundId, amount]) => ({ fundId, name: fundsR.find(f => f.id === fundId)?.name ?? "Fondo", amount: Math.round(amount * 100) / 100 })).sort((x, y) => y.amount - x.amount);
+        return { accountId: a.id, initialBalance: a.initialBalance, income: Math.round(income * 100) / 100, expense: Math.round(expense * 100) / 100, transfersIn: Math.round(transfersIn * 100) / 100, transfersOut: Math.round(transfersOut * 100) / 100, setAsides, balance: accounts.find(x => x.id === a.id)?.balance ?? 0 };
+      });
+
       // Serie mensual: termina en el mes que muestra el tablero, no
       // necesariamente en el mes real.
       const viewDate = new Date(viewYear, (viewMonthNum || 1) - 1, 1);
       const monthMovs = activeMovs.filter(m=>m.date.startsWith(currentMonth));
       const monthIncome = monthMovs.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0);
       const monthExpense = monthMovs.filter(m=>m.type==="expense"||m.type==="debt_payment").reduce((s,m)=>s+m.amount,0);
+      // Apartado del mes visible: aportes netos a metas/fondos con fecha
+      // del mes que muestra el tablero, sin el «Saldo inicial de la meta»
+      // (misma regla que contributedThisMonth). Es lo que se descuenta del
+      // saldo del mes en Inicio y en Personal («Te queda del mes»).
+      const monthSetAside = Math.round(fundMovsR.filter(f=>f.date.startsWith(currentMonth) && f.note!=="Saldo inicial de la meta").reduce((s,f)=> s + (f.type==="contribution"? f.amount : -f.amount),0)*100)/100;
       // Conciliación Disponible vs Neto del mes. El Total no es solo el mes
       // en curso: arrastra el saldo inicial de las cuentas y el neto de los
       // meses anteriores, y ya no trae el dinero que salió de las cuentas
@@ -1443,7 +1484,12 @@ export const Actions = {
         const monthsLeft = remaining <= 0 ? 0 : pace > 0 ? Math.ceil(remaining / pace) : plan.months;
         const projectedDate = remaining <= 0 ? curYm : ymAdd(curYm, monthsLeft);
         const atRisk = !!goal?.targetDate && remaining > 0 && pace > 0 && projectedDate > goal.targetDate.slice(0, 7);
-        return { goalId: plan.goalId, monthlyAmount: plan.monthlyAmount, months: plan.months, startMonth: plan.startMonth, dueDay: plan.dueDay, fundId: plan.fundId ?? null, status: plan.status, fundBalance, contributedThisMonth, expectedByNow, onTrack, monthsLeft, projectedDate, atRisk };
+        // Plazo con el aporte mensual del plan (no con el ritmo real):
+        // ceil(restante / aporte mensual). Desde cero es el plazo total
+        // con ese mismo aporte.
+        const monthsByPlan = remaining <= 0 ? 0 : plan.monthlyAmount > 0 ? Math.ceil(remaining / plan.monthlyAmount) : 0;
+        const monthsFromZero = plan.monthlyAmount > 0 ? Math.ceil((goal?.targetAmount ?? 0) / plan.monthlyAmount) : 0;
+        return { goalId: plan.goalId, monthlyAmount: plan.monthlyAmount, months: plan.months, startMonth: plan.startMonth, dueDay: plan.dueDay, fundId: plan.fundId ?? null, status: plan.status, fundBalance, contributedThisMonth, expectedByNow, onTrack, monthsLeft, projectedDate, atRisk, monthsByPlan, monthsFromZero };
       });
 
       // ---- Ajustes de gastos propuestos (pendientes y los resueltos del mes): se muestran en Metas. Si la tabla aún no existe, la lista sale vacía.
@@ -1472,8 +1518,9 @@ export const Actions = {
         frequentMovements,
         budgets,
         funds,
-        fundMovements: fundMovsR.map(f=>({ id:f.id, fundId:f.fundId, type:f.type, amount:f.amount, date:f.date, note:f.note??null })),
-        goals: goalsR.map(g=>({ id:g.id, name:g.name, targetAmount:g.targetAmount, savedAmount:g.savedAmount, targetDate:g.targetDate??null, visibility:g.visibility, pct: g.targetAmount>0? Math.min(100, Math.round(g.savedAmount/g.targetAmount*100)):0 })),
+        fundMovements: fundMovsR.map(f=>({ id:f.id, fundId:f.fundId, type:f.type, amount:f.amount, date:f.date, note:f.note??null, accountId:(f as unknown as { accountId?: number | null }).accountId ?? null })),
+        accountSummaries,
+        goals: goalsR.map(g=>({ id:g.id, name:g.name, targetAmount:g.targetAmount, savedAmount:g.savedAmount, targetDate:g.targetDate??null, visibility:g.visibility, pct: g.targetAmount>0? Math.min(100, Math.round(g.savedAmount/g.targetAmount*100)):0, importance: importanceById.get(g.id) ?? 3 })),
         goalPlans: goalPlansOut,
         spendingAdjustments: spendingAdjustmentsOut,
         agreements: agR.map(a=>({ id:a.id, title:a.title, description:a.description, status:a.status, votes: votesR.filter(v=>v.agreementId===a.id).map(v=>({ profileId:v.profileId, vote:v.vote })) })),
@@ -1482,7 +1529,7 @@ export const Actions = {
         activity: activityR.map(a=>({ id: a.id, action: a.action, detail: a.detail, createdAt: a.createdAt instanceof Date ? a.createdAt.toISOString() : new Date(Number(a.createdAt)).toISOString() })),
         summary: {
           totalBalance: Math.round(totalBalance*100)/100, totalInFunds: Math.round(totalInFunds*100)/100, availableFree: Math.round(availableFree*100)/100, openingBalance: Math.round(openingBalance*100)/100, priorMonthsNet: Math.round(priorMonthsNet*100)/100, fundsFromAccounts: Math.round(fundsFromAccounts*100)/100, fundsReserved: Math.round(fundsReserved*100)/100,
-          monthIncome: Math.round(monthIncome*100)/100, monthExpense: Math.round(monthExpense*100)/100, monthNet: Math.round((monthIncome-monthExpense)*100)/100,
+          monthIncome: Math.round(monthIncome*100)/100, monthExpense: Math.round(monthExpense*100)/100, monthNet: Math.round((monthIncome-monthExpense)*100)/100, monthSetAside,
           sharedExpenseMonth: Math.round(baseForContributions*100)/100, unassignedNet, totalAssets, totalLiabilities, netWorth: totalAssets-totalLiabilities, currentMonth,
           salaryIncome: salaryInfo.salaryIncome, salarySpent: salaryInfo.salarySpent, salaryRemaining: salaryInfo.salaryRemaining, hasSalaryIncome: salaryInfo.hasSalaryIncome,
           contributions, contributionsNote, monthlySeries,
@@ -1888,9 +1935,29 @@ export const Actions = {
 
   saveGoal: defineAction({
     description: "Creates or updates a savings goal.",
-    request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1), targetAmount: z.number().positive(), savedAmount: z.number().min(0).default(0), targetDate: z.string().optional(), visibility: vis }),
+    request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1), targetAmount: z.number().positive(), savedAmount: z.number().min(0).default(0), targetDate: z.string().optional(), visibility: vis, importance: z.number().int().min(1).max(5).optional() }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const vals={householdId:args.householdId,name:args.name,targetAmount:args.targetAmount,savedAmount:args.savedAmount,targetDate:args.targetDate||null,visibility:args.visibility}; if(args.id){ await db.update(schema.goals).set(vals).where(eq(schema.goals.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.goals).values(vals).returning({id:schema.goals.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const vals={householdId:args.householdId,name:args.name,targetAmount:args.targetAmount,savedAmount:args.savedAmount,targetDate:args.targetDate||null,visibility:args.visibility}; const storeImportance = async (goalId:number)=>{ if(args.importance==null) return; try{ await db.execute(sql`UPDATE goals SET importance = ${args.importance} WHERE id = ${goalId}`); }catch{ /* columna aún no creada */ } }; if(args.id){ await db.update(schema.goals).set(vals).where(eq(schema.goals.id,args.id)); await storeImportance(args.id); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.goals).values(vals).returning({id:schema.goals.id}); if(r?.id) await storeImportance(r.id); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+  }),
+  // Importancia 1–5 de una meta (G): la escritura es tolerante si la
+  // columna aún no existe (el SQL está pendiente de correr): devuelve
+  // saved:false y el cliente lo dice, en vez de romper. Con la columna,
+  // guarda y devuelve saved:true.
+  setGoalImportance: defineAction({
+    description: "Sets a goal's importance from 1 to 5; 5 pins it at the top of Inicio.",
+    request: z.object({ id: z.number(), importance: z.number().int().min(1).max(5) }),
+    response: z.object({ ok: z.literal(true), saved: z.boolean() }),
+    async handler(ctx, args): Promise<{ ok: true; saved: boolean }> {
+      const db = ctx.db;
+      const rows = await db.select().from(schema.goals).where(eq(schema.goals.id, args.id));
+      if (!rows[0]) throw new Error("Meta no encontrada.");
+      if (ctx.householdId != null && rows[0].householdId !== ctx.householdId) throw new Error("Meta no encontrada.");
+      try {
+        await db.execute(sql`UPDATE goals SET importance = ${args.importance} WHERE id = ${args.id}`);
+      } catch { return { ok: true, saved: false }; }
+      ctx.invalidateQueries();
+      return { ok: true, saved: true };
+    },
   }),
   // Toda meta nace con su plan: una sola acción crea meta + fondo + plan.
   // Si el plan falla, la meta no queda creada (se borra lo que se alcanzó
@@ -1900,7 +1967,7 @@ export const Actions = {
   // elegida y no cuenta como apartado del mes (ver contributedThisMonth).
   saveGoalWithPlan: defineAction({
     description: "Creates a goal together with its savings plan, fund and initial balance, in a single action.",
-    request: z.object({ householdId: z.number(), name: z.string().min(1), targetAmount: z.number().positive(), savedAmount: z.number().min(0).default(0), targetDate: z.string().optional(), visibility: vis, monthlyAmount: z.number().positive().optional(), months: z.number().int().min(1).max(120), dueDay: z.number().int().min(1).max(28).default(1), initialAccountId: z.number().nullable().optional() }),
+    request: z.object({ householdId: z.number(), name: z.string().min(1), targetAmount: z.number().positive(), savedAmount: z.number().min(0).default(0), targetDate: z.string().optional(), visibility: vis, monthlyAmount: z.number().positive().optional(), months: z.number().int().min(1).max(120), dueDay: z.number().int().min(1).max(28).default(1), initialAccountId: z.number().nullable().optional(), importance: z.number().int().min(1).max(5).optional() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
@@ -1924,6 +1991,11 @@ export const Actions = {
         const [goal] = await db.insert(schema.goals).values({ householdId: args.householdId, name: args.name, targetAmount: args.targetAmount, savedAmount: saved, targetDate: args.targetDate || null, visibility: args.visibility }).returning({ id: schema.goals.id });
         if (!goal) throw new Error("No se pudo crear la meta.");
         goalId = goal.id;
+        // Importancia tolerante: si la columna aún no existe (falta correr
+        // supabase/add-goals-importance.sql), la meta se crea igual en 3.
+        if (args.importance != null) {
+          try { await db.execute(sql`UPDATE goals SET importance = ${args.importance} WHERE id = ${goal.id}`); } catch { /* columna aún no creada */ }
+        }
         const [fund] = await db.insert(schema.funds).values({ householdId: args.householdId, name: `Meta: ${args.name}`, targetAmount: args.targetAmount, visibility: args.visibility }).returning({ id: schema.funds.id });
         if (!fund) throw new Error("No se pudo crear el fondo de la meta.");
         fundId = fund.id;
