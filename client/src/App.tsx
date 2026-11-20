@@ -9,16 +9,16 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText, ocrStatusText, OcrError, warmUpOcr } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { canSeeMovementRow, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, requiredGoalAccountNotice, requiredGoalReturnAccountNotice, requiredInitialAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
+import { canSeeMovementRow, fmtMonthShort, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, requiredGoalAccountNotice, requiredGoalReturnAccountNotice, requiredInitialAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
 import { readStoredProfile, resolveActiveProfile, writeStoredProfile } from "./lib/activeProfile";
 import { clearStoredHousehold, readStoredHousehold, writeStoredHousehold } from "./lib/activeHousehold";
 import { HouseholdSwitcher } from "./components/HouseholdSwitcher";
 import { categoryCounts, guideCounts, invitationCounts, sumBudgets, sumCashCounts, sumContributions, sumGoals, sumMonthMovements } from "./lib/cardSummaries";
-import { findTandaForNotification, visibleNotifications } from "./lib/notifications";
+import { exceededCategoryName, findTandaForNotification, visibleNotifications } from "./lib/notifications";
 import { MovementsFilter } from "./components/MovementsFilter";
 import { DEFAULT_MOVEMENTS_FILTER, filterMovements, type MovementsFilterValue } from "./lib/movementsFilter";
 import { buildBalanceBreakdown } from "./lib/balanceBreakdown";
-import { planCumulativeContributed, planMonthShortfall, planPriorSurplus, pickPinnedGoal, totalMonthShortfall } from "./lib/goalMonth";
+import { pickTipGoal, planCumulativeContributed, planMonthShortfall, planPriorSurplus, pickPinnedGoal, totalMonthShortfall } from "./lib/goalMonth";
 import { accountSummaryRows, type AccountSummary } from "./lib/accountSummary";
 import { MoneyLocationModal } from "./components/MoneyLocationModal";
 import { IncExpDetailModal } from "./components/IncExpDetailModal";
@@ -97,7 +97,7 @@ async function imageFileToJpeg(file:File): Promise<{dataBase64:string;mimeType:s
 // Gama propia de la dona de Inicio (propuesta Unslop): sin verde ni rojo,
 // que ya son los colores del flujo de dinero. Los seis primeros son los de
 // la propuesta; el resto son valores ya usados en el proyecto.
-const DONUT_PALETTE_INICIO=["#00C2B5","#2E86AB","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#9C6B30","#3E7CB1"];
+const DONUT_PALETTE_INICIO=["#00C2B5","#A34A6B","#2E86AB","#D97A3D","#7C5CBF","#C9A227","#4A9B8E","#5B7FA6","#8A6D3B","#3E7CB1"];
 // Las gráficas (Recharts, el trozo mayor del JS) se cargan bajo demanda:
 // el paquete inicial no las trae; se descargan al abrir Inicio o Personal,
 // las únicas vistas que las usan («Ver gráficas» solo navega a Inicio).
@@ -630,6 +630,20 @@ export function App(){
     const cat=data?.categories.find((c)=>c.kind==="expense" && (n.body||"").startsWith(`${c.name} lleva`)) ?? null;
     return { cat, month:String(n.createdAt).slice(0,7), amount:n.amount ?? null };
   };
+  // Presupuesto al que apunta un aviso «presupuesto_excedido»: la
+  // categoría se resuelve por el nombre que nombra el cuerpo (la tabla de
+  // avisos no guarda categoría), el presupuesto por categoría y mes del
+  // aviso. Sin presupuesto vigente o ya sin excedente, null: el aviso no
+  // lleva botón de consejo.
+  const exceededBudgetTarget=(n:{type:string;body:string;createdAt:string})=>{
+    const name=exceededCategoryName(n);
+    if(!name || !data) return null;
+    const cat=data.categories.find((c)=>c.name.trim().toLowerCase()===name.trim().toLowerCase()) ?? null;
+    if(!cat) return null;
+    const month=String(n.createdAt).slice(0,7);
+    const b=data.budgets.find((x)=>x.categoryId===cat.id && x.month===month) ?? null;
+    return b && b.remaining<0 ? b : null;
+  };
   const openBudgetForm=(categoryId:number,month:string,amount:number|null)=>{
     setBudCat(String(categoryId)); setBudMonth(month); setBudAmount(amount!=null?String(amount):"");
     goTab("presupuestos"); window.setTimeout(()=>focusField("bud-amount"),60);
@@ -922,7 +936,25 @@ export function App(){
   // Vista del detalle de ingresos/gastos: «Por cuenta» (grupos por cuenta,
   // la vista por defecto) o «Por fecha» (una sola lista cronológica).
   const [incExpView,setIncExpView]=useState<IncExpDetailView>("cuenta");
-  const [catDetail,setCatDetail]=useState<{categoryId:number|null;name:string;total:number;month:string}|null>(null);
+  const [catDetail,setCatDetail]=useState<{categoryId:number|null;name:string;total:number;month:string;pct:number}|null>(null);
+  // Consejo («coquito») de un presupuesto: no es texto adicional — un
+  // iconito de alerta junto al renglón abre este pop-up con el consejo.
+  // Excedido: bajar el gasto y moverlo a la meta (consejo, sin mover
+  // nada: ese dinero aún no existe). Sobrante: el sobrante sí se puede
+  // proponer mover con el flujo existente (proposeSpendingAdjustment);
+  // nada se mueve sin el toque del usuario.
+  type Coquito={kind:"excedido"|"sobrante";catName:string;budgetId:number;amount:number;goalId:number|null};
+  const [coquito,setCoquito]=useState<Coquito|null>(null);
+  const [coquitoDone,setCoquitoDone]=useState(false);
+  const [coquitoError,setCoquitoError]=useState("");
+  // «Nueva meta» forzada abierta (el botón «Crear meta» del consejo):
+  // null = comportamiento normal (abierta si no hay metas).
+  const [newGoalOpen,setNewGoalOpen]=useState<boolean|null>(null);
+  const closeCoquito=()=>{ setCoquito(null); setCoquitoDone(false); setCoquitoError(""); };
+  const openCoquitoForBudget=(b:{id:number;categoryId:number;month:string;amount:number;spent:number;remaining:number},kind:"excedido"|"sobrante")=>{
+    setCoquitoError(""); setCoquitoDone(false);
+    setCoquito({kind,catName:getCatName(b.categoryId),budgetId:b.id,amount:Math.abs(b.remaining),goalId:pickTipGoal(data?.goals ?? [],data?.goalPlans ?? [],data?.fundMovements ?? [],s.currentMonth)?.id ?? null});
+  };
   const [showMoneyLocation,setShowMoneyLocation]=useState(false);
   const [showSummary,setShowSummary]=useState(false);
   const [helpOpen,setHelpOpen]=useState(false);
@@ -1971,6 +2003,7 @@ export function App(){
             <ul className="mt-2 space-y-2">
               {visibleNotifs.map(n=>{
                 const sug=n.type==="presupuesto_sugerido"?budgetSuggestionTarget(n):null;
+                const exc=n.type==="presupuesto_excedido"?exceededBudgetTarget(n):null;
                 return (
                 <li key={n.id}>
                   <div className={`rounded-xl border p-3 ${n.isRead?"border-[var(--border)]":"border-[var(--gold)] bg-[var(--surface2)]"}`}>
@@ -1980,6 +2013,7 @@ export function App(){
                       <p className="text-xs text-[var(--dim)] mt-1">{new Date(n.createdAt).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
                     </button>
                     {sug?.cat && <button type="button" className={btnGold+" mt-2"} onClick={(e)=>{e.stopPropagation(); handleBudgetSuggestion(n);}}>Crear presupuesto para {sug.cat.name}</button>}
+                    {exc && <button type="button" className={btnGhost+" mt-2"} onClick={(e)=>{e.stopPropagation(); void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); openCoquitoForBudget(exc,"excedido");}}>Consejo</button>}
                   </div>
                 </li>
                 );
@@ -2054,8 +2088,8 @@ export function App(){
             {data.totalMovements>0 && (
             <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
-                <h2 className="font-display font-bold text-lg">Gasto por categoría · {fmtMonth(s.currentMonth)}</h2>
-                                <Suspense fallback={DonutFallback}><CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={10} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} /></Suspense>
+                <h2 className="font-display font-bold text-lg">Gasto por categoría · <span className="whitespace-nowrap"><svg className="inline-block align-[-2px] text-[var(--dim)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> {fmtMonthShort(s.currentMonth)}</span></h2>
+                                <Suspense fallback={DonutFallback}><CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={10} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth,pct:d.pct})} /></Suspense>
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <h2 className="font-display font-bold text-lg">Ingresos vs gastos · últimos 6 meses</h2>
@@ -2079,7 +2113,7 @@ export function App(){
               {data.budgets.filter(b=>b.month===s.currentMonth).length===0 ? null : (
               <CollapsibleCard title={<h2 className="font-display font-bold text-lg">Presupuestos</h2>} above={<p className="text-sm text-[var(--dim)] mt-1">Total {money(monthBudgetsSum.total)} · Gastado {money(monthBudgetsSum.spent)}</p>}>
                 {data.budgets.filter(b=>b.month===s.currentMonth).map(b=>(
-                  <div key={b.id} className="mt-3"><button type="button" aria-label={`Pagar del presupuesto de ${getCatName(b.categoryId)}`} className="w-full text-left" onClick={()=>{setQuickBud(quickBud===b.id?null:b.id);setQuickBudAmt("");setQuickBudAcc("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><span className="flex items-center gap-1 shrink-0"><b className="text-base whitespace-nowrap">{money(b.spent)} / {money(b.amount)}</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--accent)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-[13px] font-bold text-[var(--red)]">Sobrepasado por {money(-b.remaining)} · {b.pct}% usado</p>:<p className="text-[13px] text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p>}</button>{quickBud===b.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickBudAmt||Number(quickBudAmt)<=0) return; payBudget.mutate({categoryId:b.categoryId,categoryName:getCatName(b.categoryId),visibility:b.visibility,amount:Number(quickBudAmt),accountId:quickBudAcc?Number(quickBudAcc):null});}}><p className="font-display font-bold text-sm">Pagar · {getCatName(b.categoryId)}</p><div><Label htmlFor={`qb-amt-${b.id}`}>Importe ($)</Label><input id={`qb-amt-${b.id}`} autoFocus aria-label={`Importe a pagar del presupuesto de ${getCatName(b.categoryId)}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickBudAmt} onChange={e=>setQuickBudAmt(e.target.value)} /></div><div><Label htmlFor={`qb-acc-${b.id}`}>¿De dónde se descuenta?</Label><select id={`qb-acc-${b.id}`} aria-label="Cuenta de donde se descuenta el pago del presupuesto" className={inputCls} value={quickBudAcc} onChange={e=>setQuickBudAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{payBudget.error && <p className="text-sm text-[var(--red)]">{String(payBudget.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={payBudget.isPending||!quickBudAmt}>{payBudget.isPending?"Guardando…":"Guardar pago"}</button><button type="button" className={btnGhost} onClick={()=>setQuickBud(null)}>Cancelar</button></div></form>)}
+                  <div key={b.id} className="mt-3"><button type="button" aria-label={`Pagar del presupuesto de ${getCatName(b.categoryId)}`} className="w-full text-left" onClick={()=>{setQuickBud(quickBud===b.id?null:b.id);setQuickBudAmt("");setQuickBudAcc("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{getCatName(b.categoryId)} · {b.visibility==="shared"?"Compartido":"Privado"}</span><span className="flex items-center gap-1 shrink-0"><b className="text-base whitespace-nowrap">{money(b.spent)} / {money(b.amount)}</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div><div className="h-2 bg-[var(--surface2)] rounded-full mt-1 overflow-hidden"><div className={`h-full rounded-full ${b.pct>=100?"bg-[var(--red)]":"bg-[var(--accent)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div></button><div className="flex items-center justify-between gap-2 mt-1">{b.remaining<0?<p className="text-[13px] font-bold text-[var(--red)]">Sobrepasado por {money(-b.remaining)} · {b.pct}% usado</p>:<p className="text-[13px] text-[var(--dim)]">Restan {money(b.remaining)} · {b.pct}% usado</p>}{b.remaining!==0 && <button type="button" aria-label={`Consejo para ${getCatName(b.categoryId)}`} className="shrink-0 w-7 h-7 rounded-full bg-[var(--surface2)] border border-[var(--border)] flex items-center justify-center text-[var(--gold-text)]" onClick={()=>openCoquitoForBudget(b,b.remaining<0?"excedido":"sobrante")}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></button>}</div>{quickBud===b.id && (<form className="mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!quickBudAmt||Number(quickBudAmt)<=0) return; payBudget.mutate({categoryId:b.categoryId,categoryName:getCatName(b.categoryId),visibility:b.visibility,amount:Number(quickBudAmt),accountId:quickBudAcc?Number(quickBudAcc):null});}}><p className="font-display font-bold text-sm">Pagar · {getCatName(b.categoryId)}</p><div><Label htmlFor={`qb-amt-${b.id}`}>Importe ($)</Label><input id={`qb-amt-${b.id}`} autoFocus aria-label={`Importe a pagar del presupuesto de ${getCatName(b.categoryId)}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickBudAmt} onChange={e=>setQuickBudAmt(e.target.value)} /></div><div><Label htmlFor={`qb-acc-${b.id}`}>¿De dónde se descuenta?</Label><select id={`qb-acc-${b.id}`} aria-label="Cuenta de donde se descuenta el pago del presupuesto" className={inputCls} value={quickBudAcc} onChange={e=>setQuickBudAcc(e.target.value)}><option value="">Efectivo</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{payBudget.error && <p className="text-sm text-[var(--red)]">{String(payBudget.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={payBudget.isPending||!quickBudAmt}>{payBudget.isPending?"Guardando…":"Guardar pago"}</button><button type="button" className={btnGhost} onClick={()=>setQuickBud(null)}>Cancelar</button></div></form>)}
                   </div>
                 ))}
               </CollapsibleCard>
@@ -2326,7 +2360,7 @@ export function App(){
 
         {effTab==="metas" && (
           <section>
-            <CollapsibleCard title={<h2 className="font-display font-bold text-lg">Nueva meta</h2>} above={data.goals.length>0 ? <p className="text-sm text-[var(--dim)] mt-1">{data.goals.length} {data.goals.length===1?"meta":"metas"} · {money(data.goals.reduce((s,g)=>s+g.savedAmount,0))} ahorrado de {money(data.goals.reduce((s,g)=>s+g.targetAmount,0))}</p> : undefined} defaultOpen={data.goals.length===0} toggleLabel="nueva meta">
+            <CollapsibleCard title={<h2 className="font-display font-bold text-lg">Nueva meta</h2>} above={data.goals.length>0 ? <p className="text-sm text-[var(--dim)] mt-1">{data.goals.length} {data.goals.length===1?"meta":"metas"} · {money(data.goals.reduce((s,g)=>s+g.savedAmount,0))} ahorrado de {money(data.goals.reduce((s,g)=>s+g.targetAmount,0))}</p> : undefined} defaultOpen={data.goals.length===0} open={newGoalOpen ?? undefined} onToggle={newGoalOpen===null?undefined:()=>setNewGoalOpen((v)=>!(v ?? false))} toggleLabel="nueva meta">
             <form className="space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!goalName||!(Number(goalTarget)>0)) return; const months=Number(goalMonths); if(!months||months<1||months>120){ setGoalFormError("Escriba el plazo en meses (1 a 120)."); return; } const due=Number(goalDueDay); if(goalDueDay && (due<1||due>28)){ setGoalFormError("El día del mes debe ser entre 1 y 28."); return; } const saved=Number(goalSaved)||0; if(saved>0){ const notice=requiredInitialAccountNotice(goalInitialAcc); if(notice){ setGoalFormError(notice); return; } } setGoalFormError(""); saveGoalWithPlan.mutate();}}>
               <div className="grid md:grid-cols-4 gap-2 items-end">
               <div><Label htmlFor="goal-name">Nombre de la meta</Label><input id="goal-name" aria-label="Nombre de la meta" required className={inputCls} value={goalName} onChange={e=>setGoalName(e.target.value)} placeholder="Ej. Vacaciones" /></div>
@@ -2763,8 +2797,8 @@ export function App(){
               </div>
               <div className="space-y-3">
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
-                  <h2 className="font-display font-bold text-lg">Gasto por categoría · {fmtMonth(s.currentMonth)}</h2>
-                                    <Suspense fallback={DonutFallback}><CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={10} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth})} /></Suspense>
+                  <h2 className="font-display font-bold text-lg">Gasto por categoría · <span className="whitespace-nowrap"><svg className="inline-block align-[-2px] text-[var(--dim)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> {fmtMonthShort(s.currentMonth)}</span></h2>
+                                    <Suspense fallback={DonutFallback}><CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={10} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth,pct:d.pct})} /></Suspense>
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b className="whitespace-nowrap">{money2(data.personal.monthSpent)}</b> · Restante: <b className="whitespace-nowrap">{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
@@ -3092,7 +3126,7 @@ export function App(){
             <div className="min-w-0">
               <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">GASTOS · {fmtMonth(catDetail.month).toUpperCase()}</p>
               <p className="font-display font-bold text-lg leading-tight">Gastos de {catDetail.name}</p>
-              <p className="text-sm text-[var(--dim)] mt-1">{catDetailBase.length} gasto(s)</p>
+              <p className="text-sm text-[var(--dim)] mt-1">{catDetailBase.length} gasto(s) · {catDetail.pct}% del gasto del mes</p>
             </div>
             <button type="button" aria-label="Cerrar los gastos del rubro" onClick={()=>setCatDetail(null)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
           </div>
@@ -3108,6 +3142,39 @@ export function App(){
           </div>
         </div>
       </div>}
+      {coquito && (()=>{
+        const goal=coquito.goalId!=null ? data.goals.find((g)=>g.id===coquito.goalId) ?? null : null;
+        return (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Consejo para ahorrar" onClick={()=>closeCoquito()}>
+          <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4 sm:p-5" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-display font-bold text-lg leading-tight">Consejo para ahorrar</p>
+              <button type="button" aria-label="Cerrar el consejo" onClick={()=>closeCoquito()} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+            </div>
+            {coquitoDone ? (<>
+              <p className="text-sm mt-2">Propuesta creada. Revise la meta {goal ? <b>{goal.name}</b> : "elegida"} para aceptarla: el sobrante se mueve a su fondo solo si usted la acepta.</p>
+              <div className="flex gap-2 mt-4">
+                <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{closeCoquito(); goTab("metas");}}>Ver la meta</button>
+                <button type="button" className={btnGhost} onClick={()=>closeCoquito()}>Cerrar</button>
+              </div>
+            </>) : (<>
+              <p className="text-sm mt-2">{coquito.kind==="excedido"
+                ? <>Si baja <b className="whitespace-nowrap">{money(coquito.amount)}</b> en <b>{coquito.catName}</b>, puede moverlos al fondo de su meta{goal ? <><b> {goal.name}</b></> : ""}.</>
+                : <>Te sobran <b className="whitespace-nowrap">{money(coquito.amount)}</b> en <b>{coquito.catName}</b>. Puede moverlos al fondo de su meta{goal ? <><b> {goal.name}</b></> : ""}.</>}</p>
+              {!goal && <p className="text-sm text-[var(--dim)] mt-2">Cree una meta para apartar este sobrante.</p>}
+              {coquito.kind==="excedido" && <p className="text-xs text-[var(--dim)] mt-2">Este consejo no mueve dinero: el ahorro se concreta cuando el gasto realmente baja.</p>}
+              {coquitoError && <p className="text-sm text-[var(--red)] mt-2">{coquitoError}</p>}
+              <div className="flex gap-2 mt-4">
+                {goal && coquito.kind==="sobrante" && <button type="button" className={btnPrimary+" flex-1"} disabled={proposeAdj.isPending} onClick={async ()=>{ setCoquitoError(""); try { await proposeAdj.mutateAsync({goalId:goal.id,kind:"sobrante",cuts:[{budgetId:coquito.budgetId,amount:coquito.amount}]}); setCoquitoDone(true); } catch(e){ setCoquitoError(e instanceof Error ? e.message : String(e)); } }}>{proposeAdj.isPending?"Guardando…":"Proponer mover sobrante"}</button>}
+                {goal && coquito.kind==="excedido" && <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{closeCoquito(); goTab("metas");}}>Ver la meta</button>}
+                {!goal && <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{closeCoquito(); setNewGoalOpen(true); goTab("metas");}}>Crear meta</button>}
+                <button type="button" className={btnGhost} onClick={()=>closeCoquito()}>Cerrar</button>
+              </div>
+            </>)}
+          </div>
+        </div>
+        );
+      })()}
       {inicioMvOpen && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Registrar movimiento" onClick={()=>closeInicioMovement()}>
         <div className="relative w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
           <button type="button" aria-label="Cerrar el registro de movimiento" onClick={()=>closeInicioMovement()} className="absolute right-3 top-3 z-10 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>

@@ -157,3 +157,42 @@ export function pickPinnedGoal<T extends GoalLike>(goals: T[]): T | null {
   if (pinned.length === 0) return null;
   return [...pinned].sort((a, b) => b.pct - a.pct || a.id - b.id)[0] ?? null;
 }
+
+/** La meta a la que apunta el consejo («coquito») de un presupuesto:
+ *  una meta CON plan activo (aceptado o en riesgo, con fondo y con algo
+ *  por ahorrar: es la única que puede recibir el sobrante por la vía de
+ *  proposeSpendingAdjustment). Si hay una fijada (importancia 5) con
+ *  plan, esa; si no, la de mayor «Te falta ahorrar este mes»;
+ *  desempate: más avanzada, luego la más antigua. Sin ninguna, null
+ *  (el consejo invita a crear una meta). */
+export function pickTipGoal<T extends GoalLike>(
+  goals: T[],
+  plans: GoalPlanLike[],
+  movs: FundMovementLike[],
+  currentYm: string,
+): T | null {
+  const usable = goals.filter((g) => {
+    const p = plans.find((x) => x.goalId === g.id);
+    return (
+      p &&
+      (p.status === "aceptado" || p.status === "en_riesgo") &&
+      p.fundId != null &&
+      g.targetAmount - g.savedAmount > 0
+    );
+  });
+  if (usable.length === 0) return null;
+  const pinned = usable.find((g) => (g.importance ?? 3) === 5);
+  if (pinned) return pinned;
+  return (
+    [...usable].sort((a, b) => {
+      const pa = plans.find((x) => x.goalId === a.id)!;
+      const pb = plans.find((x) => x.goalId === b.id)!;
+      return (
+        planMonthShortfall(pb, movs, currentYm) -
+          planMonthShortfall(pa, movs, currentYm) ||
+        b.pct - a.pct ||
+        a.id - b.id
+      );
+    })[0] ?? null
+  );
+}

@@ -55,3 +55,14 @@ export function findTandaForNotification<T extends { id: number; name: string }>
   const key = name.trim().toLowerCase();
   return tandas.find((t) => t.name.trim().toLowerCase() === key)?.id ?? null;
 }
+
+// Categoría que nombra un aviso «presupuesto_excedido»: el cuerpo es
+// «El gasto de {categoría} llegó a … y superó su presupuesto de …».
+// La tabla de avisos no guarda categoría (mismo patrón que
+// findTandaForNotification). Sin nombre (u otro tipo) devuelve null: el
+// aviso no lleva botón de consejo.
+export function exceededCategoryName(n: { type: string; body: string }): string | null {
+  if (n.type !== "presupuesto_excedido") return null;
+  const m = (n.body || "").match(/^El gasto de (.+?) llegó a /);
+  return m ? (m[1] ?? null) : null;
+}

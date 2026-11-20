@@ -8,7 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Sector, XAxis, YAxis } from "recharts";
 import { money2 } from "../lib/format";
 
-const DONUT_COLORS=["#00C2B5","#2E86AB","#1B7A4D","#B42318","#7C5CBF","#D97A3D","#4A9B8E","#8A6D3B","#5B7FA6","#A34A6B","#6B8E23","#9C6B30","#3E7CB1","#C0504D"];
+const DONUT_COLORS=["#00C2B5","#A34A6B","#2E86AB","#D97A3D","#7C5CBF","#C9A227","#4A9B8E","#5B7FA6","#8A6D3B","#3E7CB1"];
 
 export type CatSlice = {categoryId:number|null;name:string;total:number;pct:number};
 // Símbolo de línea (SVG blanco, sin emojis) dentro de cada segmento de la
@@ -33,28 +33,52 @@ const CAT_DONUT_ICONS: Record<string, ReactNode> = {
   "Otro gasto": (<><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></>),
 };
 const CAT_DONUT_ICON_DEFAULT: ReactNode = (<><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></>);
-// Etiqueta de la dona: dibuja el símbolo blanco del rubro en el centro de
-// su segmento. Los símbolos son discretos (cerca de la mitad del grosor del
-// anillo) y se achican más en los rubros pequeños para no invadir a los
-// vecinos.
-function renderDonutIcon(p: any, minPct = 0){
+// Color de la etiqueta de la dona (icono + %) según la luminancia del
+// relleno: oscuro #13262E sobre rellenos claros (turquesa, terracota,
+// dorado, jade) y blanco sobre oscuros (ciruela, azules, violeta,
+// bronce). Medido en contraste-marfil.py: todos ≥4.5:1 salvo los tres
+// azules (4.11–4.45:1), que llevan un contorno oscuro fino en el texto
+// para leerse sobre el relleno. La paleta aprobada no se oscurece: el
+// relleno es lo que vio Heriberto en la vista previa.
+export function donutLabelColor(fill: string): string {
+  const light = new Set(["#00C2B5", "#D97A3D", "#C9A227", "#4A9B8E"]);
+  return light.has(fill.toUpperCase()) ? "#13262E" : "#FFFFFF";
+}
+// Etiqueta de la dona: el símbolo del rubro y su % del gasto del mes en
+// UNA sola línea, al mismo nivel (el % a la derecha del símbolo, sin
+// texto extra). Solo segmentos ≥ minPct (en Inicio 10%). El grupo se
+// centra al 62% del grosor del anillo: con el anillo más grueso
+// (innerRadius 58%) el grupo queda dentro del segmento sin tocar el
+// total del centro (el grupo mide ~29 px de ancho y su borde interior
+// queda a ~70 px del centro; el total del centro mide ~120 px de ancho,
+// mitad 60 px).
+export function renderDonutLabel(p: any, minPct = 0, colors: string[] = DONUT_COLORS) {
   const datum = (p.payload ?? {}) as Partial<CatSlice>;
   const name = datum.name ?? p.name ?? "";
   const pct = typeof datum.pct === "number" ? datum.pct : (typeof p.percent === "number" ? p.percent * 100 : 0);
-  // En Inicio los símbolos solo van en segmentos grandes (≥10%).
+  // En Inicio las etiquetas solo van en segmentos grandes (≥10%).
   if (pct < minPct) return null;
-  const size = pct >= 10 ? 10 : pct >= 5 ? 8 : 6;
   const RADIAN = Math.PI / 180;
-  const radius = (Number(p.innerRadius) + Number(p.outerRadius)) / 2;
+  const inner = Number(p.innerRadius);
+  const outer = Number(p.outerRadius);
+  const radius = inner + (outer - inner) * 0.62;
   const x = Number(p.cx) + radius * Math.cos(-Number(p.midAngle) * RADIAN);
   const y = Number(p.cy) + radius * Math.sin(-Number(p.midAngle) * RADIAN);
-  return <g transform={`translate(${x - size / 2}, ${y - size / 2})`} pointerEvents="none">
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{filter:"drop-shadow(0 1px 1px rgba(0,0,0,0.35))"}} aria-hidden="true">{CAT_DONUT_ICONS[name] ?? CAT_DONUT_ICON_DEFAULT}</svg>
+  const fill = (typeof p.fill === "string" && p.fill) || colors[Number(p.index ?? 0) % colors.length] || DONUT_COLORS[0];
+  const ink = donutLabelColor(fill);
+  const iconSize = 9;
+  const gap = 2;
+  const pctText = `${Math.round(pct)}%`;
+  const textW = pctText.length * 6;
+  const totalW = iconSize + gap + textW;
+  return <g transform={`translate(${x - totalW / 2}, ${y - iconSize / 2})`} pointerEvents="none">
+    <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{filter:"drop-shadow(0 1px 1px rgba(0,0,0,0.35))"}} aria-hidden="true">{CAT_DONUT_ICONS[name] ?? CAT_DONUT_ICON_DEFAULT}</svg>
+    <text x={iconSize + gap} y={iconSize / 2} dominantBaseline="central" fontSize={10} fontWeight={700} fill={ink} paintOrder="stroke" stroke="rgba(0,0,0,0.35)" strokeWidth={2}>{pctText}</text>
   </g>;
 }
 // Gráfica de dona de gasto por categoría. Opción 4 («solo el rubro
-// tocado»): sin leyenda fija, cada segmento lleva dentro el símbolo blanco
-// de su rubro. Al tocar un segmento queda marcado (más brillante, un poco
+// tocado»): sin leyenda fija, cada segmento lleva dentro su símbolo y su
+// % del gasto del mes en una línea. Al tocar un segmento queda marcado (más brillante, un poco
 // separado, los demás atenuados), aparece debajo una sola línea con ese
 // rubro, su monto y su porcentaje, y se abre directamente la ventana aparte
 // con sus gastos registrados. Al cerrar la ventana, la selección se limpia:
@@ -70,7 +94,7 @@ function renderDonutIcon(p: any, minPct = 0){
 // ni rojo, large (dona de 220 px en móvil y 240 px en escritorio, centro
 // en 24 px), reserveLine (la línea del rubro tiene altura reservada y no
 // hay texto de ayuda, para que la tarjeta no cambie de alto) y minIconPct
-// (símbolos solo en segmentos grandes).
+// (etiquetas —símbolo + %— solo en segmentos grandes).
 export function CategoryChart({data, onSelect, detailOpen, palette, large, reserveLine, minIconPct}:{data:CatSlice[]; onSelect:(d:CatSlice)=>void; detailOpen:boolean; palette?:string[]; large?:boolean; reserveLine?:boolean; minIconPct?:number}){
   const colors = palette ?? DONUT_COLORS;
   const [selName, setSelName] = useState<string|null>(null);
@@ -91,7 +115,7 @@ export function CategoryChart({data, onSelect, detailOpen, palette, large, reser
     <div className={`relative mx-auto ${large ? "w-[220px] h-[220px] md:w-60 md:h-60" : "w-44 h-44"}`} role="img" aria-label="Gráfica de gasto por categoría.">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} dataKey="total" nameKey="name" innerRadius="64%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="var(--surface)" isAnimationActive={false} onClick={(d)=>{ handleSelect(d as unknown as CatSlice); }} style={{cursor:"pointer"}} label={(p:any)=>renderDonutIcon(p, minIconPct ?? 0)} labelLine={false} activeIndex={activeIdx < 0 ? undefined : activeIdx} activeShape={(props: any)=><Sector {...props} outerRadius={Number(props.outerRadius) + 6} />}>
+          <Pie data={data} dataKey="total" nameKey="name" innerRadius="58%" outerRadius="92%" paddingAngle={2} cornerRadius={4} stroke="var(--surface)" isAnimationActive={false} onClick={(d)=>{ handleSelect(d as unknown as CatSlice); }} style={{cursor:"pointer"}} label={(p:any)=>renderDonutLabel(p, minIconPct ?? 0, colors)} labelLine={false} activeIndex={activeIdx < 0 ? undefined : activeIdx} activeShape={(props: any)=><Sector {...props} outerRadius={Number(props.outerRadius) + 6} />}>
             {data.map((d,i)=><Cell key={d.name} fill={colors[i%colors.length]} fillOpacity={sel && d.name!==sel.name ? 0.4 : 1} />)}
           </Pie>
         </PieChart>
