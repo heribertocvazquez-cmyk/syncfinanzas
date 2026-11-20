@@ -96,6 +96,70 @@ async function guestTandaHouseholdIds(db: Ctx["db"], userId: string, userEmail: 
   return out;
 }
 const moneyShort = (n: number) => `$${Math.round(n * 100) / 100}`;
+// Texto del aviso de sugerencia de presupuesto: el promedio es honesto —
+// sin meses con datos no hay promedio que mostrar (con 18 días de
+// historia, el promedio de 3 meses sería $0 y no dice nada); con 1-2
+// meses se dice cuántos; con 3 se mantiene el texto de siempre.
+const budgetSuggestionBody = (catName: string, monthTotal: number, threshold: number, suggested: number, avg: number, monthsWithData: number) => {
+  const avgText = monthsWithData === 0
+    ? "Aún no hay promedio de meses anteriores"
+    : monthsWithData === 3
+      ? `Promedio 3 meses: ${moneyShort(avg)}`
+      : `Promedio de ${monthsWithData} ${monthsWithData === 1 ? "mes" : "meses"}: ${moneyShort(avg)}`;
+  return `${catName} lleva ${moneyShort(monthTotal)} este mes y superó su límite de ${moneyShort(threshold)}. Póngale su límite real para monitorearlo. Límite sugerido: ${moneyShort(suggested)} · ${avgText}.`;
+};
+// Crea el aviso `presupuesto_sugerido` para una categoría sin presupuesto
+// en un mes, si no hay ya uno vivo para esa categoría+mes (clave: el
+// nombre de la categoría en el cuerpo + mes, vía unreadAlertExists).
+// Devuelve true si lo creó. La usan la rama (f) de checkMovementAlerts
+// (al cruzar el umbral con un gasto nuevo) y la reparación al abrir la
+// campanilla (categorías que ya estaban arriba del umbral antes de que
+// existiera la regla).
+async function createBudgetSuggestion(ctx: Ctx, householdId: number, args: { categoryId: number; catName: string; month: string; monthTotal: number; threshold: number; active: { categoryId: number | null; date: string; type: string; amount: number }[] }): Promise<boolean> {
+  const prevMonths = [ymAdd(args.month, -1), ymAdd(args.month, -2), ymAdd(args.month, -3)];
+  const prevTotals = prevMonths.map((ym) => args.active.filter((m) => m.categoryId === args.categoryId && m.date.startsWith(ym) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0));
+  const monthsWithData = prevTotals.filter((t) => t > 0).length;
+  const avg = monthsWithData > 0 ? prevTotals.reduce((s, t) => s + t, 0) / monthsWithData : 0;
+  const suggested = Math.ceil(Math.max(args.monthTotal, avg) / 100) * 100;
+  if (await unreadAlertExists(ctx, householdId, "presupuesto_sugerido", `${args.catName} lleva`, args.month)) return false;
+  await notifyHousehold(ctx, householdId, { type: "presupuesto_sugerido", title: `${args.catName} no tiene presupuesto`, body: budgetSuggestionBody(args.catName, args.monthTotal, args.threshold, suggested, avg, monthsWithData), amount: suggested, target: "presupuestos" });
+  return true;
+}
+// Reparación al abrir la campanilla (lección del 78e6c11: la reparación va
+// en la ruta de lectura, no en la de escritura): las categorías que ya
+// estaban arriba del umbral ANTES de que existiera la regla nunca vuelven
+// a cruzarlo, así que ningún gasto nuevo les crea el aviso (la rama (f)
+// solo dispara al cruzar). Al listar las notificaciones se revisa el MES
+// EN CURSO y se crea el aviso para cada categoría sin presupuesto cuyo
+// total del mes ya esté arriba del umbral y que no tenga un aviso vivo.
+// Idempotente: abrir la campanilla dos veces no duplica; al leer o
+// eliminar el aviso, la siguiente apertura lo vuelve a crear si la
+// categoría sigue arriba. «Desde el inicio» significa que el total del
+// mes ya suma todos los gastos desde el primer día del mes, así que cubre
+// todo el historial del mes en curso. Los meses pasados NO generan
+// avisos: un presupuesto para un mes cerrado no se puede actuar. Nunca
+// bloquea la lista: si algo falla, la campanilla sigue mostrando lo que
+// hay.
+async function ensureBudgetSuggestions(ctx: Ctx, householdId: number) {
+  try {
+    const db = ctx.db;
+    const hh = await db.select().from(schema.households).where(eq(schema.households.id, householdId)).limit(1);
+    const threshold = hh[0]?.approvalThreshold ?? 0;
+    if (threshold <= 0) return;
+    const month = ymOf(new Date());
+    const movs = await db.select().from(schema.movements).where(eq(schema.movements.householdId, householdId));
+    const reversedIds = new Set(movs.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
+    const active = movs.filter(m => m.reversalOfId == null && !reversedIds.has(m.id));
+    const cats = await db.select().from(schema.categories).where(eq(schema.categories.householdId, householdId));
+    const budgets = await db.select().from(schema.budgets).where(eq(schema.budgets.householdId, householdId));
+    for (const cat of cats) {
+      if (budgets.some((b) => b.categoryId === cat.id && b.month === month)) continue;
+      const monthTotal = round2(active.filter((m) => m.categoryId === cat.id && m.date.startsWith(month) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0));
+      if (monthTotal <= threshold) continue;
+      await createBudgetSuggestion(ctx, householdId, { categoryId: cat.id, catName: cat.name, month, monthTotal, threshold, active });
+    }
+  } catch { /* la reparación nunca bloquea la campanilla */ }
+}
 // Revisa si un gasto nuevo debe avisar: (b) supera el límite del hogar
 // (umbral), (c) cruza el presupuesto de su categoría en el mes y (f) la
 // categoría no tiene presupuesto y su total del mes cruzó el umbral, en
@@ -168,14 +232,7 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
         const beforeTotal = round2(monthTotal - args.amount);
         if (beforeTotal <= threshold && monthTotal > threshold) {
           suggestedBudget = true;
-          const prevMonths = [ymAdd(month, -1), ymAdd(month, -2), ymAdd(month, -3)];
-          const prevTotals = prevMonths.map((ym) => active.filter((m) => m.categoryId === args.categoryId && m.date.startsWith(ym) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0));
-          const monthsWithData = prevTotals.filter((t) => t > 0).length;
-          const avg = monthsWithData > 0 ? prevTotals.reduce((s, t) => s + t, 0) / monthsWithData : 0;
-          const suggested = Math.ceil(Math.max(monthTotal, avg) / 100) * 100;
-          if (!(await unreadAlertExists(ctx, args.householdId, "presupuesto_sugerido", `${catName} lleva`, month))) {
-            await notifyHousehold(ctx, args.householdId, { type: "presupuesto_sugerido", title: `${catName} no tiene presupuesto`, body: `${catName} lleva ${moneyShort(monthTotal)} este mes y superó su límite de ${moneyShort(threshold)}. Póngale su límite real para monitorearlo. Límite sugerido: ${moneyShort(suggested)} · Promedio 3 meses: ${moneyShort(avg)}.`, amount: suggested, target: "presupuestos" });
-          }
+          await createBudgetSuggestion(ctx, args.householdId, { categoryId: args.categoryId, catName, month, monthTotal, threshold, active });
         }
       }
       // (d) Gasto anómalo: más del doble del promedio mensual de los últimos
@@ -3818,6 +3875,12 @@ export const Actions = {
     response: z.object({ notifications: z.array(z.object({ id: z.number(), type: z.string(), title: z.string(), body: z.string(), amount: z.number().nullable(), target: z.string(), isRead: z.number(), createdAt: z.string() })), unreadCount: z.number() }),
     async handler(ctx, args) {
       try {
+        // Reparación al abrir la campanilla: crea el aviso
+        // `presupuesto_sugerido` para las categorías sin presupuesto que
+        // ya estaban arriba del umbral antes de que existiera la regla
+        // (ver ensureBudgetSuggestions). Va antes de leer las filas para
+        // que los avisos creados salgan en esta misma respuesta.
+        await ensureBudgetSuggestions(ctx, args.householdId);
         const hids = [...new Set([args.householdId, ...(await guestTandaHouseholdIds(ctx.db, ctx.user.id, ctx.user.email))])];
         const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.userId, ctx.user.id), inArray(schema.notifications.householdId, hids))).orderBy(desc(schema.notifications.createdAt)).limit(100);
         return { notifications: rows.map(r => ({ id: r.id, type: r.type, title: r.title, body: r.body, amount: r.amount ?? null, target: r.target, isRead: r.isRead, createdAt: r.createdAt.toISOString() })), unreadCount: rows.filter(r => !r.isRead).length };
