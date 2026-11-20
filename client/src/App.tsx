@@ -474,7 +474,9 @@ export function App(){
   const [darkMode,setDarkMode]=useState(()=>{ try{ return document.documentElement.classList.contains("dark"); }catch{ return false; } });
   // Cambia el tema y guarda la elección ("sf-theme"); sin elección guardada
   // la app arranca en modo oscuro (main.tsx). Se usa desde Configuración.
-  const setThemeMode=(next:boolean)=>{ setDarkMode(next); try{ localStorage.setItem("sf-theme", next?"dark":"light"); }catch{} try{ document.documentElement.classList.toggle("dark", next); }catch{} };
+  // También actualiza el theme-color de la barra de estado, para que en
+  // claro la banda superior no quede negra (ver main.tsx).
+  const setThemeMode=(next:boolean)=>{ setDarkMode(next); try{ localStorage.setItem("sf-theme", next?"dark":"light"); }catch{} try{ document.documentElement.classList.toggle("dark", next); }catch{} try{ document.querySelector('meta[name="theme-color"]')?.setAttribute("content", next?"#151515":"#EEE3CC"); }catch{} };
   const [updateAvailable,setUpdateAvailable]=useState(false); const [updateApplying,setUpdateApplying]=useState(false); const [updateChecking,setUpdateChecking]=useState(false); const [updateCheckMsg,setUpdateCheckMsg]=useState<string|null>(null);
   useEffect(()=>{
     const onUpdate=()=>setUpdateAvailable(true);

@@ -66,10 +66,16 @@ try {
 // Modo claro / oscuro: se aplica antes de pintar para que la app no
 // parpadee al abrir. La elección guardada del usuario (localStorage
 // "sf-theme") manda; la primera vez se usa el modo oscuro.
+// Color de la barra de estado (meta theme-color): sigue al modo, para
+// que en claro la banda superior no quede negra (reporte de Heriberto
+// 2026-11-20: en claro solo el héroe quedaba oscuro y la banda era el
+// theme-color #151515 fijo). En claro es el fondo de la app (#EEE3CC,
+// igual que el encabezado); en oscuro es el Negro Piano.
 try {
   const stored = localStorage.getItem("sf-theme");
   const dark = stored ? stored === "dark" : true;
   document.documentElement.classList.toggle("dark", dark);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#151515" : "#EEE3CC");
 } catch {
   // Sin almacenamiento disponible: queda el modo oscuro.
 }

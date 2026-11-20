@@ -36,17 +36,24 @@
    acabó la tarjeta marfil con texto oscuro en oscuro. Las reglas de
    ámbito que forzaban tinta oscura dentro de las tarjetas se eliminaron
    (eran el origen de los textos perdidos: ya no hay tarjeta clara en
-   oscuro). El modo claro queda intacto como opción secundaria. */
+   oscuro). El modo claro queda intacto como opción secundaria, salvo el
+   héroe: desde la corrección del 2026-11-20 («En modo claro solo quedó
+   esa viñeta en oscuro») el héroe depende del modo — oscuro en oscuro,
+   claro (#FBF7EC) en claro — porque en claro era la única tarjeta
+   oscura que quedaba. */
 /* Modo claro marfil (opción secundaria): fondo Marfil Antiguo, tarjetas
-   en marfil claro #FBF7EC, héroe negro. El turquesa solo vive sobre negro
-   o como relleno, nunca como texto sobre marfil. */
+   en marfil claro #FBF7EC y héroe claro como las demás tarjetas
+   (corrección 2026-11-20, Heriberto: «En modo claro solo quedó esa
+   viñeta en oscuro corrige» — el héroe era oscuro en los dos modos).
+   El turquesa solo vive sobre negro o como relleno, nunca como texto
+   sobre marfil. */
 :root {
   color-scheme: light;
   --bg: #EEE3CC; --surface: #FBF7EC; --surface2: #E7DCC2;
   --text: #151515; --dim: rgba(21,21,21,.65); --border: rgba(21,21,21,.16);
   --accent: #00C2B5; --accent-text: #062A27; --gold: #00C2B5; --gold-text: #006258; --green: #166A42; --red: #B42318;
   --blue: #DCEBF3; --blue-text: #1D5A75; --blue-ink: #1D5A75;
-  --hero: #151515; --on-hero: #F3ECDB;
+  --hero: #FBF7EC; --on-hero: #151515;
   --fab: #151515; --fab-text: #00C2B5;
   --badge: #B42318; --on-badge: #FFFFFF;
   --radius: 16px;
@@ -77,11 +84,15 @@
    textos perdidos del 2026-11-20: `color` se hereda ya resuelto desde la
    raíz). Si alguna superficie vuelve a ser clara en oscuro, habrá que
    devolver una regla de ámbito para ella, con `color` además de --text. */
-/* Tarjeta héroe (Disponible): oscura en los dos modos, con texto marfil
-   claro y turquesa/verde/rojo claros. Aplica en claro y en oscuro.
-   También fija `color` por el mismo motivo: sin esto, en modo claro el
-   importe grande del héroe heredaba tinta oscura sobre héroe oscuro. */
-[class*="bg-[var(--hero)]"] {
+/* Tarjeta héroe (Disponible): oscura SOLO en modo oscuro, con texto
+   marfil claro y turquesa/verde/rojo claros. En modo claro el héroe es
+   una tarjeta clara más (#FBF7EC) y hereda los valores de la raíz
+   (tinta oscura, etiquetas en teal #006258, verde/rojo oscuros, dim
+   65%): por eso esta regla va acotada a :root.dark. Sin la acotación,
+   en claro el importe grande heredaba marfil sobre héroe claro y se
+   perdía (fue el defecto que reportó Heriberto el 2026-11-20). También
+   fija `color` por el mismo motivo que las demás reglas de ámbito. */
+:root.dark [class*="bg-[var(--hero)]"] {
   --text: #F3ECDB;
   color: #F3ECDB;
   --dim: rgba(243,236,219,.65);
