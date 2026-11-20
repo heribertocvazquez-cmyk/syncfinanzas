@@ -576,7 +576,7 @@ export function App(){
   // solo esa fila muestra el aviso y su botón sigue habilitado para
   // reintentar. Se limpia al guardar bien o al intentar de nuevo.
   const [fbSaveError,setFbSaveError]=useState<{id:number;message:string}|null>(null);
-  const setFbStatus=useMutation({mutationFn:async(v:{id:number;estado:FeedbackState;respuesta:string|null})=>await api.setFeedbackStatus(v),onSuccess:()=>{ setFbSaveError(null); qc.invalidateQueries({queryKey:["testerFeedback"]}); qc.invalidateQueries({queryKey:["notifications"]}); },onError:(_e,v)=>{ setFbSaveError({id:v.id,message:"No se pudo guardar la evaluación. Inténtelo de nuevo."}); }});
+  const setFbStatus=useMutation({mutationFn:async(v:{id:number;householdId:number;estado:FeedbackState;respuesta:string|null})=>await api.setFeedbackStatus(v),onSuccess:()=>{ setFbSaveError(null); qc.invalidateQueries({queryKey:["testerFeedback"]}); qc.invalidateQueries({queryKey:["notifications"]}); },onError:(_e,v)=>{ setFbSaveError({id:v.id,message:"No se pudo guardar la evaluación. Inténtelo de nuevo."}); }});
   // Registro de usuarios de la app: total y lista de quienes han entrado.
   // Solo lo ve el dueño de la app; el servidor vuelve a verificar el correo.
   const appUsersQuery=useQuery({queryKey:["appUsers"],queryFn:()=>api.listAppUsers({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
@@ -3062,7 +3062,7 @@ export function App(){
                 {fbQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando opiniones…</p>
                 : fbQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudieron cargar las opiniones.</p>
                 : !fbQuery.data || fbQuery.data.feedback.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin opiniones todavía. Cuando un tester envíe la suya, aparecerá aquí.</p>
-                : <FeedbackReviewList items={fbQuery.data.feedback} busy={setFbStatus.isPending} onSave={(v)=>{ setFbSaveError(null); setFbStatus.mutate(v); }} saveError={fbSaveError} onOpen={()=>markOpinionNotifRead.mutate()} />}
+                : <FeedbackReviewList items={fbQuery.data.feedback} busy={setFbStatus.isPending} onSave={(v)=>{ setFbSaveError(null); setFbStatus.mutate({ ...v, householdId: data!.household!.id }); }} saveError={fbSaveError} onOpen={()=>markOpinionNotifRead.mutate()} />}
             </CollapsibleCard>
             <CollapsibleCard
               open={devUsersOpen}

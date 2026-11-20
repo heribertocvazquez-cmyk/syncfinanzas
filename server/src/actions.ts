@@ -3774,7 +3774,7 @@ export const Actions = {
   // de fallar.
   setFeedbackStatus: defineAction({
     description: "Sets the evaluation state and the owner's reply for one tester feedback entry. App owner only.",
-    request: z.object({ id: z.number(), estado: z.enum(["por_revisar", "ya_existe", "error_confirmado", "mejora_aprobada", "descartado"]), respuesta: z.string().trim().max(2000).optional().nullable() }),
+    request: z.object({ id: z.number(), householdId: z.number(), estado: z.enum(["por_revisar", "ya_existe", "error_confirmado", "mejora_aprobada", "descartado"]), respuesta: z.string().trim().max(2000).optional().nullable() }),
     response: okRes,
     async handler(ctx, args) {
       if (!isAppOwner(ctx)) throw new Error("Solo el dueño de la app puede evaluar las opiniones de los testers.");
