@@ -46,6 +46,8 @@ export type IncExpDetailGroup = {
 export type IncExpDetailModalProps = {
   kind: "income" | "expense";
   label: string;
+  /** Mes anterior en carga (el mes visible usa las filas del overview). */
+  loading?: boolean;
   movementCount: number;
   accountCount: number;
   total: number;
@@ -194,7 +196,9 @@ export function IncExpDetailModal(p: IncExpDetailModalProps) {
           </div>
         )}
         <div className="mt-2">
-          {p.movementCount === 0 && (
+          {p.loading ? (
+            <p className="text-sm text-[var(--dim)]">Cargando movimientos…</p>
+          ) : p.movementCount === 0 && (
             <p className="text-sm text-[var(--dim)]">
               {p.kind === "income"
                 ? "Sin ingresos registrados este mes."

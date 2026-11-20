@@ -129,18 +129,18 @@ export function predictHelp(input: string, faqs: HelpFaq[] = HELP_FAQS, max = 5,
 
 // ---- Cálculos con datos reales (solo movimientos visibles) ----
 // Un movimiento reversado y su reversión no cuentan: se excluyen igual que
-// en los totales de la app.
-function visibleExpenses(ov: OverviewData) {
-  return ov.movements.filter(m => (m.type === "expense" || m.type === "debt_payment") && !m.isReversed && m.reversalOfId == null);
-}
+// en los totales de la app. El gasto por categoría y mes lo calcula el
+// servidor (categoryMonthlyTotals, últimos 6 meses hasta el mes visible o
+// el mes en curso): el overview ya no trae todo el historial, así que
+// estos cálculos leen el agregado en lugar de recorrer las filas.
 function catName(ov: OverviewData, id: number | null): string {
   return ov.categories.find(c => c.id === id)?.name ?? "Sin categoría";
 }
 function spentByCategory(ov: OverviewData, month: string): Map<number | null, number> {
   const out = new Map<number | null, number>();
-  for (const m of visibleExpenses(ov)) {
-    if (!m.date.startsWith(month)) continue;
-    out.set(m.categoryId, (out.get(m.categoryId) ?? 0) + m.amount);
+  for (const t of ov.categoryMonthlyTotals ?? []) {
+    if (t.month !== month) continue;
+    out.set(t.categoryId, (out.get(t.categoryId) ?? 0) + t.total);
   }
   return out;
 }
@@ -353,10 +353,17 @@ export function reviewMovement(ov: OverviewData, d: MovementDraft): string[] {
   }
   const nc = normHelp(d.concept);
   if (nc) {
+    // Duplicado del mismo día: se revisa sobre las filas del overview
+    // (mes visible + hoy, que es la fecha por defecto del formulario);
+    // un duplicado de un mes anterior se detecta al cambiar a ese mes.
     const dup = ov.movements.find(m => m.type === d.type && !m.isReversed && m.reversalOfId == null && m.id !== (d.excludeId ?? null) && m.date === d.date && Math.abs(m.amount - d.amount) < 0.01 && normHelp(m.concept) === nc);
     if (dup) out.push(`Ya registró un movimiento igual el ${fmtDate(d.date)} (${dup.concept}, ${money(dup.amount)}). Revise si es un duplicado.`);
-    const same = ov.movements.filter(m => m.type === d.type && !m.isReversed && m.reversalOfId == null && m.id !== (d.excludeId ?? null) && Math.abs(m.amount - d.amount) < 0.01 && normHelp(m.concept) === nc);
-    if (same.length >= 3) out.push(`Usted registra «${same[0]!.concept}» por ${money(d.amount)} con frecuencia.`);
+    // Frecuencia: el servidor agrupa por (tipo, importe, concepto) en
+    // todo el historial; el concepto es el de la fila más reciente.
+    // (Al editar, el movimiento editado cuenta en el grupo: el aviso es
+    // solo una sugerencia, no un bloqueo.)
+    const same = (ov.frequentMovements ?? []).filter(g => g.type === d.type && Math.abs(g.amount - d.amount) < 0.01 && g.key === nc && g.count >= 3);
+    if (same.length > 0) out.push(`Usted registra «${same[0]!.concept}» por ${money(d.amount)} con frecuencia.`);
   }
   if (isExpense && cat) {
     const prev = prevMonths(month, 3);
@@ -399,14 +406,18 @@ export function recordHelpLearning(ov: OverviewData): void {
     if (!months.includes(month)) months.push(month);
     l.overBudget[o.name] = months.slice(-6);
   }
+  // Conceptos recurrentes: el servidor agrupa por (tipo, importe,
+  // concepto normalizado) con 2 o más ocurrencias en todo el historial
+  // (frequentMovements); aquí se reagrupan solo por concepto, como
+  // antes: el conteo es el total de ocurrencias, la última fecha es la
+  // más reciente y el importe es el de su fila más reciente.
   const counts = new Map<string, { count: number; amount: number; last: string }>();
-  for (const m of visibleExpenses(ov)) {
-    const nc = normHelp(m.concept);
-    if (!nc) continue;
-    const cur = counts.get(nc) ?? { count: 0, amount: m.amount, last: m.date };
-    cur.count += 1;
-    if (m.date >= cur.last) { cur.last = m.date; cur.amount = m.amount; }
-    counts.set(nc, cur);
+  for (const g of ov.frequentMovements ?? []) {
+    if (g.type !== "expense" && g.type !== "debt_payment") continue;
+    const cur = counts.get(g.key) ?? { count: 0, amount: g.amount, last: g.last };
+    cur.count += g.count;
+    if (g.last >= cur.last) { cur.last = g.last; cur.amount = g.amount; }
+    counts.set(g.key, cur);
   }
   const concepts: HelpLearning["concepts"] = {};
   for (const [nc, c] of Array.from(counts.entries()).sort((a, b) => b[1].count - a[1].count).slice(0, 50)) {

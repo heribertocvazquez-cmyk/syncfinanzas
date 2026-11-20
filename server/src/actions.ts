@@ -7,7 +7,7 @@ import {
   parseMpExternalReference,
   requireMpToken,
 } from "./mercadopago.js";
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { fmtDateEs, notifyTandaOrganizer, notifyTandaOrganizerAcceptOtherEmail } from "./tandaNotify.js";
 import { supabaseAdmin } from "./supabase.js";
@@ -807,6 +807,48 @@ export async function isTandaOnlyMember(db: Ctx["db"], userId: string, userEmail
 // Esquema de la vista de una tanda (lo comparten getOverview y listMyTandas).
 const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAdmin: z.boolean(), myProfileId: z.number().nullable(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), mpOrderId: z.string().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) });
 
+// Esquema de una fila de movimiento (lo comparten getOverview y
+// listMovements): un movimiento es siempre el mismo objeto, venga del
+// mes visible o de una página del historial.
+const movementRowSchema = z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), date: z.string(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() });
+type MovementRow = z.infer<typeof movementRowSchema>;
+
+// Normalización de concepto: la MISMA que el cliente (smart.ts normText
+// y helpDynamic.ts normHelp): minúsculas, sin acentos, sin puntuación,
+// espacios colapsados. El servidor la usa para las claves de
+// deduplicación (CSV) y para agrupar conceptos frecuentes; si cambia en
+// un lado, debe cambiar en el otro.
+function normConcept(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// URLs firmadas de comprobantes en paralelo (lotes de 8): createSignedUrl
+// es una llamada de red, no una consulta Postgres, así que paralelizarla
+// no toca la conexión única. Cada clave que falla devuelve null (igual
+// que el bucle secuencial de antes). Devuelve un arreglo en el mismo
+// orden que las claves recibidas.
+async function signedUrls(ctx: Ctx, keys: (string | null | undefined)[]): Promise<(string | null)[]> {
+  const out: (string | null)[] = new Array(keys.length).fill(null);
+  const CHUNK = 8;
+  for (let i = 0; i < keys.length; i += CHUNK) {
+    const chunk = keys.slice(i, i + CHUNK);
+    const urls = await Promise.all(chunk.map(async (k) => {
+      if (!k) return null;
+      try { return await ctx.blobs.getUrl(k); } catch { return null; }
+    }));
+    urls.forEach((u, j) => { out[i + j] = u; });
+  }
+  return out;
+}
+
+// Mapea una fila de la BD a movementRow con su URL de comprobante ya
+// resuelta (o null). `urls` debe venir de signedUrls sobre las mismas
+// filas, en el mismo orden. `mine` marca si el perfil del movimiento es
+// del usuario que consulta (lo usa el cliente para el filtro por perfil).
+function toMovementRows(rows: (typeof schema.movements.$inferSelect)[], urls: (string | null)[], reversedIds: Set<number>, myProfileIds: Set<number>): MovementRow[] {
+  return rows.map((m, i) => ({ id: m.id, type: m.type, amount: m.amount, concept: m.concept, accountId: m.accountId ?? null, toAccountId: m.toAccountId ?? null, categoryId: m.categoryId ?? null, subcategory: m.subcategory ?? null, date: m.date, visibility: m.visibility, profileId: m.profileId ?? null, receiptUrl: urls[i] ?? null, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId != null && myProfileIds.has(m.profileId) }));
+}
+
 // ---- Vista de una tanda (la misma que getOverview arma por hogar) ----
 // Se extrae para reutilizarla en listMyTandas: el invitado de una tanda
 // ve ESA tanda completa (participantes, calendario, pagos, multas,
@@ -909,7 +951,9 @@ async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect
   const ratingsAll = orgRatingsR.filter(r=>orgTandaIds.has(r.tandaId));
   const organizerRating = { avg: ratingsAll.length? Math.round(ratingsAll.reduce((s,r)=>s+r.stars,0)/ratingsAll.length*10)/10 : 0, count: ratingsAll.length };
   const paysOut: {participantId:number;quincenaIndex:number;status:string;reminderSent:number;paidDate:string|null;proofUrl:string|null;proofAmount:number|null;mpOrderId:string|null;verified:number;fineAmount:number}[] = [];
-  for (const x of tandaPaysR.filter(x=>x.tandaId===td.id)) { let url: string|null = null; if (x.proofBlobKey) { try { url = await ctx.blobs.getUrl(x.proofBlobKey); } catch { url = null; } } paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: url, proofAmount: proofAmounts.get(x.id) ?? null, mpOrderId: mpOrderIds.get(x.id) ?? null, verified: x.verified ?? 0, fineAmount: x.fineAmount ?? 0 }); }
+  const paysForTanda = tandaPaysR.filter(x=>x.tandaId===td.id);
+  const paysUrls = await signedUrls(ctx, paysForTanda.map(x=>x.proofBlobKey));
+  for (let pi=0; pi<paysForTanda.length; pi++) { const x = paysForTanda[pi]!; paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: paysUrls[pi] ?? null, proofAmount: proofAmounts.get(x.id) ?? null, mpOrderId: mpOrderIds.get(x.id) ?? null, verified: x.verified ?? 0, fineAmount: x.fineAmount ?? 0 }); }
   // ---- Tandas v3: roles, saldos separados, multas, votos, entregas y pase de lista ----
   const treasurerName = profilesR.find(p=>p.id===(td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId)?.name ?? null;
   const substituteName = profilesR.find(p=>p.id===(td as unknown as { substituteProfileId?: number | null }).substituteProfileId)?.name ?? null;
@@ -993,7 +1037,30 @@ export const Actions = {
       profiles: z.array(z.object({ id: z.number(), name: z.string(), lastName: z.string().nullable(), role: z.string(), email: z.string().nullable(), kind: z.string(), dependentType: z.string().nullable(), monthlyIncome: z.number(), fixedCommitments: z.number(), capacity: z.number() })), myProfileId: z.number().nullable(), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string(), householdName: z.string(), requested: z.boolean() })),
       accounts: z.array(z.object({ id: z.number(), name: z.string(), type: z.string(), visibility: z.string(), initialBalance: z.number(), balance: z.number(), ownerProfileId: z.number().nullable() })),
       categories: z.array(z.object({ id: z.number(), name: z.string(), kind: z.string(), isSystem: z.number(), isActive: z.number(), subcategories: z.array(z.string()) })),
-      movements: z.array(z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), date: z.string(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() })),
+      // Historial del mes visible (más las filas de hoy si hoy queda
+      // fuera del mes visible y los originales de las reversiones que
+      // aparecen en él): el resto del historial se pagina con
+      // listMovements. Los resúmenes que antes se calculaban recorriendo
+      // TODOS los movimientos vienen ya agregados aquí:
+      // - totalMovements: filas visibles de todo el historial (con
+      //   reversiones, como antes data.movements.length).
+      // - monthsWithMovements: meses con movimientos visibles, YYYY-MM,
+      //   de más reciente a más antiguo (alimenta el MonthPicker).
+      // - defaultCashAccountId: cuenta de efectivo más usada.
+      // - categoryMonthlyTotals: gasto por categoría y mes (últimos 6
+      //   meses hasta el mes visible o el mes en curso, el mayor de los
+      //   dos), solo filas visibles no reversadas.
+      // - frequentMovements: grupos (tipo, importe, concepto
+      //   normalizado) con 2 o más ocurrencias en todo el historial
+      //   visible, ordenados por frecuencia; el concepto es el de la
+      //   fila más reciente del grupo. Sirven para los conceptos
+      //   recurrentes del Ayudante y para detectar duplicados.
+      movements: z.array(movementRowSchema),
+      totalMovements: z.number(),
+      monthsWithMovements: z.array(z.string()),
+      defaultCashAccountId: z.number().nullable(),
+      categoryMonthlyTotals: z.array(z.object({ month: z.string(), categoryId: z.number().nullable(), total: z.number() })),
+      frequentMovements: z.array(z.object({ type: z.string(), amount: z.number(), key: z.string(), concept: z.string(), count: z.number(), last: z.string() })),
       budgets: z.array(z.object({ id: z.number(), categoryId: z.number(), month: z.string(), amount: z.number(), visibility: z.string(), spent: z.number(), remaining: z.number(), pct: z.number() })),
       funds: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number().nullable(), visibility: z.string(), balance: z.number() })),
       fundMovements: z.array(z.object({ id: z.number(), fundId: z.number(), type: z.string(), amount: z.number(), date: z.string(), note: z.string().nullable() })),
@@ -1229,14 +1296,65 @@ export const Actions = {
       const monthLabel = (ym:string)=>{ const [yy=2026,mm=1]=ym.split("-").map(Number); return new Date(yy,(mm||1)-1,1).toLocaleDateString("es-MX",{month:"short"}); };
       const monthlySeries: {month:string;label:string;income:number;expense:number}[] = [];
       for (let k=5;k>=0;k--){ const d=new Date(viewDate.getFullYear(), viewDate.getMonth()-k, 1); const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; const ms=activeMovs.filter(m=>m.date.startsWith(ym)); monthlySeries.push({ month: ym, label: monthLabel(ym), income: Math.round(ms.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0)*100)/100, expense: Math.round(ms.filter(m=>m.type==="expense"||m.type==="debt_payment").reduce((s,m)=>s+m.amount,0)*100)/100 }); }
-      const movementsOut: {id:number;type:string;amount:number;concept:string;accountId:number|null;toAccountId:number|null;categoryId:number|null;subcategory:string|null;date:string;visibility:string;profileId:number|null;receiptUrl:string|null;reversalOfId:number|null;isReversed:boolean;mine:boolean}[] = [];
-      // Solo viajan las filas que el usuario puede ver (ver canSeeMovement):
-      // los movimientos privados de otros integrantes no salen del servidor.
-      // «mine» marca si el movimiento es del propio usuario (su perfil está
-      // entre los perfiles de su cuenta): el cliente usa ese dato para no
-      // esconder un movimiento propio guardado con otro perfil de la misma
-      // cuenta, que los totales sí cuentan.
-      for (const m of movsR.filter(canSeeMovement)) { let url: string|null = null; if (m.receiptBlobKey) { try { url = await ctx.blobs.getUrl(m.receiptBlobKey); } catch { url = null; } } movementsOut.push({ id:m.id, type:m.type, amount:m.amount, concept:m.concept, accountId:m.accountId??null, toAccountId:m.toAccountId??null, categoryId:m.categoryId??null, subcategory:m.subcategory??null, date:m.date, visibility:m.visibility, profileId:m.profileId??null, receiptUrl: url, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId!=null && myProfileIds.has(m.profileId) }); }
+      // ---- Movimientos: solo viaja el mes visible ----
+      // Antes se enviaban TODOS los movimientos del hogar en cada carga
+      // (~250 B por fila) y se re-descargaban en cada guardado y al
+      // volver tras 30 s. Ahora el overview trae solo el mes visible,
+      // más las filas de hoy si hoy queda fuera del mes visible (el
+      // formulario de gasto fecha por defecto en hoy) y los originales
+      // de las reversiones que aparecen en él (la etiqueta «Revertido»
+      // busca el original por id). El resto del historial se pagina con
+      // listMovements. Los resúmenes que el cliente calculaba recorriendo
+      // todos los movimientos se calculan aquí, del historial completo:
+      // - totalMovements, monthsWithMovements y defaultCashAccountId
+      //   (antes data.movements.length / meses con movimientos / cuenta
+      //   de efectivo más usada).
+      // - categoryMonthlyTotals: gasto por categoría y mes, últimos 6
+      //   meses hasta el mes visible o el mes en curso (el mayor de los
+      //   dos, para que la revisión de un gasto fechado hoy siga viendo
+      //   su mes aunque se esté consultando un mes anterior).
+      // - frequentMovements: grupos (tipo, importe, concepto
+      //   normalizado) con 2 o más ocurrencias en todo el historial.
+      // Las URLs de comprobante se resuelven en paralelo (lotes de 8):
+      // createSignedUrl es red, no consulta Postgres, y la conexión es
+      // única — las 17 consultas de Postgres siguen secuenciales.
+      const todayStrOv = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+      const visibleMovs = movsR.filter(canSeeMovement);
+      const visibleActiveMovs = visibleMovs.filter(m=>m.reversalOfId==null && !reversedIds.has(m.id));
+      const scopedIds = new Set<number>();
+      const scopedRows = visibleMovs.filter(m=>{ if (m.date.startsWith(currentMonth) || m.date===todayStrOv) { scopedIds.add(m.id); return true; } return false; });
+      const targetIds = new Set<number>();
+      for (const m of scopedRows) if (m.reversalOfId!=null) targetIds.add(m.reversalOfId);
+      const scopedTargets = visibleMovs.filter(m=>targetIds.has(m.id) && !scopedIds.has(m.id));
+      const scopedAll = [...scopedRows, ...scopedTargets].sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id);
+      const scopedUrls = await signedUrls(ctx, scopedAll.map(m=>m.receiptBlobKey));
+      const movementsOut = toMovementRows(scopedAll, scopedUrls, reversedIds, myProfileIds);
+      const totalMovements = visibleMovs.length;
+      const monthsWithMovements = [...new Set(visibleMovs.map(m=>m.date.slice(0,7)))].sort().reverse();
+      const cashCandidates = accountsR.filter(a=>a.type==="cash" || a.name.trim().toLowerCase()==="efectivo");
+      const cashCounts = new Map<number, number>();
+      for (const m of visibleMovs) if (m.accountId!=null) cashCounts.set(m.accountId, (cashCounts.get(m.accountId)??0)+1);
+      const defaultCashAccountId = cashCandidates.length===0 ? null : [...cashCandidates].sort((a,b)=> (cashCounts.get(b.id)??0)-(cashCounts.get(a.id)??0) || a.id-b.id)[0]!.id;
+      const aggWindowEnd = currentMonth > ymOf(now) ? currentMonth : ymOf(now);
+      const aggMonths = new Set<string>();
+      for (let k=5;k>=0;k--){ const d=new Date(Number(aggWindowEnd.slice(0,4)), Number(aggWindowEnd.slice(5,7))-1-k, 1); aggMonths.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); }
+      const catTotalsMap = new Map<string, number>();
+      for (const m of visibleActiveMovs) {
+        if ((m.type==="expense"||m.type==="debt_payment") && aggMonths.has(m.date.slice(0,7))) {
+          const key = `${m.date.slice(0,7)}|${m.categoryId ?? "none"}`;
+          catTotalsMap.set(key, (catTotalsMap.get(key)??0)+m.amount);
+        }
+      }
+      const categoryMonthlyTotals: { month: string; categoryId: number | null; total: number }[] = [...catTotalsMap.entries()].map(([key, total])=>{ const parts = key.split("|"); return { month: parts[0]!, categoryId: parts[1]==="none" ? null : Number(parts[1]), total: Math.round(total*100)/100 }; }).sort((a,b)=> b.month.localeCompare(a.month) || (a.categoryId??-1)-(b.categoryId??-1));
+      const freqMap = new Map<string, { type: string; amount: number; key: string; concept: string; count: number; last: string; lastId: number }>();
+      for (const m of visibleActiveMovs) {
+        const key = normConcept(m.concept);
+        const gkey = `${m.type}|${m.amount}|${key}`;
+        const cur = freqMap.get(gkey);
+        if (!cur) freqMap.set(gkey, { type: m.type, amount: m.amount, key, concept: m.concept, count: 1, last: m.date, lastId: m.id });
+        else { cur.count++; if (m.date > cur.last || (m.date===cur.last && m.id > cur.lastId)) { cur.concept = m.concept; cur.last = m.date; cur.lastId = m.id; } }
+      }
+      const frequentMovements = [...freqMap.values()].filter(g=>g.count>=2).sort((a,b)=> b.count-a.count || b.last.localeCompare(a.last)).slice(0,100).map(g=>({ type: g.type, amount: g.amount, key: g.key, concept: g.concept, count: g.count, last: g.last }));
 
       // ---- Personal mode ----
       const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
@@ -1305,6 +1423,11 @@ export const Actions = {
         accounts,
         categories: catsR.map(c=>{ let subs: string[]=[]; try{ subs=JSON.parse(c.subcategories) as string[] }catch{ subs=[] } return { id:c.id, name:c.name, kind:c.kind, isSystem:c.isSystem, isActive:c.isActive, subcategories: subs }; }),
         movements: movementsOut,
+        totalMovements,
+        monthsWithMovements,
+        defaultCashAccountId,
+        categoryMonthlyTotals,
+        frequentMovements,
         budgets,
         funds,
         fundMovements: fundMovsR.map(f=>({ id:f.id, fundId:f.fundId, type:f.type, amount:f.amount, date:f.date, note:f.note??null })),
@@ -1323,6 +1446,123 @@ export const Actions = {
           contributions, contributionsNote, monthlySeries,
         },
       };
+    },
+  }),
+
+  // ---- Historial de movimientos paginado (desde 2/3 peso) ----
+  // getOverview solo trae el mes visible; el módulo Movimientos carga el
+  // historial por páginas de 50 (máx. 100) con los mismos filtros que
+  // antes aplicaba el cliente sobre todos los movimientos (mes, tipo,
+  // cuenta, concepto, subcategoría). El cursor es (fecha, id) en orden
+  // fecha desc, id desc — estable aunque se agreguen movimientos nuevos.
+  // Los totales de la línea de conteo se calculan sobre el conjunto
+  // filtrado completo (no solo la página), igual que antes. Las filas
+  // `linked` son los originales de las reversiones que aparecen en la
+  // página: van aparte para que no se cuelen en la lista filtrada.
+  listMovements: defineAction({
+    description: "Paginated movement history for the Movements module, with the same server-side filters the client used to apply over the full overview list (month, type, account, concept search, subcategory). Returns one page plus the filtered totals and the reversal targets of that page separately.",
+    request: z.object({
+      householdId: z.number().int().positive(),
+      month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
+      type: z.enum(["all", "income", "expense", "transfer", "debt_payment"]).optional(),
+      account: z.string().optional(),
+      search: z.string().optional(),
+      subcategory: z.string().optional(),
+      cursor: z.object({ date: z.string(), id: z.number() }).nullable().optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    }),
+    response: z.object({
+      rows: z.array(movementRowSchema),
+      linked: z.array(movementRowSchema),
+      nextCursor: z.object({ date: z.string(), id: z.number() }).nullable(),
+      total: z.number(),
+      incomeTotal: z.number(),
+      expenseTotal: z.number(),
+    }),
+    async handler(ctx, args) {
+      const db = ctx.db;
+      const hid = ctx.householdId ?? args.householdId;
+      const where: ReturnType<typeof eq>[] = [eq(schema.movements.householdId, hid)];
+      if (args.month) {
+        const [y, mo] = args.month.split("-").map(Number);
+        const next = new Date(y!, mo!, 1);
+        const nextYm = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
+        where.push(gte(schema.movements.date, `${args.month}-01`), lt(schema.movements.date, nextYm));
+      }
+      if (args.type && args.type !== "all") where.push(eq(schema.movements.type, args.type));
+      if (args.account && args.account !== "all") {
+        if (args.account === "none") where.push(isNull(schema.movements.accountId));
+        else { const n = Number(args.account); if (Number.isFinite(n)) where.push(eq(schema.movements.accountId, n)); }
+      }
+      const movsR = await db.select().from(schema.movements).where(and(...where)).orderBy(desc(schema.movements.date), desc(schema.movements.id));
+      const profilesR = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, hid));
+      const myProfileIds = new Set(profilesR.filter(p => p.userId === ctx.user.id).map(p => p.id));
+      const canSeeMovement = (m: { visibility: string; profileId: number | null }): boolean =>
+        ctx.userRole === "admin" || m.visibility === "shared" || (m.profileId != null && myProfileIds.has(m.profileId));
+      const reversedIds = new Set(movsR.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
+      const q = (args.search ?? "").trim().toLowerCase();
+      const sub = args.subcategory;
+      const filtered = movsR.filter(m => {
+        if (!canSeeMovement(m)) return false;
+        if (q && !m.concept.toLowerCase().includes(q)) return false;
+        if (sub != null && sub !== "all") {
+          if (sub === "") { if ((m.subcategory ?? "") !== "") return false; }
+          else if (m.subcategory !== sub) return false;
+        }
+        return true;
+      });
+      const total = filtered.length;
+      const activeFiltered = filtered.filter(m => m.reversalOfId == null && !reversedIds.has(m.id));
+      const incomeTotal = Math.round(activeFiltered.filter(m => m.type === "income").reduce((s, m) => s + m.amount, 0) * 100) / 100;
+      const expenseTotal = Math.round(activeFiltered.filter(m => m.type !== "income").reduce((s, m) => s + m.amount, 0) * 100) / 100;
+      const limit = args.limit ?? 50;
+      let page = filtered;
+      if (args.cursor) {
+        page = filtered.filter(m => m.date < args.cursor!.date || (m.date === args.cursor!.date && m.id < args.cursor!.id));
+      }
+      const pageRows = page.slice(0, limit);
+      const hasMore = page.length > limit;
+      const nextCursor = hasMore ? { date: pageRows[pageRows.length - 1]!.date, id: pageRows[pageRows.length - 1]!.id } : null;
+      const linkedIds = new Set<number>();
+      for (const m of pageRows) if (m.reversalOfId != null) linkedIds.add(m.reversalOfId);
+      const pageIds = new Set(pageRows.map(m => m.id));
+      // Los originales pueden estar en OTRO mes (fuera del filtro de mes
+      // de la consulta principal): se buscan por id, sin filtros.
+      const linkedRows = linkedIds.size > 0
+        ? (await db.select().from(schema.movements).where(inArray(schema.movements.id, [...linkedIds]))).filter(m => !pageIds.has(m.id) && canSeeMovement(m)).sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+        : [];
+      const allRows = [...pageRows, ...linkedRows];
+      const urls = await signedUrls(ctx, allRows.map(m => m.receiptBlobKey));
+      const rowsOut = toMovementRows(pageRows, urls.slice(0, pageRows.length), reversedIds, myProfileIds);
+      const linkedOut = toMovementRows(linkedRows, urls.slice(pageRows.length), reversedIds, myProfileIds);
+      return { rows: rowsOut, linked: linkedOut, nextCursor, total, incomeTotal, expenseTotal };
+    },
+  }),
+
+  // Claves de deduplicación de la importación CSV: fecha|concepto
+  // normalizado|importe|tipo de todos los movimientos visibles no
+  // reversados. Antes el cliente las calculaba de data.movements (todo
+  // el historial); ahora se piden bajo demanda al abrir la importación.
+  listMovementKeys: defineAction({
+    description: "Dedup keys (date|normalized concept|amount|type) of all visible non-reversed movements, for the CSV import duplicate check. Called on demand when the import opens.",
+    request: z.object({ householdId: z.number().int().positive() }),
+    response: z.object({ keys: z.array(z.string()) }),
+    async handler(ctx, args) {
+      const db = ctx.db;
+      const hid = ctx.householdId ?? args.householdId;
+      const movsR = await db.select().from(schema.movements).where(eq(schema.movements.householdId, hid)).orderBy(desc(schema.movements.date), desc(schema.movements.id));
+      const profilesR = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, hid));
+      const myProfileIds = new Set(profilesR.filter(p => p.userId === ctx.user.id).map(p => p.id));
+      const canSeeMovement = (m: { visibility: string; profileId: number | null }): boolean =>
+        ctx.userRole === "admin" || m.visibility === "shared" || (m.profileId != null && myProfileIds.has(m.profileId));
+      const reversedIds = new Set(movsR.filter(m => m.reversalOfId != null).map(m => m.reversalOfId as number));
+      const keys = new Set<string>();
+      for (const m of movsR) {
+        if (!canSeeMovement(m)) continue;
+        if (m.reversalOfId != null || reversedIds.has(m.id)) continue;
+        keys.add(`${m.date}|${normConcept(m.concept)}|${m.amount}|${m.type}`);
+      }
+      return { keys: [...keys] };
     },
   }),
 

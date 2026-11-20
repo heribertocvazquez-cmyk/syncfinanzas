@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaTopScrim } from "./components/SafeArea";
 import { readInviteToken, type InvitePreview } from "./components/AuthGate";
 import { fileToBase64 } from "./lib/file";
@@ -9,7 +9,7 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText, ocrStatusText, OcrError } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { canSeeMovementRow, defaultCashAccountId, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
+import { canSeeMovementRow, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
 import { readStoredProfile, resolveActiveProfile, writeStoredProfile } from "./lib/activeProfile";
 import { clearStoredHousehold, readStoredHousehold, writeStoredHousehold } from "./lib/activeHousehold";
 import { HouseholdSwitcher } from "./components/HouseholdSwitcher";
@@ -676,7 +676,7 @@ export function App(){
       throw e;
     }
   }});
-  const inv=()=>{ qc.invalidateQueries({queryKey:["overview"]}); qc.invalidateQueries({queryKey:["notifications"]}); qc.invalidateQueries({queryKey:["myTandas"]}); };
+  const inv=()=>{ qc.invalidateQueries({queryKey:["overview"]}); qc.invalidateQueries({queryKey:["notifications"]}); qc.invalidateQueries({queryKey:["myTandas"]}); qc.invalidateQueries({queryKey:["movements"]}); };
   // Tandas invitadas: tandas de otros hogares en las que el usuario
   // participa por correo sin ser miembro de ese hogar. El servidor solo
   // devuelve ESA tanda (sin nada más del hogar del invitador); se muestran
@@ -826,7 +826,7 @@ export function App(){
   useEffect(()=>{
     if(!firstGuideOpen || !data?.household) return;
     const step1 = data.household.mode==="personal" ? (data.personal?.salary||0)>0 : data.accounts.length>0;
-    const step2 = data.movements.length>0;
+    const step2 = data.totalMovements>0;
     if(step1 && step2 && chartsSeen) dismissFirstGuide();
   },[firstGuideOpen, data, chartsSeen]);
 
@@ -1404,10 +1404,74 @@ export function App(){
     if(m2) return `${m2[3]}-${m2[2]!.padStart(2,"0")}-${m2[1]!.padStart(2,"0")}`;
     return null;
   };
-  const exportCsv=()=>{
-    const rows:(string|number|null)[][]=[["Fecha","Concepto","Tipo","Categoría","Subcategoría","Cuenta","Importe","Visibilidad"]];
-    for(const m of filteredMovs) rows.push([m.date,m.concept,TYPE_LABEL[m.type]||m.type,getCatName(m.categoryId),m.subcategory||"",getAccName(m.accountId),m.amount,m.visibility==="shared"?"Compartido":"Privado"]);
-    downloadTextFile(`syncfinanzas-movimientos-${monthNow()}.csv`,toCsv(rows),"text/csv;charset=utf-8");
+  // ---- Historial de movimientos paginado (desde 2/3 peso) ----
+  // El overview solo trae el mes visible; el historial del módulo
+  // Movimientos se carga por páginas de 50 con los filtros aplicados en
+  // el servidor (misma regla que filterMovements). Los totales de la
+  // línea de conteo vienen del servidor (conjunto filtrado completo, no
+  // solo la página). El CSV se exporta recorriendo TODAS las páginas con
+  // los filtros actuales, como antes exportaba todo el historial
+  // filtrado. Las claves de deduplicación de la importación se piden
+  // bajo demanda al abrir el archivo (listMovementKeys), no en cada carga.
+  type MovementPageArgs = { householdId: number; month?: string; type?: "income" | "expense" | "transfer" | "debt_payment"; account?: string; search?: string; subcategory?: string };
+  const mvPageArgs = (f: MovementsFilterValue): MovementPageArgs | null => {
+    if (!data?.household) return null;
+    const args: MovementPageArgs = { householdId: data.household.id };
+    if (f.month !== "") args.month = f.month;
+    if (f.type !== "all") args.type = f.type;
+    if (f.account !== "all") args.account = f.account;
+    if (f.search.trim() !== "") args.search = f.search.trim();
+    if (f.subcategory !== "all") args.subcategory = f.subcategory;
+    return args;
+  };
+  const fetchAllMovementPages = async (args: MovementPageArgs) => {
+    const out: Awaited<ReturnType<typeof api.listMovements>>["rows"] = [];
+    let cursor: { date: string; id: number } | null = null;
+    for (;;) {
+      const page = await api.listMovements({ ...args, cursor, limit: 100 });
+      out.push(...page.rows);
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    return out;
+  };
+  const mvQuery = useInfiniteQuery({
+    queryKey: ["movements", activeHouseholdId, mvFilters],
+    queryFn: async ({ pageParam }) => {
+      const args = mvPageArgs(mvFilters);
+      if (!args) throw new Error("Sin hogar activo.");
+      return api.listMovements({ ...args, cursor: pageParam ?? null, limit: 50 });
+    },
+    initialPageParam: null as { date: string; id: number } | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    placeholderData: keepPreviousData,
+    enabled: !!data?.household,
+  });
+  // Detalle de ingresos vs gastos de un mes anterior: ese mes no viene en
+  // el overview (solo el mes visible), así que se carga bajo demanda al
+  // abrir el detalle; el mes visible usa las filas del overview.
+  const incExpMonthQuery = useQuery({
+    queryKey: ["movements", activeHouseholdId, { detail: "incexp", month: incExpDetail?.month }],
+    queryFn: async () => {
+      const args = mvPageArgs({ ...DEFAULT_MOVEMENTS_FILTER, month: incExpDetail!.month });
+      if (!args) throw new Error("Sin hogar activo.");
+      return fetchAllMovementPages(args);
+    },
+    enabled: !!incExpDetail && !!data?.household && incExpDetail.month !== data?.summary?.currentMonth,
+  });
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const exportCsv = async () => {
+    if (!data?.household || exportingCsv) return;
+    const args = mvPageArgs(mvFilters);
+    if (!args) return;
+    setExportingCsv(true);
+    try {
+      const meRow = meEarly?.id != null ? { id: meEarly.id, role: meEarly.role === "admin" ? "admin" : "member" } : null;
+      const all = filterMovements((await fetchAllMovementPages(args)).filter(m => canSeeMovementRow(m, meRow)), mvFilters);
+      const rows: (string | number | null)[][] = [["Fecha", "Concepto", "Tipo", "Categoría", "Subcategoría", "Cuenta", "Importe", "Visibilidad"]];
+      for (const m of all) rows.push([m.date, m.concept, TYPE_LABEL[m.type] || m.type, getCatName(m.categoryId), m.subcategory || "", getAccName(m.accountId), m.amount, m.visibility === "shared" ? "Compartido" : "Privado"]);
+      downloadTextFile(`syncfinanzas-movimientos-${monthNow()}.csv`, toCsv(rows), "text/csv;charset=utf-8");
+    } finally { setExportingCsv(false); }
   };
   const handleImportFile=async(file:File|undefined)=>{
     if(!file || !data) return;
@@ -1425,7 +1489,10 @@ export function App(){
       const cCat=findCol("categoria","category");
       const cAcc=findCol("cuenta","account");
       if(cDate<0 || cConcept<0 || cAmount<0){ setImportError("No se reconocieron las columnas. El archivo necesita al menos Fecha, Concepto e Importe."); return; }
-      const existing=new Set(data.movements.filter(m=>!m.isReversed && !m.reversalOfId).map(m=>`${m.date}|${normText(m.concept)}|${m.amount}|${m.type}`));
+      // Claves de deduplicación de todo el historial visible: se piden
+      // bajo demanda al abrir la importación (el overview ya no trae
+      // todo el historial).
+      const existing = new Set((await api.listMovementKeys({ householdId: data.household!.id })).keys);
       const rows:ImportRow[]=[];
       for(const g of grid.slice(1)){
         const dateRaw=(g[cDate]||"").trim();
@@ -1456,7 +1523,14 @@ export function App(){
 
   const catsForType = useMemo(()=>{ if(!data) return []; const kind = mvType==="income"?"income":"expense"; if(mvType==="transfer") return []; return data.categories.filter(c=>c.kind===kind && c.isActive===1); },[data,mvType]);
   const selectedCat = data?.categories.find(c=>String(c.id)===mvCat);
-  const filteredMovs = useMemo(()=>{ if(!data) return []; const meId = meEarly?.id ?? null; const meIsAdmin = meEarly?.role==="admin"; const meRow = meId!=null ? { id: meId, role: meIsAdmin ? "admin" : "member" } : null; return filterMovements(data.movements.filter(m=> canSeeMovementRow(m, meRow)), mvFilters); },[data,mvFilters,meEarly]);
+  const filteredMovs = useMemo(()=>{ if(!data) return []; const meId = meEarly?.id ?? null; const meIsAdmin = meEarly?.role==="admin"; const meRow = meId!=null ? { id: meId, role: meIsAdmin ? "admin" : "member" } : null; const rows = (mvQuery.data?.pages ?? []).flatMap(p=>p.rows); return filterMovements(rows.filter(m=> canSeeMovementRow(m, meRow)), mvFilters); },[data,mvFilters,meEarly,mvQuery.data]);
+  // Totales del conjunto filtrado completo (no solo la página cargada):
+  // vienen de la primera página, que el servidor calcula sobre todo el
+  // historial filtrado. La etiqueta «Anula …» de una reversión busca el
+  // original también entre las filas cargadas y sus enlazadas (el
+  // original puede estar en otro mes).
+  const mvTotals = mvQuery.data?.pages[0] ? { total: mvQuery.data.pages[0].total, incomeTotal: mvQuery.data.pages[0].incomeTotal, expenseTotal: mvQuery.data.pages[0].expenseTotal } : { total: 0, incomeTotal: 0, expenseTotal: 0 };
+  const reversalConceptById = useMemo(()=>{ const map = new Map<number,string>(); if(data) for(const m of data.movements) map.set(m.id, m.concept); for(const p of mvQuery.data?.pages ?? []) for(const m of [...p.rows, ...p.linked]) map.set(m.id, m.concept); return map; },[data, mvQuery.data]);
 
   // Los hooks van antes de los retornos de carga/error: si van después,
   // el primer render (cargando) llamaría menos hooks que el siguiente y
@@ -1464,7 +1538,7 @@ export function App(){
   // cuenta de efectivo real, el formulario la trae ya elegida (gastos se
   // descuentan de ahí, ingresos entran ahí). Si no hay cuenta de efectivo,
   // el campo queda vacío y la regla de cuenta obligatoria pide elegir una.
-  const cashDefaultId = useMemo(()=> data ? defaultCashAccountId(data.accounts, data.movements) : "", [data]);
+  const cashDefaultId = useMemo(()=> data?.defaultCashAccountId!=null ? String(data.defaultCashAccountId) : "", [data]);
   useEffect(()=>{ if(!mvAccount && cashDefaultId) setMvAccount(cashDefaultId); },[mvAccount, cashDefaultId]);
   useEffect(()=>{ if(!persAccount && cashDefaultId) setPersAccount(cashDefaultId); },[persAccount, cashDefaultId]);
   // Al cambiar el mes que muestra el tablero, la lista de Inicio vuelve a mostrar solo los 5 más recientes.
@@ -1643,7 +1717,7 @@ export function App(){
   const fullName=(pr:{name:string;lastName?:string|null})=>`${pr.name} ${pr.lastName||""}`.trim();
   const me = meEarly;
   const guideStep1 = hh.mode==="personal" ? data.personal.salary>0 : data.accounts.length>0;
-  const guideStep2 = data.movements.length>0;
+  const guideStep2 = data.totalMovements>0;
   const guideStep3 = chartsSeen;
   const isAdmin = !me || me.role==="admin";
   // Permisos de tanda del perfil actual (me): la interfaz solo muestra los
@@ -1710,11 +1784,16 @@ export function App(){
   const goalsSum = sumGoals(data.goals);
   // Meses con al menos un movimiento visible: el selector de mes solo
   // habilita esos meses, para que no se pueda elegir un mes en blanco.
-  const monthsWithMovs = new Set(visibleMovs.map(m=>m.date.slice(0,7)));
+  // La lista la calcula el servidor sobre todo el historial.
+  const monthsWithMovs = new Set(data.monthsWithMovements ?? []);
   // Movimientos del detalle de ingresos vs gastos: misma regla con la que el
   // servidor arma las barras (mes tocado, ingreso o gasto/pago de deuda, sin
   // reversados ni reversiones), para que la suma coincida con la barra.
-  const incExpBase = incExpDetail ? data.movements.filter(m=> m.date.startsWith(incExpDetail.month) && !m.isReversed && !m.reversalOfId && (incExpDetail.kind==="income" ? m.type==="income" : (m.type==="expense"||m.type==="debt_payment"))).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
+  // El mes visible usa las filas del overview; un mes anterior se carga
+  // bajo demanda (incExpMonthQuery) y mientras tanto se muestra «Cargando…».
+  const incExpRows = incExpDetail ? (incExpDetail.month === s.currentMonth ? data.movements : (incExpMonthQuery.data ?? [])) : [];
+  const incExpBase = incExpDetail ? incExpRows.filter(m=> m.date.startsWith(incExpDetail.month) && !m.isReversed && !m.reversalOfId && (incExpDetail.kind==="income" ? m.type==="income" : (m.type==="expense"||m.type==="debt_payment"))).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
+  const incExpLoading = !!incExpDetail && incExpDetail.month !== s.currentMonth && incExpMonthQuery.isPending;
   const incExpMovs = incExpBase.filter(canSeeMov);
   const incExpHiddenCount = incExpBase.length - incExpMovs.length;
   const catDetailBase = catDetail ? data.movements.filter(m=> (m.categoryId??null)===catDetail.categoryId && m.date.startsWith(catDetail.month) && (m.type==="expense"||m.type==="debt_payment") && !m.isReversed && m.reversalOfId==null).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id) : [];
@@ -1992,7 +2071,7 @@ export function App(){
               {netVar && <span className="block text-[13px] text-[var(--dim)] mt-3">{netVar.diff>0?`Neto ${money(netVar.diff)} más que en ${netVar.prevName}`:netVar.diff<0?`Neto ${money(-netVar.diff)} menos que en ${netVar.prevName}`:`Neto igual que en ${netVar.prevName}`}</span>}
             </button>
 
-            {data.movements.length>0 && (
+            {data.totalMovements>0 && (
             <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <h2 className="font-display font-bold text-lg">Gasto por categoría · {fmtMonth(s.currentMonth)}</h2>
@@ -2011,7 +2090,7 @@ export function App(){
               monthsWithMovements={monthsWithMovs}
               summary={homeMovSummary}
               rows={homeMovs.map(m=>({key:m.id,title:movTitle(m),detail:`${fmtDate(m.date)} · ${TYPE_LABEL[m.type]||m.type} · ${getCatName(m.categoryId)} · ${getAccName(m.accountId)}${m.isReversed?" · Reversado (fuera de los totales)":""}${m.reversalOfId?" · Reversión (fuera de los totales)":""}`,amount:`${m.type==="income"?"+":"−"}${money(m.amount)}`,isIncome:m.type==="income",struck:!!(m.isReversed||m.reversalOfId)}))}
-              hasAnyMovements={data.movements.length>0}
+              hasAnyMovements={data.totalMovements>0}
               showAll={showAllHomeMovs}
               onToggleShowAll={()=>setShowAllHomeMovs(v=>!v)}
               onNewMovement={openInicioMovement}
@@ -2074,9 +2153,9 @@ export function App(){
                   />
                 </div>
               </div>
-              <p className="text-xs text-[var(--dim)] mt-2">{filteredMovs.length} movimientos · Entradas {money(filteredMovs.filter(m=>m.type==="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))} · Salidas {money(filteredMovs.filter(m=>m.type!=="income" && !m.isReversed && !m.reversalOfId).reduce((a,m)=>a+m.amount,0))}</p>
+              <p className="text-xs text-[var(--dim)] mt-2">{mvQuery.isPending ? "Cargando movimientos…" : `${mvTotals.total} movimientos · Entradas ${money(mvTotals.incomeTotal)} · Salidas ${money(mvTotals.expenseTotal)}`}</p>
               <div className="flex gap-2 flex-wrap mt-2">
-                <button type="button" aria-label="Exportar los movimientos visibles a CSV" className={btnGhost} onClick={exportCsv}>Exportar CSV</button>
+                <button type="button" aria-label="Exportar los movimientos visibles a CSV" className={btnGhost} disabled={exportingCsv} onClick={exportCsv}>{exportingCsv?"Exportando…":"Exportar CSV"}</button>
                 <button type="button" aria-label="Importar movimientos desde un archivo CSV" aria-expanded={importOpen} className={btnGhost} onClick={()=>{setImportOpen(o=>!o); setImportError("");}}>{importOpen?"Cerrar importación":"Importar CSV"}</button>
               </div>
               {importOpen && (
@@ -2119,7 +2198,7 @@ export function App(){
               <div className="divide-y divide-[var(--border)] mt-2">
                 {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm">{movTitle(m)}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
                 {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-xs text-[var(--dim)]">Fuera de los totales.</span></p>}
-                {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-xs text-[var(--dim)]">Anula «{data.movements.find(x=>x.id===m.reversalOfId)?.concept||""}».</span></p>}
+                {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-xs text-[var(--dim)]">Anula «{reversalConceptById.get(m.reversalOfId)||""}».</span></p>}
                 </div><div className="text-right shrink-0"><p className={`font-display font-bold whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img loading="lazy" decoding="async" src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
                 {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setMvStep(1);setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");scrollFormTop("mv-form");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>setConfirmDeleteMvId(confirmDeleteMvId===m.id?null:m.id)}>Eliminar</button></>}
                 </div></div>
@@ -2127,7 +2206,9 @@ export function App(){
                 {confirmDeleteMvId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Está seguro de eliminar este movimiento?</p><p className="text-xs text-[var(--dim)] mt-1">«{m.concept}» por <b className="whitespace-nowrap">{money2(m.amount)}</b>. Esta acción no se puede deshacer.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Avanzar con la eliminación de ${m.concept}`} className={btnPrimary} disabled={delMv.isPending} onClick={()=>delMv.mutate(m.id)}>{delMv.isPending?"Eliminando…":"Avanzar"}</button><button type="button" aria-label="Cancelar la eliminación" className={btnGhost} onClick={()=>setConfirmDeleteMvId(null)}>Cancelar</button></div></div>}
                 </div>; })}
               </div>
-              {filteredMovs.length===0 && <Empty title="Sin movimientos con ese filtro" body="Cambie el filtro o registre el primero." />}
+              {mvQuery.hasNextPage && <div className="mt-3 text-center"><button type="button" className={btnGhost} disabled={mvQuery.isFetchingNextPage} onClick={()=>mvQuery.fetchNextPage()}>{mvQuery.isFetchingNextPage?"Cargando más…":"Cargar más"}</button></div>}
+              {mvQuery.isPending && <p className="text-sm text-[var(--dim)] mt-2">Cargando movimientos…</p>}
+              {!mvQuery.isPending && filteredMovs.length===0 && <Empty title="Sin movimientos con ese filtro" body="Cambie el filtro o registre el primero." />}
             </div>
           </section>
         )}
@@ -2746,7 +2827,7 @@ export function App(){
                 {demo.error && <p className="text-xs text-[var(--red)] mt-1">{String(demo.error)}</p>}
                 {demo.isSuccess && <p className="text-xs text-[var(--green)] mt-1">Demo cargada: datos con “(demo)”.</p>}
               </div>
-              <button type="button" className={btnPrimary+" shrink-0"} aria-label="Cargar datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.movements.length>0} title={data.movements.length>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>{demo.isPending?"Cargando…":"Cargar demo"}</button>
+              <button type="button" className={btnPrimary+" shrink-0"} aria-label="Cargar datos de demostración" onClick={()=>demo.mutate()} disabled={demo.isPending || data.totalMovements>0} title={data.totalMovements>0?"La demo solo se carga sin movimientos":"Carga datos de ejemplo"}>{demo.isPending?"Cargando…":"Cargar demo"}</button>
             </div>
             <div className="grid sm:grid-cols-3 gap-2">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">Gastos del día con comprobante</p><p className="text-sm text-[var(--dim)] mt-1">Suba la foto al empezar el gasto: la app lee el total en su dispositivo y llena el gasto.</p><button type="button" aria-label="Ir a Personal para probar la lectura del comprobante" className={btnGhost+" mt-2"} onClick={()=>goTab("personal")}>Probar en Personal</button></div>
@@ -2989,6 +3070,7 @@ export function App(){
       {incExpDetail && <IncExpDetailModal
         kind={incExpDetail.kind}
         label={incExpDetail.label}
+        loading={incExpLoading}
         movementCount={incExpBase.length}
         accountCount={incExpByAcc.length}
         total={incExpBase.reduce((a,m)=>a+m.amount,0)}
