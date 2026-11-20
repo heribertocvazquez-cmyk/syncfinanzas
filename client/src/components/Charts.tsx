@@ -66,14 +66,19 @@ export function renderDonutLabel(p: any, minPct = 0, colors: string[] = DONUT_CO
   const y = Number(p.cy) + radius * Math.sin(-Number(p.midAngle) * RADIAN);
   const fill = (typeof p.fill === "string" && p.fill) || colors[Number(p.index ?? 0) % colors.length] || DONUT_COLORS[0];
   const ink = donutLabelColor(fill);
+  // La sombra (drop-shadow del icono y contorno oscuro del %) solo va en
+  // las etiquetas BLANCAS: sobre rellenos claros el halo oscuro ayuda a
+  // leer, pero sobre el aqua/terracota/dorado/jade la tinta ya es oscura
+  // (#13262E) y el halo embarra el glifo. Las oscuras van limpias.
+  const halo = ink === "#FFFFFF";
   const iconSize = 9;
   const gap = 2;
   const pctText = `${Math.round(pct)}%`;
   const textW = pctText.length * 6;
   const totalW = iconSize + gap + textW;
   return <g transform={`translate(${x - totalW / 2}, ${y - iconSize / 2})`} pointerEvents="none">
-    <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{filter:"drop-shadow(0 1px 1px rgba(0,0,0,0.35))"}} aria-hidden="true">{CAT_DONUT_ICONS[name] ?? CAT_DONUT_ICON_DEFAULT}</svg>
-    <text x={iconSize + gap} y={iconSize / 2} dominantBaseline="central" fontSize={10} fontWeight={700} fill={ink} paintOrder="stroke" stroke="rgba(0,0,0,0.35)" strokeWidth={2}>{pctText}</text>
+    <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={halo ? {filter:"drop-shadow(0 1px 1px rgba(0,0,0,0.35))"} : undefined} aria-hidden="true">{CAT_DONUT_ICONS[name] ?? CAT_DONUT_ICON_DEFAULT}</svg>
+    <text x={iconSize + gap} y={iconSize / 2} dominantBaseline="central" fontSize={10} fontWeight={700} fill={ink} paintOrder={halo ? "stroke" : undefined} stroke={halo ? "rgba(0,0,0,0.35)" : undefined} strokeWidth={halo ? 2 : undefined}>{pctText}</text>
   </g>;
 }
 // Gráfica de dona de gasto por categoría. Opción 4 («solo el rubro
