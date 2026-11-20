@@ -114,6 +114,43 @@ export function requiredAccountNotice(
 }
 
 /**
+ * Aviso cuando falta la cuenta al aportar a una meta o a un fondo.
+ * Devuelve null cuando sí hay una cuenta real elegida.
+ */
+export function requiredGoalAccountNotice(
+  accountValue: string | null | undefined,
+): string | null {
+  return isAccountSelected(accountValue)
+    ? null
+    : "Elija la cuenta de donde se descuenta.";
+}
+
+/**
+ * Aviso cuando falta la cuenta al retirar de una meta o de un fondo.
+ * Devuelve null cuando sí hay una cuenta real elegida.
+ */
+export function requiredGoalReturnAccountNotice(
+  accountValue: string | null | undefined,
+): string | null {
+  return isAccountSelected(accountValue)
+    ? null
+    : "Elija la cuenta a la que vuelve el dinero.";
+}
+
+/**
+ * Aviso cuando falta la cuenta del dinero ya ahorrado al crear una meta
+ * con ya ahorrado mayor que $0. Devuelve null cuando sí hay una cuenta
+ * real elegida.
+ */
+export function requiredInitialAccountNotice(
+  accountValue: string | null | undefined,
+): string | null {
+  return isAccountSelected(accountValue)
+    ? null
+    : "Elija la cuenta de donde es ese dinero.";
+}
+
+/**
  * Agrupa movimientos por cuenta para el detalle «¿De dónde salieron
  * los gastos?» (y su equivalente de ingresos). Los movimientos sin
  * cuenta van en un solo grupo honesto «Sin cuenta»; cada cuenta real

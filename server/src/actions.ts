@@ -339,10 +339,14 @@ async function checkGoalPlanAlerts(ctx: Ctx, householdId: number) {
         continue;
       }
       if (plan.status === "cumplido") continue;
-      // Aportes netos del fondo por mes (aportes menos retiros).
+      // Aportes netos del fondo por mes (aportes menos retiros). El «Saldo
+      // inicial de la meta» no es un aporte del mes (ver contributedThisMonth
+      // en getOverview): tampoco cuenta aquí, para que el aviso de
+      // aportación del mes no se calle solo porque la meta nació con ahorro.
       const byMonth = new Map<string, number>();
       for (const fm of fundMovs) {
         if (fm.fundId !== plan.fundId) continue;
+        if (fm.note === "Saldo inicial de la meta") continue;
         const ym = fm.date.slice(0, 7);
         byMonth.set(ym, (byMonth.get(ym) ?? 0) + (fm.type === "contribution" ? fm.amount : -fm.amount));
       }
@@ -1102,7 +1106,7 @@ export const Actions = {
       const hh = hhRows[0];
       if (!hh) {
         return {
-          household: null, households: [], profiles: [], myProfileId: null, invitations: [], accounts: [], categories: [], movements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
+          household: null, households: [], profiles: [], myProfileId: null, invitations: [], accounts: [], categories: [], movements: [], totalMovements: 0, monthsWithMovements: [], defaultCashAccountId: null, categoryMonthlyTotals: [], frequentMovements: [], budgets: [], funds: [], fundMovements: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
           personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth, contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
         };
       }
@@ -1389,7 +1393,12 @@ export const Actions = {
         const goal = goalsR.find(g => g.id === plan.goalId);
         const fms = fundMovsR.filter(f => f.fundId === plan.fundId);
         const fundBalance = Math.round(fms.reduce((s, f) => s + (f.type === "contribution" ? f.amount : -f.amount), 0) * 100) / 100;
-        const contributedThisMonth = Math.round(fms.filter(f => f.date.startsWith(curYm)).reduce((s, f) => s + (f.type === "contribution" ? f.amount : -f.amount), 0) * 100) / 100;
+        // El «Saldo inicial de la meta» es dinero que ya estaba ahorrado
+        // antes de existir el fondo, no un apartado de este mes: si se
+        // contara aquí, una meta creada hoy con ya ahorrado parecería al
+        // corriente sin haber aportado nada este mes. Sigue contando en
+        // fundBalance (y por tanto en savedAmount y en la conciliación).
+        const contributedThisMonth = Math.round(fms.filter(f => f.date.startsWith(curYm) && f.note !== "Saldo inicial de la meta").reduce((s, f) => s + (f.type === "contribution" ? f.amount : -f.amount), 0) * 100) / 100;
         const monthsElapsed = Math.max(0, monthDiff(plan.startMonth, curYm));
         const dueThisMonth = curDay >= plan.dueDay ? 1 : 0;
         const expectedByNow = Math.round(plan.monthlyAmount * (monthsElapsed + dueThisMonth) * 100) / 100;
@@ -1825,10 +1834,19 @@ export const Actions = {
   }),
   deleteFund: defineAction({ description: "Deletes a fund.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.fundMovements).where(eq(schema.fundMovements.fundId,args.id)); await db.delete(schema.funds).where(eq(schema.funds.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
   addFundMovement: defineAction({
-    description: "Adds a contribution or withdrawal to a fund. Not an income/expense.",
-    request: z.object({ householdId: z.number(), fundId: z.number(), type: z.enum(["contribution","withdrawal"]), amount: z.number().positive(), date: z.string(), note: z.string().optional(), accountId: z.number().nullable().optional() }),
+    description: "Adds a contribution or withdrawal to a fund. Not an income/expense. Todo movimiento de fondo del usuario exige cuenta: la aportación descuenta de ella y el retiro vuelve a ella.",
+    request: z.object({ householdId: z.number(), fundId: z.number(), type: z.enum(["contribution","withdrawal"]), amount: z.number().positive(), date: z.string(), note: z.string().optional(), accountId: z.number() }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const [r]=await db.insert(schema.fundMovements).values({householdId:args.householdId,fundId:args.fundId,type:args.type,amount:args.amount,date:args.date,note:args.note||null,accountId:args.accountId??null} as never).returning({id:schema.fundMovements.id});
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db;
+    // El esquema zod ya exige accountId, pero el handler directo (sin
+    // despachador) no pasa por zod: el rechazo vive también aquí.
+    if (args.accountId == null) throw new Error(args.type === "withdrawal" ? "Elija la cuenta a la que vuelve el dinero." : "Elija la cuenta de donde se descuenta.");
+    const funds = await db.select().from(schema.funds).where(eq(schema.funds.id, args.fundId));
+    const fund = funds[0];
+    if (!fund || fund.householdId !== args.householdId) throw new Error("Fondo no encontrado.");
+    const ar = await db.select().from(schema.accounts).where(eq(schema.accounts.id, args.accountId));
+    if (!ar[0] || ar[0].householdId !== args.householdId) throw new Error("La cuenta indicada no pertenece a este hogar.");
+    const [r]=await db.insert(schema.fundMovements).values({householdId:args.householdId,fundId:args.fundId,type:args.type,amount:args.amount,date:args.date,note:args.note||null,accountId:args.accountId} as never).returning({id:schema.fundMovements.id});
     // Si el fondo es de un plan de ahorro, el avance de la meta es el saldo del fondo.
     await syncGoalSavedFromFund(ctx, args.householdId, args.fundId);
     await checkGoalPlanAlerts(ctx, args.householdId);
@@ -1841,18 +1859,82 @@ export const Actions = {
     response: okRes,
     async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const vals={householdId:args.householdId,name:args.name,targetAmount:args.targetAmount,savedAmount:args.savedAmount,targetDate:args.targetDate||null,visibility:args.visibility}; if(args.id){ await db.update(schema.goals).set(vals).where(eq(schema.goals.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.goals).values(vals).returning({id:schema.goals.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
+  // Toda meta nace con su plan: una sola acción crea meta + fondo + plan.
+  // Si el plan falla, la meta no queda creada (se borra lo que se alcanzó
+  // a crear en esta llamada). El cliente nunca encadena saveGoal y luego
+  // acceptGoalPlan: ese encadenamiento podía dejar una meta sin plan si se
+  // cortaba la red. El saldo inicial, cuando lo hay, lleva la cuenta
+  // elegida y no cuenta como apartado del mes (ver contributedThisMonth).
+  saveGoalWithPlan: defineAction({
+    description: "Creates a goal together with its savings plan, fund and initial balance, in a single action.",
+    request: z.object({ householdId: z.number(), name: z.string().min(1), targetAmount: z.number().positive(), savedAmount: z.number().min(0).default(0), targetDate: z.string().optional(), visibility: vis, monthlyAmount: z.number().positive().optional(), months: z.number().int().min(1).max(120), dueDay: z.number().int().min(1).max(28).default(1), initialAccountId: z.number().nullable().optional() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      const db = ctx.db;
+      const saved = args.savedAmount ?? 0;
+      if (saved > 0 && args.initialAccountId == null) throw new Error("Elija la cuenta de donde es ese dinero.");
+      if (args.initialAccountId != null) {
+        const ar = await db.select().from(schema.accounts).where(eq(schema.accounts.id, args.initialAccountId));
+        if (!ar[0] || ar[0].householdId !== args.householdId) throw new Error("La cuenta indicada no pertenece a este hogar.");
+      }
+      const remaining = Math.max(0, Math.round((args.targetAmount - saved) * 100) / 100);
+      if (remaining <= 0) throw new Error("La meta ya está cubierta con lo ya ahorrado.");
+      const monthlyAmount = args.monthlyAmount ?? Math.ceil(remaining / args.months);
+      try { await db.select().from(schema.goalPlans).limit(1); }
+      catch { throw new Error("Para guardar el plan, primero ejecute supabase/goal-plans.sql en el SQL Editor de Supabase."); }
+      const now = new Date();
+      const curYm = ymOf(now);
+      const today = `${curYm}-${String(now.getDate()).padStart(2, "0")}`;
+      let goalId: number | undefined;
+      let fundId: number | undefined;
+      try {
+        const [goal] = await db.insert(schema.goals).values({ householdId: args.householdId, name: args.name, targetAmount: args.targetAmount, savedAmount: saved, targetDate: args.targetDate || null, visibility: args.visibility }).returning({ id: schema.goals.id });
+        if (!goal) throw new Error("No se pudo crear la meta.");
+        goalId = goal.id;
+        const [fund] = await db.insert(schema.funds).values({ householdId: args.householdId, name: `Meta: ${args.name}`, targetAmount: args.targetAmount, visibility: args.visibility }).returning({ id: schema.funds.id });
+        if (!fund) throw new Error("No se pudo crear el fondo de la meta.");
+        fundId = fund.id;
+        if (saved > 0) {
+          await db.insert(schema.fundMovements).values({ householdId: args.householdId, fundId, type: "contribution", amount: saved, date: today, note: "Saldo inicial de la meta", accountId: args.initialAccountId ?? null } as never);
+        }
+        const [plan] = await db.insert(schema.goalPlans).values({ householdId: args.householdId, goalId, monthlyAmount, months: args.months, startMonth: curYm, dueDay: args.dueDay, fundId, status: "aceptado" }).returning({ id: schema.goalPlans.id });
+        if (!plan) throw new Error("No se pudo guardar el plan.");
+      } catch (e) {
+        // Sin transacción en el código (ninguna acción la usa): se borra lo
+        // creado en esta llamada para no dejar una meta sin plan.
+        try { if (fundId) await db.delete(schema.fundMovements).where(eq(schema.fundMovements.fundId, fundId)); } catch { /* limpieza */ }
+        try { if (fundId) await db.delete(schema.funds).where(eq(schema.funds.id, fundId)); } catch { /* limpieza */ }
+        try { if (goalId) await db.delete(schema.goalPlans).where(eq(schema.goalPlans.goalId, goalId)); } catch { /* limpieza */ }
+        try { if (goalId) await db.delete(schema.goals).where(eq(schema.goals.id, goalId)); } catch { /* limpieza */ }
+        throw e;
+      }
+      await logActivity(ctx, args.householdId, "Meta creada con plan", `${args.name} · ${moneyShort(monthlyAmount)}/mes durante ${args.months} meses`);
+      ctx.invalidateQueries();
+      return { ok: true, id: goalId };
+    },
+  }),
   deleteGoal: defineAction({ description: "Deletes a goal.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; try { await db.delete(schema.goalPlans).where(eq(schema.goalPlans.goalId,args.id)); } catch { /* tabla aún no creada: no había plan */ } try { await db.delete(schema.spendingAdjustments).where(eq(schema.spendingAdjustments.goalId,args.id)); } catch { /* tabla aún no creada: no había ajustes */ } await db.delete(schema.goals).where(eq(schema.goals.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
-  addGoalSaving: defineAction({ description: "Adds savings to a goal.", request: z.object({ id: z.number(), amount: z.number(), accountId: z.number().nullable().optional() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const rows=await db.select().from(schema.goals).where(eq(schema.goals.id,args.id)); const g=rows[0]; if(!g) throw new Error("Meta no encontrada"); if(args.accountId){ const ar=await db.select().from(schema.accounts).where(eq(schema.accounts.id,args.accountId)); if(!ar[0]||ar[0].householdId!==g.householdId) throw new Error("La cuenta indicada no pertenece a este hogar."); } await db.update(schema.goals).set({savedAmount: Math.max(0, g.savedAmount+args.amount)}).where(eq(schema.goals.id,args.id));
-    // Si la meta tiene plan con fondo, el abono también entra al fondo, para que el avance de la meta y el saldo del fondo sean el mismo.
+  addGoalSaving: defineAction({ description: "Adds savings to a goal (positive) or withdraws from it (negative). Todo aporte o retiro del usuario exige cuenta y meta con plan: sin plan no hay fondo donde dejar rastro del dinero.", request: z.object({ id: z.number(), amount: z.number(), accountId: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const rows=await db.select().from(schema.goals).where(eq(schema.goals.id,args.id)); const g=rows[0]; if(!g) throw new Error("Meta no encontrada");
+    // El esquema zod ya exige accountId, pero el handler directo (sin
+    // despachador) no pasa por zod: el rechazo vive también aquí.
+    if (args.accountId == null) throw new Error(args.amount < 0 ? "Elija la cuenta a la que vuelve el dinero." : "Elija la cuenta de donde se descuenta.");
+    if (args.amount === 0) throw new Error("El importe debe ser distinto de $0.");
+    const ar=await db.select().from(schema.accounts).where(eq(schema.accounts.id,args.accountId)); if(!ar[0]||ar[0].householdId!==g.householdId) throw new Error("La cuenta indicada no pertenece a este hogar.");
+    // Sin plan con fondo no se puede aportar ni retirar: el abono quedaría
+    // solo en savedAmount, sin rastro en ninguna cuenta. Las metas viejas
+    // sin plan no aportan hasta armar su plan (acceptGoalPlan).
+    let plan: (typeof schema.goalPlans.$inferSelect) | undefined;
     try {
       const plans = await db.select().from(schema.goalPlans).where(eq(schema.goalPlans.goalId, args.id));
-      const plan = plans[0];
-      if (plan?.fundId && args.amount !== 0) {
-        const now = new Date(); const today = `${ymOf(now)}-${String(now.getDate()).padStart(2, "0")}`;
-        await db.insert(schema.fundMovements).values({ householdId: g.householdId, fundId: plan.fundId, type: args.amount > 0 ? "contribution" : "withdrawal", amount: Math.abs(args.amount), date: today, note: `Aporte a la meta ${g.name}`, accountId: args.accountId ?? null } as never);
-        await syncGoalSavedFromFund(ctx, g.householdId, plan.fundId);
-      }
-    } catch { /* sin plan con fondo: el abono queda solo en la meta */ }
+      plan = plans[0];
+    } catch { throw new Error("Para aportar a la meta, primero ejecute supabase/goal-plans.sql en el SQL Editor de Supabase."); }
+    if (!plan?.fundId) throw new Error("Esta meta aún no tiene plan de ahorro. Primero arme el plan en Metas.");
+    await db.update(schema.goals).set({savedAmount: Math.max(0, g.savedAmount+args.amount)}).where(eq(schema.goals.id,args.id));
+    // El abono o retiro entra al fondo del plan, para que el avance de la
+    // meta y el saldo del fondo sean el mismo.
+    const now = new Date(); const today = `${ymOf(now)}-${String(now.getDate()).padStart(2, "0")}`;
+    await db.insert(schema.fundMovements).values({ householdId: g.householdId, fundId: plan.fundId, type: args.amount > 0 ? "contribution" : "withdrawal", amount: Math.abs(args.amount), date: today, note: args.amount > 0 ? `Aporte a la meta ${g.name}` : `Retiro de la meta ${g.name}`, accountId: args.accountId } as never);
+    await syncGoalSavedFromFund(ctx, g.householdId, plan.fundId);
     await checkGoalPlanAlerts(ctx, g.householdId);
     ctx.invalidateQueries(); return {ok:true,id:args.id}; } }),
 
@@ -1931,14 +2013,18 @@ export const Actions = {
   }),
 
   acceptGoalPlan: defineAction({
-    description: "Guarda el plan de ahorro aceptado para una meta: crea (o reusa) un fondo separado con el nombre de la meta, donde se aparta el dinero, y registra el aporte mensual, el plazo y el día de pago. Si la meta ya tenía ahorro, ese saldo pasa al fondo como saldo inicial.",
-    request: z.object({ householdId: z.number(), goalId: z.number(), monthlyAmount: z.number().positive(), months: z.number().int().min(1).max(120), dueDay: z.number().int().min(1).max(28).default(1) }),
+    description: "Guarda el plan de ahorro aceptado para una meta: crea (o reusa) un fondo separado con el nombre de la meta, donde se aparta el dinero, y registra el aporte mensual, el plazo y el día de pago. Si la meta ya tenía ahorro, ese saldo pasa al fondo como saldo inicial, con la cuenta que lo respalda cuando se indica (initialAccountId); sin ella queda sin cuenta, como antes.",
+    request: z.object({ householdId: z.number(), goalId: z.number(), monthlyAmount: z.number().positive(), months: z.number().int().min(1).max(120), dueDay: z.number().int().min(1).max(28).default(1), initialAccountId: z.number().nullable().optional() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
       const goals = await db.select().from(schema.goals).where(eq(schema.goals.id, args.goalId)).limit(1);
       const goal = goals[0];
       if (!goal || goal.householdId !== args.householdId) throw new Error("Meta no encontrada.");
+      if (args.initialAccountId != null) {
+        const ar = await db.select().from(schema.accounts).where(eq(schema.accounts.id, args.initialAccountId));
+        if (!ar[0] || ar[0].householdId !== args.householdId) throw new Error("La cuenta indicada no pertenece a este hogar.");
+      }
       let plans: (typeof schema.goalPlans.$inferSelect)[];
       try { plans = await db.select().from(schema.goalPlans).where(eq(schema.goalPlans.householdId, args.householdId)); }
       catch { throw new Error("Para guardar el plan, primero ejecute supabase/goal-plans.sql en el SQL Editor de Supabase."); }
@@ -1951,9 +2037,11 @@ export const Actions = {
         const [fund] = await db.insert(schema.funds).values({ householdId: args.householdId, name: `Meta: ${goal.name}`, targetAmount: goal.targetAmount, visibility: goal.visibility }).returning({ id: schema.funds.id });
         if (!fund) throw new Error("No se pudo crear el fondo de la meta.");
         fundId = fund.id;
-        // El ahorro que la meta ya tenía pasa al fondo como saldo inicial.
+        // El ahorro que la meta ya tenía pasa al fondo como saldo inicial,
+        // con su cuenta cuando se indicó (metas viejas sin plan que arman
+        // su plan). Sin cuenta queda como antes (flujo del sistema).
         if (goal.savedAmount > 0) {
-          await db.insert(schema.fundMovements).values({ householdId: args.householdId, fundId, type: "contribution", amount: goal.savedAmount, date: today, note: "Saldo inicial de la meta", accountId: null } as never);
+          await db.insert(schema.fundMovements).values({ householdId: args.householdId, fundId, type: "contribution", amount: goal.savedAmount, date: today, note: "Saldo inicial de la meta", accountId: args.initialAccountId ?? null } as never);
         }
       }
       let planId: number;
@@ -3362,7 +3450,18 @@ export const Actions = {
       const viv=cat("Vivienda"); if(viv) await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:viv,month:ym,amount:9000,visibility:"shared"});
       const [fund]=await db.insert(schema.funds).values({householdId:args.householdId,name:"Fondo de emergencia (demo)",targetAmount:50000,visibility:"shared"}).returning({id:schema.funds.id});
       if(fund) await db.insert(schema.fundMovements).values({householdId:args.householdId,fundId:fund.id,type:"contribution",amount:8000,date:d(2),note:"Apartado demo"} as never);
-      await db.insert(schema.goals).values({householdId:args.householdId,name:"Vacaciones (demo)",targetAmount:30000,savedAmount:7500,targetDate:`${today.getFullYear()+1}-06-15`,visibility:"shared"});
+      // La meta demo nace CON su plan (regla 2026-11-20): fondo propio,
+      // saldo inicial con su cuenta (la conjunta demo) y plan de $3,000
+      // al mes durante 8 meses, día 15. El saldo inicial no cuenta como
+      // apartado del mes (ver contributedThisMonth en getOverview).
+      const [demoGoal]=await db.insert(schema.goals).values({householdId:args.householdId,name:"Vacaciones (demo)",targetAmount:30000,savedAmount:7500,targetDate:`${today.getFullYear()+1}-06-15`,visibility:"shared"}).returning({id:schema.goals.id});
+      if(!demoGoal) throw new Error("Demo: meta");
+      const [demoFund]=await db.insert(schema.funds).values({householdId:args.householdId,name:"Meta: Vacaciones (demo)",targetAmount:30000,visibility:"shared"}).returning({id:schema.funds.id});
+      if(!demoFund) throw new Error("Demo: fondo de la meta");
+      await db.insert(schema.fundMovements).values({householdId:args.householdId,fundId:demoFund.id,type:"contribution",amount:7500,date:d(2),note:"Saldo inicial de la meta",accountId:acc.id} as never);
+      try {
+        await db.insert(schema.goalPlans).values({householdId:args.householdId,goalId:demoGoal.id,monthlyAmount:3000,months:8,startMonth:ym,dueDay:15,fundId:demoFund.id,status:"aceptado"});
+      } catch { throw new Error("Para cargar la demo, primero ejecute supabase/goal-plans.sql en el SQL Editor de Supabase."); }
       await db.insert(schema.patrimonyItems).values({householdId:args.householdId,name:"Departamento (demo)",kind:"asset",category:"Inmueble",value:850000,owner:"Compartido"});
       await db.insert(schema.patrimonyItems).values({householdId:args.householdId,name:"Auto (demo)",kind:"asset",category:"Vehículo",value:180000,owner:"Compartido"});
       await db.insert(schema.patrimonyItems).values({householdId:args.householdId,name:"Hipoteca (demo)",kind:"liability",category:"Crédito",value:420000,owner:"Compartido"});
