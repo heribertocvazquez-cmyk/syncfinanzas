@@ -15,8 +15,11 @@ import { MonthPicker } from "./MonthPicker";
 // símbolo «+», para que no aparezca un control sin nada que mostrar.
 const btnPrimary =
   "rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
-const btnGhost =
-  "rounded-full border border-[var(--border)] px-3 py-2 text-sm font-semibold";
+// Las dos acciones son principales (agregar gasto / agregar ingreso):
+// las dos llevan la píldora turquesa con texto oscuro como MODO PERSONAL
+// (corrección 2026-11-20: la fantasma con borde quedaba vacía, su texto
+// heredaba marfil sobre la tarjeta marfil).
+const btnAccent = btnPrimary;
 
 export type HomeMovRow = {
   key: number | string;
@@ -64,7 +67,7 @@ export function HomeMovementsCard(p: {
       <button
         type="button"
         aria-label="Agregar ingreso"
-        className={btnGhost + " flex-1"}
+        className={btnAccent + " flex-1 min-h-12 sm:min-h-0"}
         onClick={() => p.onNewMovement("income")}
       >
         + Ingreso

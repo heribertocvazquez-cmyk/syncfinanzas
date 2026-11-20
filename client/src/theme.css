@@ -60,10 +60,21 @@
    usa var(--text), var(--dim), var(--gold-text), var(--green) o var(--red)
    dentro de una tarjeta cambia solo, sin tocar cada componente.
    --bg NO se redefine aquí: los textos que usan var(--bg) (botones verdes
-   con texto claro) siguen funcionando en los dos modos. */
+   con texto claro) siguen funcionando en los dos modos.
+   CAUSA DEL DEFECTO 2026-11-20 (Heriberto: títulos y letras perdidas):
+   redefinir --text NO bastaba. El contenedor raíz de la app lleva
+   text-[var(--text)], así que `color` se calcula UNA VEZ en la raíz
+   (marfil #EEE3CC en oscuro) y se hereda ya resuelto a todos los
+   descendientes: dentro de la tarjeta --text valía #1B1B1B, pero el color
+   heredado seguía siendo marfil, y todo lo que no llevaba color propio
+   (títulos h2, botón fantasma «+ Ingreso», la × de cerrar, el icono de la
+   campanilla, el total de la dona) quedaba marfil sobre marfil. Por eso
+   estas reglas fijan TAMBIÉN `color` en el propio elemento de la
+   superficie: el color heredado sí cambia con la superficie. */
 :root.dark [class*="bg-[var(--surface)]"],
 :root.dark [class*="bg-[var(--surface2)]"] {
   --text: #1B1B1B;
+  color: #1B1B1B;
   --dim: rgba(21,21,21,.65);
   --border: rgba(21,21,21,.16);
   --gold-text: #006258;
@@ -71,9 +82,12 @@
   --red: #B42318;
 }
 /* Tarjeta héroe (Disponible): oscura en los dos modos, con texto marfil
-   claro y turquesa/verde/rojo claros. Aplica en claro y en oscuro. */
+   claro y turquesa/verde/rojo claros. Aplica en claro y en oscuro.
+   También fija `color` por el mismo motivo: sin esto, en modo claro el
+   importe grande del héroe heredaba tinta oscura sobre héroe oscuro. */
 [class*="bg-[var(--hero)]"] {
   --text: #F3ECDB;
+  color: #F3ECDB;
   --dim: rgba(243,236,219,.65);
   --border: rgba(243,236,219,.2);
   --gold-text: #00C2B5;
