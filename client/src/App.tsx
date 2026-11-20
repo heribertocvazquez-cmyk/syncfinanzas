@@ -6,7 +6,7 @@ import { fileToBase64 } from "./lib/file";
 import { checkReceiptDate, matchRule, normText, parseReceiptText, parseVoiceText, resolveReceiptCategory, suggestCategoryId } from "./lib/smart";
 import type { ReceiptDateCheck } from "./lib/smart";
 import type { ReceiptRead } from "./lib/smart";
-import { readReceiptText, ocrStatusText, OcrError } from "./lib/ocr";
+import { readReceiptText, ocrStatusText, OcrError, warmUpOcr } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
 import { canSeeMovementRow, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
@@ -1223,6 +1223,12 @@ export function App(){
   const inicioMvOpenRef=useRef(false);
   const openInicioMovement=(t:"income"|"expense")=>{ resetMvForm(); setMvType(t); inicioMvOpenRef.current=true; setInicioMvOpen(true); };
   const closeInicioMovement=()=>{ inicioMvOpenRef.current=false; setInicioMvOpen(false); resetMvForm(); };
+  // Precarga del lector de comprobantes: al abrir un formulario con
+  // comprobante (Movimientos, Gasto del día o el pop-up de Inicio), los
+  // archivos de la primera lectura se descargan en segundo plano mientras
+  // la persona toma o elige la foto. Una sola vez por carga de la página;
+  // si falla, la lectura normal sigue su curso.
+  useEffect(()=>{ if(tab==="movimientos"||tab==="personal"||inicioMvOpen) void warmUpOcr(); },[tab,inicioMvOpen]);
   // Registro por voz con Web Speech API (gratis, en el navegador): dictar
   // "gasté 320 en el súper" llena importe, concepto y categoría; se revisa
   // antes de guardar. Si el navegador no lo soporta, se escribe el gasto.

@@ -1,4 +1,5 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { warmUpOcr } from "../lib/ocr";
 import { CollapsibleCard } from "./CollapsibleCard";
 import { OcrDetail } from "./OcrDetail";
 import { fmtDate, money, money2, todayISO } from "../lib/format";
@@ -261,6 +262,12 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
     voteExclude, removePart, setCard, addPart, createTandaInv, respondTandaInv, resendInv, cancelTandaInv,
     confirmDelivery, uploadProof, remindPay, createMpOrder, checkMpOrder, rateOrg,
   } = deps;
+  // Precarga del lector de comprobantes al abrir el detalle de la tanda:
+  // los botones de «Subir comprobante» están en esta pantalla, así que la
+  // primera lectura ya se descarga en segundo plano mientras la persona
+  // revisa. Una sola vez por carga de la página; si falla, la lectura
+  // normal sigue su curso.
+  useEffect(()=>{ void warmUpOcr(); },[]);
   // Confirmación en línea para eliminar una invitación pendiente (mismo
   // patrón que el borrado de movimientos): solo se ejecuta al confirmar.
   const [confirmCancelTInvId, setConfirmCancelTInvId] = useState<number|null>(null);

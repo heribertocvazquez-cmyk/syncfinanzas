@@ -3,8 +3,9 @@
 // paquete inicial. El núcleo, el worker y los datos del idioma español se
 // sirven DESDE LA MISMA APP (public/tesseract/, copiados en cada build por
 // scripts/fetch-tesseract-assets.mjs): antes se descargaban de la CDN de
-// jsdelivr la primera vez (~9 MB) y en un teléfono con 4G esa descarga
-// fallaba y la lectura no arrancaba. La foto no sale del dispositivo a
+// jsdelivr la primera vez y en un teléfono con 4G esa descarga
+// fallaba y la lectura no arranca. Con el modelo rápido, la primera
+// lectura descarga ~2,7 MB en vez de ~9,9 MB. La foto no sale de
 // ningún servidor de SyncFinanzas ni de OpenAI. Tras la primera lectura,
 // el núcleo y el idioma quedan guardados en la caché del dispositivo
 // (caché del navegador + IndexedDB), así que las siguientes lecturas no
@@ -67,11 +68,14 @@ export class OcrError extends Error {
   }
 }
 
-// Tamaños reales de los archivos del lector (MB, medidos en el despliegue):
-// el núcleo lleva el wasm incrustado en el .js, así que el .wasm aparte
-// nunca se descarga.
+// Tamaños de los archivos del lector (MB): el núcleo lleva el wasm
+// incrustado en el .js, así que el .wasm aparte nunca se descarga.
+// LANG_MB es solo el valor de respaldo para el progreso: el tamaño real
+// del idioma se mide en cada lectura con HEAD (así vale tanto para el
+// modelo rápido, ~1,1 MB, como para el estándar, 8,36 MB, si el build
+// tuvo que usarlo de respaldo).
 const CORE_MB = 3.95;
-const LANG_MB = 8.36;
+const LANG_MB = 1.1;
 
 // Convierte cualquier valor rechazado en texto diagnóstico. Tesseract.js
 // rechaza a veces SIN valor (undefined): cuando la carga del script del
@@ -290,6 +294,18 @@ export const OCR_CORE_DIR = "/tesseract/core";
 export const OCR_CORE_SIMD = "/tesseract/core/tesseract-core-simd-lstm.wasm.js";
 export const OCR_CORE_LSTM = "/tesseract/core/tesseract-core-lstm.wasm.js";
 export const OCR_LANG_PATH = "/tesseract/lang";
+export const OCR_LANG_FILE = "/tesseract/lang/spa.traineddata.gz";
+
+// Versión de la caché del idioma en IndexedDB: tesseract.js guarda el
+// idioma bajo `${cachePath}/spa.traineddata` y NUNCA lo revalida. El
+// modelo estándar quedó guardado bajo la clave vieja (`./spa.traineddata`)
+// en los teléfonos que ya leyeron; sin cambiar la clave, el teléfono
+// seguiría leyendo el modelo estándar de la caché y el rápido nunca se
+// descargaría. Al cambiar el modelo, se sube esta versión.
+export const OCR_CACHE_PATH = "spa-fast-v1";
+// Clave vieja del modelo estándar en la misma caché, para borrarla cuando
+// el rápido ya está guardado (libera ~18 MB en el teléfono).
+const OLD_LANG_CACHE_KEY = "./spa.traineddata";
 
 // Escalera de carga: el primer intento es el worker directo desde el mismo
 // origen (el que funciona en Safari bajo CSP); los demás son respaldos por
@@ -317,6 +333,79 @@ async function headStatus(url: string): Promise<string> {
   }
 }
 
+// Tamaño real del idioma instalado (para el progreso «X de N MB»): se
+// pregunta con HEAD al archivo .gz. Si no se puede saber, se usa el
+// valor de respaldo LANG_MB.
+async function headLangSizeMB(): Promise<number> {
+  try {
+    const res = await fetch(OCR_LANG_FILE, { method: "HEAD", cache: "no-store" });
+    const len = res.headers?.get?.("content-length");
+    const bytes = len ? Number(len) : NaN;
+    if (Number.isFinite(bytes) && bytes > 0) return bytes / 1_000_000;
+  } catch { /* respaldo */ }
+  return LANG_MB;
+}
+
+// ---- Precarga del lector ----
+
+// Descarga en segundo plano los 3 archivos de la primera lectura
+// (worker, núcleo SIMD e idioma) mientras la persona toma o elige la
+// foto: cuando el lector arranca, ya están en la caché HTTP y la espera
+// desaparece del camino. Solo se precarga al abrir el formulario del
+// comprobante (gasto o tanda), nunca al abrir la app: no gasta datos de
+// quien nunca usa el lector. El núcleo sin SIMD no se precarga: solo lo
+// necesitan los teléfonos viejos y lo bajarían igual en la primera
+// lectura. Un fallo no hace nada: la carga normal sigue su curso.
+// Se ejecuta una sola vez por carga de la página.
+const OCR_WARMUP_URLS = [OCR_WORKER_PATH, OCR_CORE_SIMD, OCR_LANG_FILE];
+let ocrWarmUpPromise: Promise<void> | null = null;
+
+export function warmUpOcr(): Promise<void> {
+  if (!ocrWarmUpPromise) {
+    ocrWarmUpPromise = (async () => {
+      try {
+        await Promise.all(
+          OCR_WARMUP_URLS.map(async (url) => {
+            const res = await fetch(url, { cache: "default" });
+            // Leer el cuerpo es lo que lo deja en la caché HTTP.
+            await res.arrayBuffer().catch(() => {});
+          }),
+        );
+      } catch {
+        // Silencio: la lectura normal reintenta la descarga.
+      }
+    })();
+  }
+  return ocrWarmUpPromise;
+}
+
+// Borra de IndexedDB el modelo estándar viejo (`./spa.traineddata`,
+// ~18 MB descomprimido) una vez que el modelo rápido ya está guardado
+// bajo la clave nueva. Es la misma base que usa tesseract.js
+// (idb-keyval: base `keyval-store`, almacén `keyval`). Solo borra esa
+// clave exacta; si la base no existe o algo falla, no pasa nada y la
+// lectura sigue igual. Se ejecuta una sola vez por carga de la página.
+let staleLangCacheDeleted = false;
+export function deleteStaleOcrLangCache(): void {
+  if (staleLangCacheDeleted) return;
+  staleLangCacheDeleted = true;
+  try {
+    if (typeof indexedDB === "undefined") return;
+    const req = indexedDB.open("keyval-store", 1);
+    req.onerror = () => {};
+    req.onsuccess = () => {
+      try {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("keyval")) { db.close(); return; }
+        const tx = db.transaction("keyval", "readwrite");
+        tx.objectStore("keyval").delete(OLD_LANG_CACHE_KEY);
+        tx.oncomplete = () => { try { db.close(); } catch { /* silencio */ } };
+        tx.onerror = () => { try { db.close(); } catch { /* silencio */ } };
+      } catch { /* silencio */ }
+    };
+  } catch { /* silencio */ }
+}
+
 type TesseractModule = typeof import("tesseract.js");
 type TesseractWorker = Awaited<ReturnType<TesseractModule["createWorker"]>>;
 
@@ -325,6 +414,7 @@ async function tryLoadStrategy(
   strategy: OcrStrategy,
   onProgress: (p: OcrProgress) => void,
   attemptLog: string[],
+  langMB: number,
 ): Promise<TesseractWorker> {
   let lastStatus = "";
   const workerPromise = mod.createWorker("spa", 1, {
@@ -332,6 +422,7 @@ async function tryLoadStrategy(
     workerBlobURL: strategy.workerBlobURL,
     corePath: strategy.corePath,
     langPath: OCR_LANG_PATH,
+    cachePath: OCR_CACHE_PATH,
     cacheMethod: "write",
     logger: (m: { status: string; progress?: number }) => {
       lastStatus = m.status;
@@ -342,8 +433,8 @@ async function tryLoadStrategy(
         downloadedMB = progress * CORE_MB;
         totalMB = CORE_MB;
       } else if (m.status === "loading language traineddata") {
-        downloadedMB = progress * LANG_MB;
-        totalMB = LANG_MB;
+        downloadedMB = progress * langMB;
+        totalMB = langMB;
       }
       onProgress({ status: m.status, progress, downloadedMB, totalMB });
     },
@@ -370,6 +461,7 @@ export async function readReceiptText(imageSrc: string, onProgress?: (p: OcrProg
   const workerStatus = await headStatus(OCR_WORKER_PATH);
   const simdStatus = await headStatus(OCR_CORE_SIMD);
   const lstmStatus = await headStatus(OCR_CORE_LSTM);
+  const langMB = await headLangSizeMB();
   attemptLog.push(`archivos: worker.min.js ${workerStatus}; núcleo SIMD ${simdStatus}; núcleo sin-SIMD ${lstmStatus}`);
   if (!workerStatus.startsWith("HTTP 2")) {
     throw new OcrError(
@@ -401,7 +493,7 @@ export async function readReceiptText(imageSrc: string, onProgress?: (p: OcrProg
     if (!strategy) continue;
     if (i > 0) emit({ status: "retrying", progress: 0 });
     try {
-      worker = await tryLoadStrategy(mod, strategy, emit, attemptLog);
+      worker = await tryLoadStrategy(mod, strategy, emit, attemptLog, langMB);
       break;
     } catch {
       worker = null;
@@ -412,6 +504,9 @@ export async function readReceiptText(imageSrc: string, onProgress?: (p: OcrProg
   }
   try {
     const text = await recognizeWithRetries(worker, imageSrc, emit, attemptLog, mod.PSM);
+    // El modelo rápido ya quedó guardado: se puede borrar el estándar
+    // viejo de la caché del teléfono.
+    deleteStaleOcrLangCache();
     return text;
   } catch (err) {
     if (err instanceof OcrError) throw err;
