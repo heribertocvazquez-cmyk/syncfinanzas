@@ -35,7 +35,7 @@ async function logActivity(ctx: Ctx, householdId: number, action: string, detail
 // la operación principal: si la tabla aún no existe (falta correr
 // supabase/notifications.sql), la inserción falla en silencio y la app
 // sigue funcionando sin avisos.
-type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion" | "aceptacion_otro_correo" | "recordatorio_tanda"; title: string; body: string; amount?: number | null; target: string };
+type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion" | "aceptacion_otro_correo" | "recordatorio_tanda" | "presupuesto_sugerido"; title: string; body: string; amount?: number | null; target: string };
 async function notifyHousehold(ctx: Ctx, householdId: number, n: NotifInput, excludeUserId?: string | null) {
   try {
     const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
@@ -97,24 +97,23 @@ async function guestTandaHouseholdIds(db: Ctx["db"], userId: string, userEmail: 
 }
 const moneyShort = (n: number) => `$${Math.round(n * 100) / 100}`;
 // Revisa si un gasto nuevo debe avisar: (b) supera el límite del hogar
-// (umbral) y (c) cruza el presupuesto de su categoría en el mes. El aviso
+// (umbral), (c) cruza el presupuesto de su categoría en el mes y (f) la
+// categoría no tiene presupuesto y su total del mes cruzó el umbral, en
+// cuyo caso se sugiere crearle un presupuesto con su límite real (la
+// sugerencia reemplaza al gasto_umbral plano de ese mismo gasto). El aviso
 // de presupuesto solo se crea al cruzar el límite (antes por debajo o
 // igual, después por encima), para no repetirlo en cada gasto posterior.
+// La rama (b) va DESPUÉS del bloque de categoría: solo así sabe si este
+// gasto disparó la sugerencia (f) y debe suprimirse.
 async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; movementId: number; type: string; amount: number; categoryId: number | null; visibility: string; date: string }) {
   try {
     if (args.type !== "expense" && args.type !== "debt_payment") return;
     const db = ctx.db;
     const hh = await db.select().from(schema.households).where(eq(schema.households.id, args.householdId)).limit(1);
     const threshold = hh[0]?.approvalThreshold ?? 0;
-    if (threshold > 0 && args.amount > threshold) {
-      // Deduplicación (regla 2026-11-20): un solo aviso vivo por umbral
-      // superado. Mientras haya uno sin leer, no se crea otro; al leerlo
-      // (sale del panel) o eliminarlo, el siguiente gasto mayor que el
-      // límite avisa otra vez.
-      if (!(await unreadAlertExists(ctx, args.householdId, "gasto_umbral", `superó el límite de ${moneyShort(threshold)}`))) {
-        await notifyHousehold(ctx, args.householdId, { type: "gasto_umbral", title: "Gasto mayor que el límite", body: `Un gasto de ${moneyShort(args.amount)} superó el límite de ${moneyShort(threshold)}.`, amount: args.amount, target: "movimientos" });
-      }
-    }
+    // (f) disparó la sugerencia de presupuesto para este gasto: el
+    // gasto_umbral plano no se crea (un solo aviso por evento).
+    let suggestedBudget = false;
     if (args.categoryId) {
       const month = args.date.slice(0, 7);
       const movs = await db.select().from(schema.movements).where(eq(schema.movements.householdId, args.householdId));
@@ -152,6 +151,33 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
           }
         }
       }
+      // (f) Categoría sin presupuesto cuyo TOTAL DEL MES cruzó el umbral:
+      // se sugiere crearle un presupuesto con su límite real. El umbral
+      // es por gasto, pero el disparador es el total del mes (antes ≤
+      // umbral < después), para no proponer un presupuesto por un solo
+      // gasto grande: un boleto de $1,200 en una categoría que cuesta
+      // $300/mes no significa que el mes esté excedido. El límite
+      // sugerido es máx(total del mes, promedio de los 3 meses completos
+      // anteriores), redondeado hacia arriba a la centena: el presupuesto
+      // debe cubrir todo el mes y el mes no ha terminado. Un solo aviso
+      // vivo por categoría y mes (clave: el nombre de la categoría en el
+      // cuerpo + mes), como presupuesto_excedido.
+      const hasBudgetThisMonth = budgets.some((b) => b.categoryId === args.categoryId && b.month === month);
+      if (!hasBudgetThisMonth && threshold > 0) {
+        const monthTotal = round2(active.filter((m) => m.categoryId === args.categoryId && m.date.startsWith(month) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0));
+        const beforeTotal = round2(monthTotal - args.amount);
+        if (beforeTotal <= threshold && monthTotal > threshold) {
+          suggestedBudget = true;
+          const prevMonths = [ymAdd(month, -1), ymAdd(month, -2), ymAdd(month, -3)];
+          const prevTotals = prevMonths.map((ym) => active.filter((m) => m.categoryId === args.categoryId && m.date.startsWith(ym) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0));
+          const monthsWithData = prevTotals.filter((t) => t > 0).length;
+          const avg = monthsWithData > 0 ? prevTotals.reduce((s, t) => s + t, 0) / monthsWithData : 0;
+          const suggested = Math.ceil(Math.max(monthTotal, avg) / 100) * 100;
+          if (!(await unreadAlertExists(ctx, args.householdId, "presupuesto_sugerido", `${catName} lleva`, month))) {
+            await notifyHousehold(ctx, args.householdId, { type: "presupuesto_sugerido", title: `${catName} no tiene presupuesto`, body: `${catName} lleva ${moneyShort(monthTotal)} este mes y superó su límite de ${moneyShort(threshold)}. Póngale su límite real para monitorearlo. Límite sugerido: ${moneyShort(suggested)} · Promedio 3 meses: ${moneyShort(avg)}.`, amount: suggested, target: "presupuestos" });
+          }
+        }
+      }
       // (d) Gasto anómalo: más del doble del promedio mensual de los últimos
       // 3 meses completos en esa categoría y al menos $500. Una sola vez
       // por mes y categoría.
@@ -181,6 +207,18 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
             await notifyHousehold(ctx, args.householdId, { type: "suscripcion_sube", title: "Suscripción que subió de precio", body: `${concept} subió de ${moneyShort(last.amount)} a ${moneyShort(args.amount)}. Revise si quiere conservarlo.`, amount: args.amount, target: "movimientos" });
           }
         }
+      }
+    }
+    // (b) Gasto mayor que el límite del hogar (umbral), por gasto único.
+    // No se crea si este mismo gasto disparó la sugerencia de
+    // presupuesto (f): un solo aviso por evento.
+    if (threshold > 0 && args.amount > threshold && !suggestedBudget) {
+      // Deduplicación (regla 2026-11-20): un solo aviso vivo por umbral
+      // superado. Mientras haya uno sin leer, no se crea otro; al leerlo
+      // (sale del panel) o eliminarlo, el siguiente gasto mayor que el
+      // límite avisa otra vez.
+      if (!(await unreadAlertExists(ctx, args.householdId, "gasto_umbral", `superó el límite de ${moneyShort(threshold)}`))) {
+        await notifyHousehold(ctx, args.householdId, { type: "gasto_umbral", title: "Gasto mayor que el límite", body: `Un gasto de ${moneyShort(args.amount)} superó el límite de ${moneyShort(threshold)}.`, amount: args.amount, target: "movimientos" });
       }
     }
     // Si un gasto cruzó un presupuesto, se propone el ajuste de gastos solo:
@@ -454,6 +492,12 @@ async function syncGoalSavedFromFund(ctx: Ctx, householdId: number, fundId: numb
 // campanita ANTES de mover nada, y solo se aplica si el usuario la acepta
 // (y puede cambiar de dónde se recorta).
 type AdjustmentCut = { budgetId: number; categoryId: number; name: string; slack: number; cut: number; newBudget: number };
+// Fila «sin presupuesto»: una categoría de gasto sin presupuesto este mes
+// que sí gastó. Lleva su gasto real del mes, su promedio de los 3 meses
+// completos anteriores y su límite sugerido (máx(total, promedio),
+// redondeado a la centena), para poder recomendar bajar al promedio y
+// crearle su presupuesto desde el panel.
+type NoBudgetRow = { categoryId: number; name: string; spent: number; avg3: number; suggested: number };
 type AdjustmentComputation = {
   goalId: number; goalName: string; month: string;
   overruns: { budgetId: number; categoryId: number; name: string; budget: number; spent: number; over: number }[];
@@ -469,6 +513,9 @@ type AdjustmentComputation = {
   coversAll: boolean;
   surplus: { budgetId: number; categoryId: number; name: string; slack: number }[];
   totalSurplus: number;
+  noBudget: NoBudgetRow[];
+  noBudgetTotal: number;
+  noBudgetSavings: number;
 };
 type AdjustmentBase = {
   goalId: number; goalName: string; month: string;
@@ -478,6 +525,9 @@ type AdjustmentBase = {
   income: number; fixedCommitments: number; budgetsTotal: number;
   monthlyAmount: number; monthsLeft: number; remaining: number;
   planId: number; startMonth: string;
+  noBudget: NoBudgetRow[];
+  noBudgetTotal: number;
+  noBudgetSavings: number;
 };
 const round2 = (n: number) => Math.round(n * 100) / 100;
 // Carga los números del mes en curso para una meta con plan: presupuestos
@@ -519,7 +569,31 @@ async function loadAdjustmentBase(ctx: Ctx, householdId: number, goalId: number)
   const budgetsTotal = round2(monthBudgets.reduce((s, b) => s + b.amount, 0));
   const monthsElapsed = Math.max(0, monthDiff(plan.startMonth, curYm));
   const monthsLeft = Math.max(1, plan.months - monthsElapsed);
-  return { goalId, goalName: goal.name, month: curYm, overruns, totalOver, slacks, income, fixedCommitments, budgetsTotal, monthlyAmount: plan.monthlyAmount, monthsLeft, remaining, planId: plan.id, startMonth: plan.startMonth };
+  // Categorías SIN presupuesto este mes que sí gastaron: hoy no aparecen
+  // ni en excedentes ni en sobrantes, así que el panel dice «ninguna
+  // categoría se pasó» aunque una pese $3,200, y `affordable` ignora su
+  // gasto real y sobreestima lo que la meta puede tomar (la fórmula de
+  // Rebe usa el gasto real: «Te queda del mes» = ingresos − gastos −
+  // apartado). Se listan por total del mes desc., con su promedio de 3
+  // meses y su límite sugerido (máx(total, promedio), a la centena).
+  const budgetedCatIds = new Set(monthBudgets.map((b) => b.categoryId));
+  const noBudget: NoBudgetRow[] = cats
+    .filter((c) => c.kind === "expense" && !budgetedCatIds.has(c.id))
+    .map((c) => {
+      const spent = round2(active.filter((m) => m.categoryId === c.id && m.date.startsWith(curYm) && isExpense(m)).reduce((s, m) => s + m.amount, 0));
+      const prevTotals = fullMonths.map((ym) => active.filter((m) => m.categoryId === c.id && m.date.startsWith(ym) && isExpense(m)).reduce((s, m) => s + m.amount, 0));
+      const withData = prevTotals.filter((t) => t > 0);
+      const avg3 = withData.length > 0 ? round2(withData.reduce((s, t) => s + t, 0) / withData.length) : 0;
+      const suggested = Math.ceil(Math.max(spent, avg3) / 100) * 100;
+      return { categoryId: c.id, name: catName(c.id), spent, avg3, suggested };
+    })
+    .filter((r) => r.spent > 0)
+    .sort((a, b) => b.spent - a.spent);
+  const noBudgetTotal = round2(noBudget.reduce((s, r) => s + r.spent, 0));
+  // Lo que se liberaría para la meta si cada categoría sin presupuesto
+  // bajara a su promedio de 3 meses.
+  const noBudgetSavings = round2(noBudget.reduce((s, r) => s + Math.max(0, round2(r.spent - r.avg3)), 0));
+  return { goalId, goalName: goal.name, month: curYm, overruns, totalOver, slacks, income, fixedCommitments, budgetsTotal, monthlyAmount: plan.monthlyAmount, monthsLeft, remaining, planId: plan.id, startMonth: plan.startMonth, noBudget, noBudgetTotal, noBudgetSavings };
 }
 // Con unos recortes dados, calcula el resto: lo que falta por cubrir, lo
 // máximo que se puede aportar al mes sin dejar nada sin cubrir, si la
@@ -529,7 +603,10 @@ function deriveAdjustment(base: AdjustmentBase, cuts: AdjustmentCut[]): Adjustme
   const totalCut = round2(cuts.reduce((s, c) => s + c.cut, 0));
   const uncovered = round2(base.totalOver - totalCut);
   const adjustedBudgetsTotal = round2(base.budgetsTotal - totalCut);
-  const affordable = Math.max(0, round2(base.income - base.fixedCommitments - adjustedBudgetsTotal));
+  // Lo que se puede aportar al mes sin dejar nada sin cubrir: el gasto
+  // real de las categorías sin presupuesto también se descuenta (antes se
+  // ignoraba y `affordable` sobreestimaba lo que la meta puede tomar).
+  const affordable = Math.max(0, round2(base.income - base.fixedCommitments - adjustedBudgetsTotal - base.noBudgetTotal));
   const surplus = base.slacks.map(s => ({ budgetId: s.budgetId, categoryId: s.categoryId, name: s.name, slack: round2(s.slack - (cuts.find(c => c.budgetId === s.budgetId)?.cut ?? 0)) })).filter(s => s.slack > 0);
   const totalSurplus = round2(surplus.reduce((s, x) => s + x.slack, 0));
   // Lo que falta por cubrir se reparte en los meses que quedan: la
@@ -546,7 +623,7 @@ function deriveAdjustment(base: AdjustmentBase, cuts: AdjustmentCut[]): Adjustme
     coversAll = newMonthlyAmount <= affordable;
   }
   const monthlyDelta = round2(newMonthlyAmount - base.monthlyAmount);
-  return { goalId: base.goalId, goalName: base.goalName, month: base.month, overruns: base.overruns, totalOver: base.totalOver, cuts, totalCut, uncovered, income: base.income, fixedCommitments: base.fixedCommitments, budgetsTotal: base.budgetsTotal, adjustedBudgetsTotal, monthlyAmount: base.monthlyAmount, monthsLeft: base.monthsLeft, newMonthlyAmount, monthlyDelta, extendedMonths, affordable, coversAll, surplus, totalSurplus };
+  return { goalId: base.goalId, goalName: base.goalName, month: base.month, overruns: base.overruns, totalOver: base.totalOver, cuts, totalCut, uncovered, income: base.income, fixedCommitments: base.fixedCommitments, budgetsTotal: base.budgetsTotal, adjustedBudgetsTotal, monthlyAmount: base.monthlyAmount, monthsLeft: base.monthsLeft, newMonthlyAmount, monthlyDelta, extendedMonths, affordable, coversAll, surplus, totalSurplus, noBudget: base.noBudget, noBudgetTotal: base.noBudgetTotal, noBudgetSavings: base.noBudgetSavings };
 }
 async function computeSpendingAdjustment(ctx: Ctx, householdId: number, goalId: number): Promise<AdjustmentComputation | null> {
   const base = await loadAdjustmentBase(ctx, householdId, goalId);
@@ -2194,6 +2271,8 @@ export const Actions = {
       monthlyAmount: z.number(), monthsLeft: z.number(), newMonthlyAmount: z.number(), monthlyDelta: z.number(), extendedMonths: z.number(), affordable: z.number(), coversAll: z.boolean(),
       surplus: z.array(z.object({ budgetId: z.number(), categoryId: z.number(), name: z.string(), slack: z.number() })),
       totalSurplus: z.number(),
+      noBudget: z.array(z.object({ categoryId: z.number(), name: z.string(), spent: z.number(), avg3: z.number(), suggested: z.number() })),
+      noBudgetTotal: z.number(), noBudgetSavings: z.number(),
     }),
     async handler(ctx, args) {
       let comp: AdjustmentComputation | null;

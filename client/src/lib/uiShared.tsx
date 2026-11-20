@@ -24,6 +24,8 @@ export const inputCls =
   "w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]";
 export const btnPrimary =
   "rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
+export const btnGold =
+  "rounded-full bg-[var(--gold)] text-[#13262E] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
 export const btnGhost =
   "rounded-full border border-[var(--border)] px-3 py-2 text-sm font-semibold";
 export function Empty({ title, body, action }: { title: string; body: string; action?: { label: string; onClick: () => void } }) {
