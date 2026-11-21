@@ -22,6 +22,7 @@ import { pickTipGoal, planCumulativeContributed, planMonthShortfall, planPriorSu
 import { accountSummaryRows, type AccountSummary } from "./lib/accountSummary";
 import { MoneyLocationModal } from "./components/MoneyLocationModal";
 import { IncExpDetailModal } from "./components/IncExpDetailModal";
+import { PlanFinancieroWizard } from "./components/PlanFinancieroWizard";
 import { HomeMovementsCard } from "./components/HomeMovementsCard";
 import { CollapsibleCard } from "./components/CollapsibleCard";
 import { money, money2, fmtDate, todayISO } from "./lib/format";
@@ -947,6 +948,7 @@ export function App(){
   const [showMoneyLocation,setShowMoneyLocation]=useState(false);
   const [showSummary,setShowSummary]=useState(false);
   const [helpOpen,setHelpOpen]=useState(false);
+  const [planWizardOpen,setPlanWizardOpen]=useState(false);
   const [showAllHomeMovs,setShowAllHomeMovs]=useState(false);
   // Toda meta nace con su plan: una sola acción crea meta + fondo + plan.
   const saveGoalWithPlan=useMutation({mutationFn:async()=>await api.saveGoalWithPlan({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared",monthlyAmount:goalMonthly?Number(goalMonthly):undefined,months:Number(goalMonths)||0,dueDay:Number(goalDueDay)||data!.household!.cutoffDay,initialAccountId:goalInitialAcc?Number(goalInitialAcc):null,importance:Number(goalImportance)||3}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setGoalSaved("0");setGoalDate("");setGoalMonthly("");setGoalMonths("");setGoalDueDay("");setGoalInitialAcc("");setGoalImportance("3");setGoalFormError("");},onError:(e:Error)=>{setGoalFormError(e.message);}});
@@ -2553,6 +2555,7 @@ export function App(){
         {effTab==="metas" && (
           <section>
             <CollapsibleCard title={<h2 className="font-display font-bold text-lg">Nueva meta</h2>} above={data.goals.length>0 ? <p className="text-sm text-[var(--dim)] mt-1">{data.goals.length} {data.goals.length===1?"meta":"metas"} · {money(data.goals.reduce((s,g)=>s+g.savedAmount,0))} ahorrado de {money(data.goals.reduce((s,g)=>s+g.targetAmount,0))}</p> : undefined} defaultOpen={data.goals.length===0} open={newGoalOpen ?? undefined} onToggle={newGoalOpen===null?undefined:()=>setNewGoalOpen((v)=>!(v ?? false))} toggleLabel="nueva meta">
+            <button type="button" className={btnPrimary+" w-full mb-4"} onClick={()=>setPlanWizardOpen(true)}>Arma su plan financiero</button>
             <form className="space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!goalName||!(Number(goalTarget)>0)) return; const months=Number(goalMonths); if(!months||months<1||months>120){ setGoalFormError("Escriba el plazo en meses (1 a 120)."); return; } const due=Number(goalDueDay); if(goalDueDay && (due<1||due>28)){ setGoalFormError("El día del mes debe ser entre 1 y 28."); return; } const saved=Number(goalSaved)||0; if(saved>0){ const notice=requiredInitialAccountNotice(goalInitialAcc); if(notice){ setGoalFormError(notice); return; } } setGoalFormError(""); saveGoalWithPlan.mutate();}}>
               <div className="grid md:grid-cols-4 gap-2 items-end">
               <div><Label htmlFor="goal-name">Nombre de la meta</Label><input id="goal-name" aria-label="Nombre de la meta" required className={inputCls} value={goalName} onChange={e=>setGoalName(e.target.value)} placeholder="Ej. Vacaciones" /></div>
@@ -3398,6 +3401,22 @@ export function App(){
         </div>
         );
       })()}
+      {planWizardOpen && <PlanFinancieroWizard
+        householdId={data!.household!.id}
+        currentYm={s.currentMonth}
+        cutoffDay={data!.household!.cutoffDay}
+        profile={me ?? null}
+        accounts={data!.accounts}
+        monthIncome={data!.summary.monthIncome}
+        categories={data!.categories}
+        categoryTotals={data!.categoryMonthlyTotals}
+        existingBudgets={data!.budgets}
+        onClose={()=>setPlanWizardOpen(false)}
+        onCreated={()=>{ inv(); }}
+        createGoal={(args)=>api.saveGoalWithPlan(args)}
+        createFund={(args)=>api.saveFund(args)}
+        createBudget={(args)=>api.saveBudget(args)}
+      />}
       {inicioMvOpen && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Registrar movimiento" onClick={()=>closeInicioMovement()}>
         <div className="relative w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
           <button type="button" aria-label="Cerrar el registro de movimiento" onClick={()=>closeInicioMovement()} className="absolute right-3 top-3 z-10 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
