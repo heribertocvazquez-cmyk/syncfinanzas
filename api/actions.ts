@@ -70,6 +70,7 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   deleteGoal: { table: "goals", idField: "id" },
   addGoalSaving: { table: "goals", idField: "id" },
   setGoalImportance: { table: "goals", idField: "id" },
+  setFundImportance: { table: "funds", idField: "id" },
   deleteAgreement: { table: "agreements", idField: "id" },
   deletePatrimony: { table: "patrimonyItems", idField: "id" },
   deleteInvitation: { table: "invitations", idField: "id" },
@@ -109,7 +110,7 @@ async function householdIdForRow(
     case "budgets":
       return byId(db.select().from(schema.budgets).where(eq(schema.budgets.id, id)).limit(1));
     case "funds":
-      return byId(db.select().from(schema.funds).where(eq(schema.funds.id, id)).limit(1));
+      return byId(db.select({ id: schema.funds.id, householdId: schema.funds.householdId }).from(schema.funds).where(eq(schema.funds.id, id)).limit(1));
     case "goals":
       return byId(db.select().from(schema.goals).where(eq(schema.goals.id, id)).limit(1));
     case "agreements":

@@ -158,6 +158,52 @@ export function pickPinnedGoal<T extends GoalLike>(goals: T[]): T | null {
   return [...pinned].sort((a, b) => b.pct - a.pct || a.id - b.id)[0] ?? null;
 }
 
+export type FundLike = {
+  id: number;
+  name: string;
+  balance: number;
+  targetAmount: number | null;
+  importance?: number | null;
+};
+
+/** % de avance de un fondo (misma fórmula que la tarjeta de Fondos). */
+export function fundPct(f: { balance: number; targetAmount: number | null }): number {
+  if (!f.targetAmount) return 0;
+  return Math.min(100, Math.round((f.balance / f.targetAmount) * 100));
+}
+
+/** Meses que faltan hasta la fecha límite (meses de 30 días, mínimo 1),
+ *  EXACTAMENTE como en la tarjeta de meta. null sin fecha. */
+export function fundMonthsLeft(targetDate: string | null | undefined): number | null {
+  if (!targetDate) return null;
+  return Math.max(
+    1,
+    Math.round((new Date(targetDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30)),
+  );
+}
+
+/** Cuánto falta aportar al mes para llegar a la meta en la fecha límite
+ *  (redondeado hacia arriba), igual que en la tarjeta de meta.
+ *  null sin fecha o sin meta. */
+export function fundNeedPerMonth(f: {
+  balance: number;
+  targetAmount: number | null;
+  targetDate?: string | null;
+}): number | null {
+  const monthsLeft = fundMonthsLeft(f.targetDate);
+  if (monthsLeft == null || f.targetAmount == null) return null;
+  return Math.ceil((f.targetAmount - f.balance) / monthsLeft);
+}
+
+/** El fondo fijado arriba de Inicio: importancia 5; desempate: más
+ *  avanzado primero, luego el más antiguo. Sin ninguno en 5, null.
+ *  Espejo de pickPinnedGoal. */
+export function pickPinnedFund<T extends FundLike>(funds: T[]): T | null {
+  const pinned = funds.filter((f) => (f.importance ?? 3) === 5);
+  if (pinned.length === 0) return null;
+  return [...pinned].sort((a, b) => fundPct(b) - fundPct(a) || a.id - b.id)[0] ?? null;
+}
+
 /** La meta a la que apunta el consejo («coquito») de un presupuesto:
  *  una meta CON plan activo (aceptado o en riesgo, con fondo y con algo
  *  por ahorrar: es la única que puede recibir el sobrante por la vía de

@@ -81,6 +81,14 @@ export const funds = pgTable("funds", {
   householdId: integer("household_id").notNull(),
   name: text("name").notNull(),
   targetAmount: doublePrecision("target_amount"),
+  // Fecha límite (supabase/add-funds-target-date.sql) e importancia 1–5
+  // (supabase/add-funds-importance.sql): NO van en este esquema, a
+  // propósito — igual que goals.importance. Drizzle mete todas las
+  // columnas del esquema en cada INSERT (con DEFAULT), así que si
+  // estuvieran aquí, crear un fondo se rompería antes de correr el SQL.
+  // Se leen y escriben solo con SQL directo y en silencio si las
+  // columnas aún no existen (getOverview, saveFund, setFundImportance),
+  // y toda lectura de funds usa columnas explícitas, nunca select-all.
   visibility: text("visibility", { enum: ["private", "shared"] }).notNull().default("shared"),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });

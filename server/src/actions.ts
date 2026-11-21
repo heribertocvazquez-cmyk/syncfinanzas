@@ -1255,7 +1255,7 @@ export const Actions = {
       categoryMonthlyTotals: z.array(z.object({ month: z.string(), categoryId: z.number().nullable(), total: z.number() })),
       frequentMovements: z.array(z.object({ type: z.string(), amount: z.number(), key: z.string(), concept: z.string(), count: z.number(), last: z.string() })),
       budgets: z.array(z.object({ id: z.number(), categoryId: z.number(), month: z.string(), amount: z.number(), visibility: z.string(), spent: z.number(), remaining: z.number(), pct: z.number() })),
-      funds: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number().nullable(), visibility: z.string(), balance: z.number() })),
+      funds: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number().nullable(), targetDate: z.string().nullable(), importance: z.number(), visibility: z.string(), balance: z.number() })),
       fundMovements: z.array(z.object({ id: z.number(), fundId: z.number(), type: z.string(), amount: z.number(), date: z.string(), note: z.string().nullable(), accountId: z.number().nullable() })),
       accountSummaries: z.array(z.object({ accountId: z.number(), initialBalance: z.number(), income: z.number(), expense: z.number(), transfersIn: z.number(), transfersOut: z.number(), setAsides: z.array(z.object({ fundId: z.number(), name: z.string(), amount: z.number() })), balance: z.number() })),
       goals: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number(), savedAmount: z.number(), targetDate: z.string().nullable(), visibility: z.string(), pct: z.number(), importance: z.number() })),
@@ -1333,7 +1333,11 @@ export const Actions = {
       const catsR = await db.select().from(schema.categories).where(eq(schema.categories.householdId, hid));
       const movsR = await db.select().from(schema.movements).where(eq(schema.movements.householdId, hid)).orderBy(desc(schema.movements.date), desc(schema.movements.id));
       const budgetsR = await db.select().from(schema.budgets).where(eq(schema.budgets.householdId, hid));
-      const fundsR = await db.select().from(schema.funds).where(eq(schema.funds.householdId, hid));
+      // Columnas explícitas (sin target_date ni importance): con esas
+      // columnas en el esquema, el select-all se rompería antes de correr
+      // supabase/add-funds-target-date.sql o add-funds-importance.sql.
+      // Se leen aparte, tolerantes, abajo (fundDates/fundImportances).
+      const fundsR = await db.select({ id: schema.funds.id, householdId: schema.funds.householdId, name: schema.funds.name, targetAmount: schema.funds.targetAmount, visibility: schema.funds.visibility }).from(schema.funds).where(eq(schema.funds.householdId, hid));
       const fundMovsR = await db.select().from(schema.fundMovements).where(eq(schema.fundMovements.householdId, hid)).orderBy(desc(schema.fundMovements.date));
       const goalsR = await db.select().from(schema.goals).where(eq(schema.goals.householdId, hid));
       const agR = await db.select().from(schema.agreements).where(eq(schema.agreements.householdId, hid)).orderBy(desc(schema.agreements.id));
@@ -1375,6 +1379,25 @@ export const Actions = {
         const res = (await db.execute(sql`SELECT id, importance FROM goals WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; importance: number | null }[] } | { id: number; importance: number | null }[];
         const rows = Array.isArray(res) ? res : (res.rows ?? []);
         for (const row of rows) if (row.importance != null) importanceById.set(row.id, row.importance);
+      } catch { /* columna aún no creada */ }
+      // Fecha límite de cada fondo (columna funds.target_date,
+      // supabase/add-funds-target-date.sql) e importancia 1–5
+      // (funds.importance, supabase/add-funds-importance.sql): se leen
+      // aparte con SQL directo y en silencio si las columnas aún no
+      // existen, para que getOverview no se rompa antes de correr el SQL
+      // — igual que goals.importance. Sin las columnas, los fondos quedan
+      // sin fecha y en 3.
+      const fundDates = new Map<number, string>();
+      try {
+        const res = (await db.execute(sql`SELECT id, target_date FROM funds WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; target_date: string | null }[] } | { id: number; target_date: string | null }[];
+        const rows = Array.isArray(res) ? res : (res.rows ?? []);
+        for (const row of rows) if (row.target_date != null) fundDates.set(row.id, row.target_date);
+      } catch { /* columna aún no creada */ }
+      const fundImportances = new Map<number, number>();
+      try {
+        const res = (await db.execute(sql`SELECT id, importance FROM funds WHERE household_id = ${hid}`)) as unknown as { rows?: { id: number; importance: number | null }[] } | { id: number; importance: number | null }[];
+        const rows = Array.isArray(res) ? res : (res.rows ?? []);
+        for (const row of rows) if (row.importance != null) fundImportances.set(row.id, row.importance);
       } catch { /* columna aún no creada */ }
       const invsR = await db.select().from(schema.invitations).where(eq(schema.invitations.householdId, hid));
       // Qué invitaciones tienen enlace (por correo): las solicitudes de
@@ -1444,7 +1467,7 @@ export const Actions = {
 
       const funds = fundsR.map(f => {
         const bal = fundMovsR.filter(x=>x.fundId===f.id).reduce((s,x)=> s + (x.type==="contribution"? x.amount : -x.amount),0);
-        return { id: f.id, name: f.name, targetAmount: f.targetAmount ?? null, visibility: f.visibility, balance: Math.round(bal*100)/100 };
+        return { id: f.id, name: f.name, targetAmount: f.targetAmount ?? null, targetDate: fundDates.get(f.id) ?? null, importance: fundImportances.get(f.id) ?? 3, visibility: f.visibility, balance: Math.round(bal*100)/100 };
       });
       const totalInFunds = funds.reduce((s,f)=>s+f.balance,0);
 
@@ -2068,11 +2091,69 @@ export const Actions = {
   }),
   deleteBudget: defineAction({ description: "Deletes a budget.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.budgets).where(eq(schema.budgets.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
+  // Crea o actualiza un fondo. La fecha límite y la importancia se
+  // escriben TOLERANTES (patrón setGoalImportance): si las columnas aún
+  // no existen (falta correr supabase/add-funds-target-date.sql o
+  // add-funds-importance.sql), el fondo se crea/actualiza igual y la
+  // respuesta dice qué quedó guardado (savedDate/savedImportance), en
+  // vez de romper. La fecha vacía ("") la borra; sin fecha no se toca.
+  // Importancia 3 no se escribe (es el defecto): así crear con 3 no
+  // avisa de SQL pendiente.
   saveFund: defineAction({
-    description: "Creates a fund (virtual envelope).",
-    request: z.object({ householdId: z.number(), name: z.string().min(1), targetAmount: z.number().nullable().optional(), visibility: vis }),
-    response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const [r]=await db.insert(schema.funds).values({householdId:args.householdId,name:args.name,targetAmount:args.targetAmount??null,visibility:args.visibility}).returning({id:schema.funds.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    description: "Creates or updates a fund (virtual envelope).",
+    request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1), targetAmount: z.number().nullable().optional(), targetDate: z.string().optional(), visibility: vis, importance: z.number().int().min(1).max(5).optional() }),
+    response: z.object({ ok: z.literal(true), id: z.number().optional(), savedDate: z.boolean(), savedImportance: z.boolean() }),
+    async handler(ctx,args): Promise<{ ok: true; id?: number; savedDate: boolean; savedImportance: boolean }>{
+      const db=ctx.db;
+      const storeDate = async (fundId:number): Promise<boolean> => {
+        if (args.targetDate === undefined) return true;
+        if (args.targetDate === "") { try { await db.execute(sql`UPDATE funds SET target_date = NULL WHERE id = ${fundId}`); } catch { /* columna aún no creada: nada que limpiar */ } return true; }
+        try { await db.execute(sql`UPDATE funds SET target_date = ${args.targetDate} WHERE id = ${fundId}`); return true; }
+        catch { return false; }
+      };
+      const storeImportance = async (fundId:number): Promise<boolean> => {
+        if (args.importance == null || args.importance === 3) return true;
+        try { await db.execute(sql`UPDATE funds SET importance = ${args.importance} WHERE id = ${fundId}`); return true; }
+        catch { return false; }
+      };
+      if (args.id) {
+        const rows = await db.select({ id: schema.funds.id, householdId: schema.funds.householdId }).from(schema.funds).where(eq(schema.funds.id, args.id));
+        if (!rows[0]) throw new Error("Fondo no encontrado.");
+        if (rows[0].householdId !== args.householdId) throw new Error("Fondo no encontrado.");
+        const setVals: { name: string; targetAmount?: number | null; visibility: typeof args.visibility } = { name: args.name, visibility: args.visibility };
+        if (args.targetAmount !== undefined) setVals.targetAmount = args.targetAmount;
+        await db.update(schema.funds).set(setVals).where(eq(schema.funds.id, args.id));
+        const savedDate = await storeDate(args.id);
+        const savedImportance = await storeImportance(args.id);
+        ctx.invalidateQueries();
+        return { ok: true, id: args.id, savedDate, savedImportance };
+      }
+      const [r]=await db.insert(schema.funds).values({householdId:args.householdId,name:args.name,targetAmount:args.targetAmount??null,visibility:args.visibility}).returning({id:schema.funds.id});
+      const savedDate = r?.id ? await storeDate(r.id) : true;
+      const savedImportance = r?.id ? await storeImportance(r.id) : true;
+      ctx.invalidateQueries();
+      return { ok:true, id:r?.id, savedDate, savedImportance };
+    },
+  }),
+  // Importancia 1–5 de un fondo: la escritura es tolerante si la
+  // columna aún no existe (el SQL está pendiente de correr): devuelve
+  // saved:false y el cliente lo dice, en vez de romper. Con la columna,
+  // guarda y devuelve saved:true. Igual que setGoalImportance.
+  setFundImportance: defineAction({
+    description: "Sets a fund's importance from 1 to 5; 5 pins it at the top of Inicio.",
+    request: z.object({ id: z.number(), importance: z.number().int().min(1).max(5) }),
+    response: z.object({ ok: z.literal(true), saved: z.boolean() }),
+    async handler(ctx, args): Promise<{ ok: true; saved: boolean }> {
+      const db = ctx.db;
+      const rows = await db.select({ id: schema.funds.id, householdId: schema.funds.householdId }).from(schema.funds).where(eq(schema.funds.id, args.id));
+      if (!rows[0]) throw new Error("Fondo no encontrado.");
+      if (ctx.householdId != null && rows[0].householdId !== ctx.householdId) throw new Error("Fondo no encontrado.");
+      try {
+        await db.execute(sql`UPDATE funds SET importance = ${args.importance} WHERE id = ${args.id}`);
+      } catch { return { ok: true, saved: false }; }
+      ctx.invalidateQueries();
+      return { ok: true, saved: true };
+    },
   }),
   deleteFund: defineAction({ description: "Deletes a fund.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.fundMovements).where(eq(schema.fundMovements.fundId,args.id)); await db.delete(schema.funds).where(eq(schema.funds.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
   addFundMovement: defineAction({
@@ -2083,7 +2164,7 @@ export const Actions = {
     // El esquema zod ya exige accountId, pero el handler directo (sin
     // despachador) no pasa por zod: el rechazo vive también aquí.
     if (args.accountId == null) throw new Error(args.type === "withdrawal" ? "Elija la cuenta a la que vuelve el dinero." : "Elija la cuenta de donde se descuenta.");
-    const funds = await db.select().from(schema.funds).where(eq(schema.funds.id, args.fundId));
+    const funds = await db.select({ id: schema.funds.id, householdId: schema.funds.householdId }).from(schema.funds).where(eq(schema.funds.id, args.fundId));
     const fund = funds[0];
     if (!fund || fund.householdId !== args.householdId) throw new Error("Fondo no encontrado.");
     const ar = await db.select().from(schema.accounts).where(eq(schema.accounts.id, args.accountId));
