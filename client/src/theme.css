@@ -122,3 +122,93 @@ input,select,textarea { font-size:16px; }
    quede estático en la esquina y que "moverse" signifique arrastrarlo, no
    que rebote o pulse. */
 .help-fab-static { touch-action: none; user-select: none; -webkit-user-select: none; }
+/* Splash con nebulosa animada (propuesta E, elegida por Heriberto
+   2026-11-20, video de referencia de 10 s: la nebulosa fluye como aurora
+   boreal, las estrellas titilan, logo y textos fijos al centro). Solo CSS,
+   sin archivos de video ni imagen nuevos y sin dependencias nuevas: tres
+   capas de radial-gradient en los colores de la paleta Marfil/dona que se
+   desplazan y fluyen lento (24-40 s, ease-in-out, infinite alternate),
+   más dos campos de estrellas que titilan y se mueven despacio. Las capas
+   son más grandes que la pantalla (inset negativo) para que el movimiento
+   nunca deje ver los bordes. La nebulosa es oscura y queda detrás del
+   contenido (el contenido lleva z-10), así no estorba la lectura del
+   nombre ni del subtítulo. Con prefers-reduced-motion el fondo queda
+   estático (nebulosa fija, sin animación). El splash es oscuro por
+   diseño: no se toca el theme-color ni el manifest. */
+.sf-splash { position: relative; overflow: hidden; }
+.sf-nebula { position: absolute; inset: -12%; pointer-events: none; }
+.sf-nebula-a {
+  background:
+    radial-gradient(38% 30% at 30% 32%, rgba(0, 194, 181, .34), transparent 70%),
+    radial-gradient(30% 26% at 72% 60%, rgba(124, 92, 191, .30), transparent 70%);
+  animation: sf-nebula-drift-a 36s ease-in-out infinite alternate;
+}
+.sf-nebula-b {
+  background:
+    radial-gradient(34% 28% at 68% 28%, rgba(46, 134, 171, .30), transparent 70%),
+    radial-gradient(28% 24% at 26% 68%, rgba(163, 74, 107, .26), transparent 70%);
+  animation: sf-nebula-drift-b 28s ease-in-out infinite alternate;
+}
+.sf-nebula-c {
+  background:
+    radial-gradient(26% 22% at 50% 50%, rgba(201, 162, 39, .16), transparent 70%);
+  animation: sf-nebula-drift-c 40s ease-in-out infinite alternate;
+}
+@keyframes sf-nebula-drift-a {
+  from { transform: translate3d(-2%, -1%, 0) scale(1); }
+  to { transform: translate3d(3%, 2%, 0) scale(1.12); }
+}
+@keyframes sf-nebula-drift-b {
+  from { transform: translate3d(2%, 1%, 0) scale(1.08); }
+  to { transform: translate3d(-3%, -2%, 0) scale(1); }
+}
+@keyframes sf-nebula-drift-c {
+  from { transform: translate3d(0, -2%, 0) scale(1); }
+  to { transform: translate3d(0, 2%, 0) scale(1.15); }
+}
+.sf-stars {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    radial-gradient(1px 1px at 8% 12%, rgba(255,255,255,.9), transparent),
+    radial-gradient(1px 1px at 22% 28%, rgba(255,255,255,.7), transparent),
+    radial-gradient(2px 2px at 35% 8%, rgba(255,255,255,.9), transparent),
+    radial-gradient(1px 1px at 48% 20%, rgba(255,255,255,.6), transparent),
+    radial-gradient(1px 1px at 62% 10%, rgba(255,255,255,.8), transparent),
+    radial-gradient(2px 2px at 76% 24%, rgba(255,255,255,.9), transparent),
+    radial-gradient(1px 1px at 88% 14%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 15% 45%, rgba(255,255,255,.8), transparent),
+    radial-gradient(1px 1px at 85% 48%, rgba(255,255,255,.6), transparent),
+    radial-gradient(2px 2px at 30% 72%, rgba(255,255,255,.8), transparent),
+    radial-gradient(1px 1px at 55% 82%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 70% 76%, rgba(255,255,255,.9), transparent),
+    radial-gradient(1px 1px at 90% 70%, rgba(255,255,255,.6), transparent),
+    radial-gradient(1px 1px at 12% 88%, rgba(255,255,255,.8), transparent),
+    radial-gradient(2px 2px at 42% 92%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 80% 90%, rgba(255,255,255,.9), transparent);
+  animation: sf-stars-twinkle 5s ease-in-out infinite alternate;
+}
+.sf-stars-b {
+  background-image:
+    radial-gradient(1px 1px at 18% 38%, rgba(255,255,255,.7), transparent),
+    radial-gradient(2px 2px at 40% 55%, rgba(255,255,255,.8), transparent),
+    radial-gradient(1px 1px at 58% 38%, rgba(255,255,255,.6), transparent),
+    radial-gradient(1px 1px at 68% 52%, rgba(255,255,255,.8), transparent),
+    radial-gradient(1px 1px at 25% 60%, rgba(255,255,255,.6), transparent),
+    radial-gradient(2px 2px at 82% 62%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 48% 68%, rgba(255,255,255,.8), transparent),
+    radial-gradient(1px 1px at 92% 84%, rgba(255,255,255,.7), transparent),
+    radial-gradient(1px 1px at 6% 66%, rgba(255,255,255,.6), transparent),
+    radial-gradient(1px 1px at 33% 86%, rgba(255,255,255,.8), transparent);
+  animation: sf-stars-twinkle 7s ease-in-out infinite alternate-reverse;
+}
+@keyframes sf-stars-twinkle {
+  from { opacity: .35; }
+  to { opacity: 1; }
+}
+.sf-logo-tile {
+  border-radius: 28px; overflow: hidden;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .55), 0 0 60px rgba(0, 194, 181, .18);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sf-nebula-a, .sf-nebula-b, .sf-nebula-c, .sf-stars, .sf-stars-b { animation: none; }
+}
