@@ -1255,7 +1255,7 @@ export const Actions = {
       categoryMonthlyTotals: z.array(z.object({ month: z.string(), categoryId: z.number().nullable(), total: z.number() })),
       frequentMovements: z.array(z.object({ type: z.string(), amount: z.number(), key: z.string(), concept: z.string(), count: z.number(), last: z.string() })),
       budgets: z.array(z.object({ id: z.number(), categoryId: z.number(), month: z.string(), amount: z.number(), visibility: z.string(), spent: z.number(), remaining: z.number(), pct: z.number() })),
-      funds: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number().nullable(), targetDate: z.string().nullable(), importance: z.number(), visibility: z.string(), balance: z.number() })),
+      funds: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number().nullable(), targetDate: z.string().nullable(), importance: z.number(), visibility: z.string(), balance: z.number(), createdAt: z.string() })),
       fundMovements: z.array(z.object({ id: z.number(), fundId: z.number(), type: z.string(), amount: z.number(), date: z.string(), note: z.string().nullable(), accountId: z.number().nullable() })),
       accountSummaries: z.array(z.object({ accountId: z.number(), initialBalance: z.number(), income: z.number(), expense: z.number(), transfersIn: z.number(), transfersOut: z.number(), setAsides: z.array(z.object({ fundId: z.number(), name: z.string(), amount: z.number() })), balance: z.number() })),
       goals: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number(), savedAmount: z.number(), targetDate: z.string().nullable(), visibility: z.string(), pct: z.number(), importance: z.number() })),
@@ -1337,7 +1337,7 @@ export const Actions = {
       // columnas en el esquema, el select-all se rompería antes de correr
       // supabase/add-funds-target-date.sql o add-funds-importance.sql.
       // Se leen aparte, tolerantes, abajo (fundDates/fundImportances).
-      const fundsR = await db.select({ id: schema.funds.id, householdId: schema.funds.householdId, name: schema.funds.name, targetAmount: schema.funds.targetAmount, visibility: schema.funds.visibility }).from(schema.funds).where(eq(schema.funds.householdId, hid));
+      const fundsR = await db.select({ id: schema.funds.id, householdId: schema.funds.householdId, name: schema.funds.name, targetAmount: schema.funds.targetAmount, visibility: schema.funds.visibility, createdAt: schema.funds.createdAt }).from(schema.funds).where(eq(schema.funds.householdId, hid));
       const fundMovsR = await db.select().from(schema.fundMovements).where(eq(schema.fundMovements.householdId, hid)).orderBy(desc(schema.fundMovements.date));
       const goalsR = await db.select().from(schema.goals).where(eq(schema.goals.householdId, hid));
       const agR = await db.select().from(schema.agreements).where(eq(schema.agreements.householdId, hid)).orderBy(desc(schema.agreements.id));
@@ -1467,7 +1467,7 @@ export const Actions = {
 
       const funds = fundsR.map(f => {
         const bal = fundMovsR.filter(x=>x.fundId===f.id).reduce((s,x)=> s + (x.type==="contribution"? x.amount : -x.amount),0);
-        return { id: f.id, name: f.name, targetAmount: f.targetAmount ?? null, targetDate: fundDates.get(f.id) ?? null, importance: fundImportances.get(f.id) ?? 3, visibility: f.visibility, balance: Math.round(bal*100)/100 };
+        return { id: f.id, name: f.name, targetAmount: f.targetAmount ?? null, targetDate: fundDates.get(f.id) ?? null, importance: fundImportances.get(f.id) ?? 3, visibility: f.visibility, balance: Math.round(bal*100)/100, createdAt: f.createdAt instanceof Date ? f.createdAt.toISOString() : new Date(Number(f.createdAt)).toISOString() };
       });
       const totalInFunds = funds.reduce((s,f)=>s+f.balance,0);
 

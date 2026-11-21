@@ -173,12 +173,16 @@ export function fundPct(f: { balance: number; targetAmount: number | null }): nu
 }
 
 /** Meses que faltan hasta la fecha límite (meses de 30 días, mínimo 1),
- *  EXACTAMENTE como en la tarjeta de meta. null sin fecha. */
-export function fundMonthsLeft(targetDate: string | null | undefined): number | null {
+ *  EXACTAMENTE como en la tarjeta de meta. null sin fecha. `nowMs` es
+ *  inyectable para que las pruebas fijen el «hoy». */
+export function fundMonthsLeft(
+  targetDate: string | null | undefined,
+  nowMs: number = Date.now(),
+): number | null {
   if (!targetDate) return null;
   return Math.max(
     1,
-    Math.round((new Date(targetDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30)),
+    Math.round((new Date(targetDate).getTime() - nowMs) / (1000 * 60 * 60 * 24 * 30)),
   );
 }
 
@@ -202,6 +206,86 @@ export function pickPinnedFund<T extends FundLike>(funds: T[]): T | null {
   const pinned = funds.filter((f) => (f.importance ?? 3) === 5);
   if (pinned.length === 0) return null;
   return [...pinned].sort((a, b) => fundPct(b) - fundPct(a) || a.id - b.id)[0] ?? null;
+}
+
+// ---- Frecuencia del aporte al fondo (2026-11-21) ----
+// Las filas Por día / Por semana / Por mes del plan son un selector: la
+// frecuencia elegida cambia el botón de aportar y el cálculo de lo
+// esperado y lo proyectado. La elección se guarda EN EL DISPOSITIVO
+// (localStorage, una clave por fondo); sin localStorage, vuelve a Por
+// día. Sin cambio de servidor y sin SQL.
+export type FundFrequency = "dia" | "semana" | "mes";
+
+export function fundFreqKey(fundId: number): string {
+  return `sf-fund-freq-${fundId}`;
+}
+
+type FundFreqStorage = { getItem(k: string): string | null; setItem(k: string, v: string): void } | null | undefined;
+
+function defaultFundFreqStorage(): FundFreqStorage {
+  try {
+    return typeof localStorage !== "undefined" ? localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+export function readFundFrequency(fundId: number, storage: FundFreqStorage = defaultFundFreqStorage()): FundFrequency {
+  try {
+    const v = storage?.getItem(fundFreqKey(fundId));
+    if (v === "dia" || v === "semana" || v === "mes") return v;
+  } catch {}
+  return "dia";
+}
+
+export function writeFundFrequency(fundId: number, freq: FundFrequency, storage: FundFreqStorage = defaultFundFreqStorage()): void {
+  try {
+    storage?.setItem(fundFreqKey(fundId), freq);
+  } catch {}
+}
+
+/** Días transcurridos desde la creación del fondo hasta hoy (00:00
+ *  local), para lo «Esperado hasta hoy». Criterio: se cuenta desde la
+ *  creación, pero si el fondo se creó antes del mes actual, se cuenta
+ *  desde el inicio del mes actual (el plan es del mes en curso). Sin
+ *  fecha de creación, desde el inicio del mes. 0 si se creó hoy o
+ *  después de hoy. */
+export function fundElapsedDays(
+  createdAt: string | null | undefined,
+  currentYm: string,
+  nowMs: number = Date.now(),
+): number {
+  const now = new Date(nowMs);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const [cy = now.getFullYear(), cm = now.getMonth() + 1] = currentYm.split("-").map(Number);
+  const monthStart = new Date(cy, (cm || 1) - 1, 1).getTime();
+  let start = monthStart;
+  if (createdAt) {
+    const c = new Date(createdAt);
+    if (!Number.isNaN(c.getTime())) {
+      const created = new Date(c.getFullYear(), c.getMonth(), c.getDate()).getTime();
+      start = Math.max(created, monthStart);
+    }
+  }
+  return Math.max(0, Math.round((today - start) / 86400000));
+}
+
+/** A cuánto se llega en la fecha límite si se sigue un ritmo: saldo +
+ *  aporte × periodos hasta la fecha. Día: monto-día × días restantes;
+ *  semana: monto-semana × ceil(días/7); mes: monto-mes × meses
+ *  restantes (fundMonthsLeft). Pura, para poder probar el veredicto
+ *  «No llega» con un monto que no cubre. */
+export function fundProjected(
+  balance: number,
+  amount: number,
+  freq: FundFrequency,
+  daysLeft: number,
+  monthsLeft: number,
+): number {
+  // La fecha límite es hoy (daysLeft 0): hoy mismo aún se puede
+  // aportar, así que el día en curso cuenta como 1 periodo.
+  const periods = freq === "dia" ? Math.max(1, daysLeft) : freq === "semana" ? Math.ceil(Math.max(1, daysLeft) / 7) : Math.max(1, monthsLeft);
+  return round2(balance + amount * periods);
 }
 
 // ---- Plan del fondo (2026-11-20) ----
@@ -254,6 +338,15 @@ export type FundPlan = {
   leftoverAfter: number;
   /** Aportado neto a ESTE fondo en el mes actual (aportes − retiros). */
   contributedThisMonth: number;
+  /** Días transcurridos desde la creación (o el inicio del mes, lo
+   *  último). null sin ritmo. */
+  elapsedDays: number | null;
+  /** Lo que ya debería llevar aportado a este ritmo (por día × días
+   *  transcurridos, con tope en lo restante). null sin ritmo. */
+  expectedByNow: number | null;
+  /** A cuánto se llega en la fecha límite con cada frecuencia
+   *  (fundProjected). null sin ritmo. */
+  projected: { dia: number; semana: number; mes: number } | null;
   /** La cuenta con mayor saldo (saldo > 0). null si ninguna tiene. */
   topAccount: FundPlanAccount | null;
   /** Presupuestos con sobrante, los 2 mayores. */
@@ -280,6 +373,8 @@ export function fundPlan(input: {
     balance: number;
     targetAmount: number | null;
     targetDate?: string | null;
+    /** Fecha de creación (ISO) del fondo, para lo esperado hasta hoy. */
+    createdAt?: string | null;
   };
   monthIncome: number;
   monthExpense: number;
@@ -342,6 +437,23 @@ export function fundPlan(input: {
     .filter((b) => b.remaining > 0)
     .sort((a, b) => b.remaining - a.remaining)
     .slice(0, 2);
+  const hasRhythm = perDay != null && perWeek != null && perMonth != null && daysLeft != null && remaining != null && remaining > 0;
+  const elapsedDays = hasRhythm
+    ? fundElapsedDays(input.fund.createdAt ?? null, input.currentYm, nowMs)
+    : null;
+  const expectedByNow =
+    hasRhythm && elapsedDays != null && remaining != null
+      ? Math.min(remaining, round2(perDay! * elapsedDays))
+      : null;
+  const monthsLeft = hasRhythm ? fundMonthsLeft(input.fund.targetDate, nowMs) ?? 1 : 1;
+  const projected =
+    hasRhythm && daysLeft != null
+      ? {
+          dia: fundProjected(input.fund.balance, perDay!, "dia", daysLeft, monthsLeft),
+          semana: fundProjected(input.fund.balance, perWeek!, "semana", daysLeft, monthsLeft),
+          mes: fundProjected(input.fund.balance, perMonth!, "mes", daysLeft, monthsLeft),
+        }
+      : null;
   return {
     capacity,
     hasIncome,
@@ -360,6 +472,9 @@ export function fundPlan(input: {
       input.fund.id,
       input.currentYm,
     ),
+    elapsedDays,
+    expectedByNow,
+    projected,
     topAccount,
     surplusBudgets,
   };

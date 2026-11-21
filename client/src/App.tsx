@@ -18,7 +18,7 @@ import { exceededCategoryName, findTandaForNotification, visibleNotifications } 
 import { MovementsFilter } from "./components/MovementsFilter";
 import { DEFAULT_MOVEMENTS_FILTER, filterMovements, type MovementsFilterValue } from "./lib/movementsFilter";
 import { buildBalanceBreakdown } from "./lib/balanceBreakdown";
-import { pickTipGoal, planCumulativeContributed, planMonthShortfall, planPriorSurplus, pickPinnedGoal, pickPinnedFund, fundPct, fundNeedPerMonth, fundPlan, totalMonthShortfall } from "./lib/goalMonth";
+import { pickTipGoal, planCumulativeContributed, planMonthShortfall, planPriorSurplus, pickPinnedGoal, pickPinnedFund, fundPct, fundNeedPerMonth, fundPlan, totalMonthShortfall, readFundFrequency, writeFundFrequency, type FundFrequency } from "./lib/goalMonth";
 import { accountSummaryRows, type AccountSummary } from "./lib/accountSummary";
 import { MoneyLocationModal } from "./components/MoneyLocationModal";
 import { IncExpDetailModal } from "./components/IncExpDetailModal";
@@ -959,6 +959,16 @@ export function App(){
   const [impEditFundId,setImpEditFundId]=useState<number|null>(null); const [impEditFundValue,setImpEditFundValue]=useState("3");
   // Aporte rápido a un fondo desde Inicio (tarjeta fijada y lista).
   const [quickFundId,setQuickFundId]=useState<number|null>(null); const [quickFundAmt,setQuickFundAmt]=useState(""); const [quickFundAcc,setQuickFundAcc]=useState(""); const [quickFundAccError,setQuickFundAccError]=useState("");
+  // Detalle de un fondo en Inicio (pop-up): la lista compacta de
+  // «Fondos» ya no abre el formulario en línea, abre este modal con el
+  // plan completo, como el detalle de la dona.
+  const [fundDetailId,setFundDetailId]=useState<number|null>(null);
+  // Frecuencia elegida por fondo (día/semana/mes): se guarda en el
+  // dispositivo (localStorage); sin ella, Por día.
+  const [fundFreq,setFundFreq]=useState<Record<number,FundFrequency>>({});
+  const fundFrequency=(id:number):FundFrequency=>fundFreq[id] ?? readFundFrequency(id);
+  const chooseFundFrequency=(id:number,freq:FundFrequency)=>{ writeFundFrequency(id,freq); setFundFreq(prev=>({...prev,[id]:freq})); };
+  const closeFundDetail=()=>{ setFundDetailId(null); setQuickFundId(null); setQuickFundAmt(""); setQuickFundAcc(""); setQuickFundAccError(""); };
   const saveFund=useMutation({mutationFn:async()=>await api.saveFund({householdId:data!.household!.id,name:fundName,targetAmount:fundTarget?Number(fundTarget):null,targetDate:fundDate||undefined,visibility:"shared",importance:Number(fundImportance)||3}),onSuccess:(r)=>{inv();setFundDatePendingSql(r.savedDate===false);setFundImpPendingSql(r.savedImportance===false);setFundName("");setFundTarget("");setFundDate("");setFundImportance("3");}});
   const updateFund=useMutation({mutationFn:async(v:{id:number;targetAmount:number|null;targetDate:string})=>await api.saveFund({id:v.id,householdId:data!.household!.id,name:data!.funds.find(f=>f.id===v.id)?.name ?? "",targetAmount:v.targetAmount,targetDate:v.targetDate,visibility:"shared"}),onSuccess:(r)=>{inv();setFundEditDatePendingSql(r.savedDate===false);setFundEditId(null);}});
   const setFundImp=useMutation({mutationFn:async(v:{id:number;importance:number})=>await api.setFundImportance(v)});
@@ -1782,6 +1792,7 @@ export function App(){
   const pinnedPlan = pinnedGoal ? data.goalPlans.find(p=>p.goalId===pinnedGoal.id) : undefined;
   // Fondo fijado arriba de Inicio (importancia 5, igual que la meta).
   const pinnedFund = pickPinnedFund(data.funds);
+  const fundDetail = fundDetailId == null ? null : data.funds.find((f) => f.id === fundDetailId) ?? null;
   const accountSummaries = (data.accountSummaries ?? []) as AccountSummary[];
   // Lo apartado que no salió de ninguna cuenta (saldo inicial sin
   // cuenta, sobrante del mes): no se asigna a ninguna cuenta.
@@ -1839,7 +1850,7 @@ export function App(){
   // en la tarjeta del fondo en Fondos. `onToday` prellena el formulario
   // de aporte con el monto del día y la cuenta sugerida.
   const renderFundPlan = (
-    f: { id: number; name: string; balance: number; targetAmount: number | null; targetDate?: string | null },
+    f: { id: number; name: string; balance: number; targetAmount: number | null; targetDate?: string | null; createdAt?: string | null },
     onToday: (amount: number, accountId: number | null) => void,
   ) => {
     const surplus = monthBudgets
@@ -1858,6 +1869,12 @@ export function App(){
       accounts: data.accounts.map((a) => ({ id: a.id, name: a.name, balance: a.balance })),
       surplusBudgets: surplus,
     });
+    // Frecuencia elegida para este fondo (Por día por defecto): cambia
+    // el botón de aportar y el cálculo de lo esperado y lo proyectado.
+    const freq = fundFrequency(f.id);
+    const todayAmount = freq === "dia" ? plan.perDay : freq === "semana" ? plan.perWeek : plan.perMonth;
+    const todayLabel = freq === "dia" ? "hoy" : freq === "semana" ? "esta semana" : "este mes";
+    const projected = plan.projected ? plan.projected[freq] : null;
     return (
       <div className="mt-3 rounded-2xl bg-[var(--surface2)] p-3 sm:p-4">
         <p className="font-display font-bold text-sm">Plan del fondo</p>
@@ -1873,11 +1890,43 @@ export function App(){
         {plan.remaining != null && plan.remaining > 0 && !plan.datePassed && plan.perDay != null && plan.perWeek != null && plan.perMonth != null && f.targetDate && (
           <>
             <p className="text-sm mt-2">Para llegar a los {money(plan.remaining)} el {fmtDate(f.targetDate)} (quedan {plan.daysLeft} {plan.daysLeft === 1 ? "día" : "días"}):</p>
+            <p className="text-sm mt-2">Elige cómo aportar:</p>
             <div className="mt-2 space-y-2">
-              <div className="flex justify-between gap-2 bg-[var(--surface)] rounded-xl px-3 py-2 text-sm"><span>Por día</span><b className="whitespace-nowrap">{money(plan.perDay)}</b></div>
-              <div className="flex justify-between gap-2 bg-[var(--surface)] rounded-xl px-3 py-2 text-sm"><span>Por semana</span><b className="whitespace-nowrap">{money(plan.perWeek)}</b></div>
-              <div className="flex justify-between gap-2 bg-[var(--surface)] rounded-xl px-3 py-2 text-sm"><span>Por mes</span><b className="whitespace-nowrap">{money(plan.perMonth)}</b></div>
+              {([
+                { key: "dia" as FundFrequency, label: "Por día", amount: plan.perDay },
+                { key: "semana" as FundFrequency, label: "Por semana", amount: plan.perWeek },
+                { key: "mes" as FundFrequency, label: "Por mes", amount: plan.perMonth },
+              ]).map((row) => {
+                const selected = freq === row.key;
+                return (
+                  <button key={row.key} type="button" aria-pressed={selected} aria-label={`Elegir aporte por ${row.key === "dia" ? "día" : row.key === "semana" ? "semana" : "mes"} al fondo ${f.name}`} onClick={() => chooseFundFrequency(f.id, row.key)} className={`flex w-full justify-between gap-2 rounded-xl px-3 py-2 text-sm ${selected ? "bg-[var(--surface)] border-2 border-[var(--accent)]" : "bg-[var(--surface)] border-2 border-transparent"}`}>
+                    <span>{row.label}</span>
+                    <span className="flex items-center gap-2"><b className="whitespace-nowrap">{money(row.amount)}</b>{selected && <span aria-hidden="true" className="font-bold text-[var(--accent)]">✓</span>}</span>
+                  </button>
+                );
+              })}
             </div>
+            {plan.expectedByNow != null && (
+              <>
+                <p className="text-sm mt-2">Esperado hasta hoy: {money(plan.expectedByNow)} · Aportado: {money(plan.contributedThisMonth)}</p>
+                {plan.contributedThisMonth < plan.expectedByNow && (
+                  <p className="text-sm mt-1 font-semibold text-[var(--red)]">Te faltan {money(plan.expectedByNow - plan.contributedThisMonth)} para ir al corriente.</p>
+                )}
+              </>
+            )}
+            {projected != null && f.targetAmount != null && (
+              <>
+                <p className="text-sm mt-2">Con este ritmo llegas a {money(projected)} el {fmtDate(f.targetDate)}.</p>
+                {projected >= f.targetAmount ? (
+                  <p className="text-sm mt-1 font-semibold text-[var(--green)]">Cubre la meta.</p>
+                ) : (
+                  <>
+                    <p className="text-sm mt-1 font-semibold text-[var(--red)]">No llega: faltan {money(f.targetAmount - projected)}.</p>
+                    <p className="text-sm mt-1">Para llegar, aporte más en cada periodo o mueva la fecha límite.</p>
+                  </>
+                )}
+              </>
+            )}
           </>
         )}
         {plan.remaining != null && plan.remaining > 0 && plan.datePassed && (
@@ -1914,8 +1963,8 @@ export function App(){
         {plan.needThisMonth != null && plan.needThisMonth > 0 && (
           <div className="h-2 bg-[var(--surface)] rounded-full mt-1"><div className="h-full bg-[var(--gold)] rounded-full" style={{ width: `${Math.min(100, Math.round((plan.contributedThisMonth / plan.needThisMonth) * 100))}%` }} /></div>
         )}
-        {plan.perDay != null && plan.perDay > 0 && (
-          <button type="button" aria-label={`Aportar ${money(plan.perDay)} hoy al fondo ${f.name}`} className={btnPrimary + " mt-3 w-full"} onClick={() => onToday(plan.perDay!, plan.topAccount?.id ?? null)}>Aportar {money(plan.perDay)} (hoy)</button>
+        {todayAmount != null && todayAmount > 0 && (
+          <button type="button" aria-label={`Aportar ${money(todayAmount)} ${todayLabel} al fondo ${f.name}`} className={btnPrimary + " mt-3 w-full"} onClick={() => onToday(todayAmount, plan.topAccount?.id ?? null)}>Aportar {money(todayAmount)} ({todayLabel})</button>
         )}
       </div>
     );
@@ -2316,7 +2365,7 @@ export function App(){
                 below={<button type="button" aria-label="Ver todos los fondos" className="text-sm font-bold underline mt-2" onClick={()=>goTab("fondos")}>Ver en Fondos</button>}
                 toggleLabel="Fondos"
               >
-                {data.funds.filter(f=>f.id!==pinnedFund?.id).slice(0,3).map(f=>{ const pct=fundPct(f); return <div key={f.id} className="mt-3"><button type="button" aria-label={`Aportar al fondo ${f.name}`} className="w-full text-left" onClick={()=>{setQuickFundId(quickFundId===f.id?null:f.id);setQuickFundAmt("");setQuickFundAcc("");setQuickFundAccError("");}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{f.name}</span><span className="flex items-center gap-1 shrink-0"><b>{f.targetAmount?`${pct}%`:money(f.balance)}</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div>{f.targetAmount ? <div className="h-2 bg-[var(--surface2)] rounded-full mt-1"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${pct}%`}} /></div> : null}<p className="text-[13px] text-[var(--dim)]">{f.targetAmount?`${money(f.balance)} de ${money(f.targetAmount)}`:`${money(f.balance)}`}{f.targetDate?` · meta ${fmtDate(f.targetDate)}`:""}{f.targetAmount?(f.targetAmount-f.balance>0?` · Restan ${money(f.targetAmount-f.balance)} para el fondo`:" · Meta alcanzada"):" · Sin meta"}</p></button>{quickFundId===f.id && renderQuickFundForm(f)}
+                {data.funds.filter(f=>f.id!==pinnedFund?.id).slice(0,3).map(f=>{ const pct=fundPct(f); return <div key={f.id} className="mt-3"><button type="button" aria-label={`Ver el detalle del fondo ${f.name}`} className="w-full text-left" onClick={()=>{setFundDetailId(f.id);}}><div className="flex items-center justify-between gap-2 text-sm"><span className="min-w-0">{f.name}</span><span className="flex items-center gap-1 shrink-0"><b>{f.targetAmount?`${pct}%`:money(f.balance)}</b><span aria-hidden="true" className="text-[var(--dim)]">›</span></span></div>{f.targetAmount ? <div className="h-2 bg-[var(--surface2)] rounded-full mt-1"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${pct}%`}} /></div> : null}<p className="text-[13px] text-[var(--dim)]">{f.targetAmount?`${money(f.balance)} de ${money(f.targetAmount)}`:`${money(f.balance)}`}{f.targetDate?` · meta ${fmtDate(f.targetDate)}`:""}{f.targetAmount?(f.targetAmount-f.balance>0?` · Restan ${money(f.targetAmount-f.balance)} para el fondo`:" · Meta alcanzada"):" · Sin meta"}</p></button>
                 </div>; })}
               </CollapsibleCard>
               )}
@@ -3334,6 +3383,28 @@ export function App(){
           <div className="flex gap-2 mt-4">
             <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{setCatDetail(null); goTab("movimientos");}}>Ver todos los movimientos</button>
             <button type="button" className={btnGhost} onClick={()=>setCatDetail(null)}>Cerrar</button>
+          </div>
+        </div>
+      </div>}
+      {fundDetail && <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Detalle del fondo ${fundDetail.name}`} onClick={closeFundDetail}>
+        <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-4" onClick={e=>e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold tracking-wide text-[var(--dim)]">FONDO</p>
+              <p className="font-display font-bold text-lg leading-tight">{fundDetail.name}</p>
+              <p className="text-sm text-[var(--dim)] mt-1">{fundDetail.targetAmount ? `${fundPct(fundDetail)}% · ${money(fundDetail.balance)} de ${money(fundDetail.targetAmount)} · ${fundDetail.targetAmount-fundDetail.balance>0?`Restan ${money(fundDetail.targetAmount-fundDetail.balance)} para el fondo`:"Meta alcanzada"}` : `${money(fundDetail.balance)} · Sin meta`}</p>
+            </div>
+            <button type="button" aria-label="Cerrar el detalle del fondo" onClick={closeFundDetail} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
+          </div>
+          {fundDetail.targetAmount ? <div className="h-2 bg-[var(--surface2)] rounded-full mt-2"><div className="h-full bg-[var(--green)] rounded-full" style={{width:`${fundPct(fundDetail)}%`}} /></div> : null}
+          {fundDetail.targetDate && <p className="text-sm mt-2">Meta {fmtDate(fundDetail.targetDate)}{(()=>{const need=fundNeedPerMonth(fundDetail); return need!==null && need>0 ? ` · faltan ${money(need)}/mes` : "";})()}</p>}
+          <p className="text-sm mt-2">Importancia: {"★".repeat(fundDetail.importance ?? 3)}{"☆".repeat(5-(fundDetail.importance ?? 3))} {fundDetail.importance ?? 3} de 5 <button type="button" aria-label={`Cambiar la importancia de ${fundDetail.name}`} className="text-xs underline font-bold ml-1" onClick={()=>{setImpEditFundId(impEditFundId===fundDetail.id?null:fundDetail.id); setImpEditFundValue(String(fundDetail.importance ?? 3));}}>Cambiar</button></p>
+          {impEditFundId===fundDetail.id && renderFundImpEditor(fundDetail)}
+          {renderFundPlan(fundDetail, (amt, accId) => { setQuickFundId(fundDetail.id); setQuickFundAmt(String(amt)); setQuickFundAcc(accId != null ? String(accId) : ""); setQuickFundAccError(""); })}
+          {quickFundId===fundDetail.id && renderQuickFundForm(fundDetail)}
+          <div className="flex gap-2 mt-4">
+            <button type="button" className={btnPrimary+" flex-1"} onClick={()=>{closeFundDetail(); goTab("fondos");}}>Ver en Fondos</button>
+            <button type="button" className={btnGhost} onClick={closeFundDetail}>Cerrar</button>
           </div>
         </div>
       </div>}
