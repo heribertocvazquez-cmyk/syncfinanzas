@@ -80,6 +80,17 @@ try {
   // Sin almacenamiento disponible: queda el modo oscuro.
 }
 
+// Texto grande (Vista, mejora «Acceso más fácil para mayores»,
+// 2026-11-21): se aplica antes de pintar, como el tema, para que la
+// app no parpadee al abrir con el tamaño grande guardado
+// (localStorage «sf-texto-grande»). El cajón lo vuelve a aplicar al
+// montar, con el mismo mecanismo.
+try {
+  document.documentElement.dataset.textoGrande = localStorage.getItem("sf-texto-grande") === "1" ? "true" : "false";
+} catch {
+  // Sin almacenamiento disponible: queda el tamaño normal.
+}
+
 // Service worker (solo en producción): guarda la cáscara de la aplicación
 // para que la instalada se abra rápido y siga mostrando la pantalla
 // principal sin conexión. Los datos siempre se consultan en línea.

@@ -107,6 +107,29 @@
   h1,h2,h3,.font-display { font-family: var(--font-display); }
   html { -webkit-tap-highlight-color: transparent; }
 }
+/* Texto grande (Vista, mejora «Acceso más fácil para mayores», 2026-11-21):
+   sube la letra base un paso (16px -> 18px) y con ella todas las tallas
+   de texto de Tailwind, que se emiten como var(--text-*) (verificado en
+   dist: .text-sm{font-size:var(--text-sm)}). Las tallas arbitrarias más
+   usadas (11/12/13/15px: filas del menú, botones, etiquetas) suben el
+   mismo paso. Los campos de formulario se quedan en 16px a propósito (la
+   regla de abajo evita el zoom en iPhone). El contraste no cambia: no se
+   toca ningún color, solo tamaños. Se activa con
+   html[data-texto-grande="true"], que pone el interruptor de Vista. */
+html[data-texto-grande="true"] {
+  --text-xs: 14px; --text-xs--line-height: 18px;
+  --text-sm: 16px; --text-sm--line-height: 22px;
+  --text-base: 18px; --text-base--line-height: 27px;
+  --text-lg: 20px; --text-lg--line-height: 32px;
+  --text-xl: 22px; --text-xl--line-height: 32px;
+  --text-2xl: 27px; --text-2xl--line-height: 36px;
+  --text-3xl: 34px; --text-3xl--line-height: 40px;
+  --text-4xl: 40px; --text-4xl--line-height: 45px;
+}
+html[data-texto-grande="true"] .text-\[11px\] { font-size: 12px; }
+html[data-texto-grande="true"] .text-\[12px\] { font-size: 14px; }
+html[data-texto-grande="true"] .text-\[13px\] { font-size: 15px; }
+html[data-texto-grande="true"] .text-\[15px\] { font-size: 17px; }
 /* Instalada en el celular (pantalla completa, sin barra del navegador):
    se evita el rebote de desplazamiento propio del navegador. */
 @media (display-mode: standalone) {

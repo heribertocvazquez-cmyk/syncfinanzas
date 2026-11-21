@@ -1,5 +1,34 @@
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { Tab } from "../App";
+
+// Texto grande (Vista, mejora «Acceso más fácil para mayores»,
+// 2026-11-21): la elección vive en el dispositivo (localStorage
+// «sf-texto-grande») y se aplica con el atributo data-texto-grande en
+// <html>, que lee la variante de theme.css. Sin localStorage no se puede
+// recordar y queda el tamaño normal.
+export const TEXTO_GRANDE_KEY = "sf-texto-grande";
+
+export function readTextoGrande(): boolean {
+  try { return localStorage.getItem(TEXTO_GRANDE_KEY) === "1"; }
+  catch { return false; }
+}
+
+export function applyTextoGrande(on: boolean): void {
+  try {
+    if (typeof document !== "undefined") {
+      document.documentElement.dataset.textoGrande = on ? "true" : "false";
+    }
+  } catch { /* sin documento no hay nada que aplicar */ }
+}
+
+export function writeTextoGrande(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(TEXTO_GRANDE_KEY, "1");
+    else localStorage.removeItem(TEXTO_GRANDE_KEY);
+  } catch { /* sin almacenamiento no se puede recordar */ }
+  applyTextoGrande(on);
+}
 
 // Cajón lateral del menú: la navegación por módulos, con sus grupos
 // plegables (solo queda abierto el del módulo actual). Se extrajo de
@@ -49,8 +78,21 @@ export function DrawerMenu(p: {
   onToggleVista: () => void;
   darkMode: boolean;
   onSetThemeMode: (dark: boolean) => void;
+  // Texto grande: si App pasa el valor y el cambio, el interruptor es
+  // controlado; si no, el menú lo guarda y lo aplica solo (el cajón
+  // siempre está montado, así que la preferencia se aplica al cargar).
+  textoGrande?: boolean;
+  onSetTextoGrande?: (on: boolean) => void;
   onFeedback?: () => void;
 }) {
+  const [textoGrandeLocal, setTextoGrandeLocal] = useState<boolean>(() => readTextoGrande());
+  const textoGrandeActivo = p.textoGrande ?? textoGrandeLocal;
+  useEffect(() => { applyTextoGrande(textoGrandeActivo); }, [textoGrandeActivo]);
+  const toggleTextoGrande = () => {
+    const next = !textoGrandeActivo;
+    if (p.onSetTextoGrande) p.onSetTextoGrande(next);
+    else { setTextoGrandeLocal(next); writeTextoGrande(next); }
+  };
   return (
     <nav id="menu-modulos" aria-label="Módulos" className="flex-1 overflow-y-auto px-3 py-3">
       {p.sections.map(sec=>{ if(sec.config){ return (
@@ -86,6 +128,13 @@ export function DrawerMenu(p: {
                     </li>
                     <li>
                       <button type="button" aria-pressed={p.darkMode} onClick={()=>p.onSetThemeMode(true)} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${p.darkMode?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{tabIcon(<><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></>)}<span className="flex-1">Oscuro</span>{p.darkMode && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
+                    </li>
+                    <li>
+                      {/* Texto grande: la letra de toda la app crece un paso. */}
+                      <button type="button" role="switch" aria-checked={textoGrandeActivo} aria-label="Texto grande" onClick={toggleTextoGrande} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold text-[var(--text)]">{tabIcon(<><path d="M5 18 12 6l7 12"/><line x1="8.5" y1="13" x2="15.5" y2="13"/></>)}<span className="flex-1">Texto grande</span><span aria-hidden="true" className={`shrink-0 w-11 h-6 rounded-full p-0.5 flex ${textoGrandeActivo ? "bg-[var(--accent)] justify-end" : "bg-[var(--surface2)] justify-start"}`}><span className="block w-5 h-5 rounded-full bg-[var(--surface)] border border-[var(--border)]" /></span></button>
+                    </li>
+                    <li>
+                      <p className="text-xs text-[var(--dim)] px-2.5 py-1">La letra de toda la app crece un paso.</p>
                     </li>
                   </ul>
                 )}

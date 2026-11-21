@@ -35,6 +35,7 @@ import { HouseholdCode } from "./components/HouseholdCode";
 import { JoinHouseholdByCode } from "./components/JoinHouseholdByCode";
 import { JoinRequestRow } from "./components/JoinRequestRow";
 import { UpdateBellNotice } from "./components/UpdateBellNotice";
+import { InstallCard, InstallStepsDialog, shouldAutoShowInstallGuide } from "./components/InstallCard";
 import { FeedbackReviewList } from "./components/FeedbackReview";
 import type { FeedbackState } from "./lib/feedback";
 import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview } from "./components/TandaDetail";
@@ -51,7 +52,6 @@ import guiaConfiguracionPdf from "./assets/guia-configuracion-ayuda.pdf";
 import { APP_VERSION } from "./version";
 import { APP_UPDATE_EVENT, APP_UPDATE_GONE_EVENT, UPDATE_APPLY_TIMEOUT_MS, applyAppUpdate, checkForAppUpdate, isUpdateAvailable } from "./serviceWorkerUpdate";
 import { clearDeferredInstallPrompt, consumeDeferredInstallPrompt } from "./installPrompt";
-import appIcon512 from "./assets/app-icon-512.png";
 
 export type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"seguridad"|"guia"|"desarrollador";
 const TABS: {id:Tab;label:string}[] = [
@@ -122,74 +122,11 @@ function focusField(id:string){ const el=document.getElementById(id); el?.scroll
 // en iPhone la instalación se realiza desde el menú Compartir de Safari (Apple no ofrece
 // instalación con un solo toque), por lo que se muestran los pasos exactos.
 type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
-type InstallPlatform = "ios" | "android" | "desktop";
-function detectInstallPlatform(): InstallPlatform {
-  if (typeof navigator === "undefined") return "desktop";
-  const ua = navigator.userAgent || "";
-  if (/iphone|ipad|ipod/i.test(ua)) return "ios";
-  if (/android/i.test(ua)) return "android";
-  return "desktop";
-}
 function detectStandalone(): boolean {
   if (typeof window === "undefined") return false;
   const nav = navigator as Navigator & { standalone?: boolean };
   return window.matchMedia("(display-mode: standalone)").matches || nav.standalone === true;
 }
-const INSTALL_STEPS: Record<InstallPlatform, string[]> = {
-  android: [
-    "Abra el menú ⋮ de Chrome (arriba a la derecha).",
-    "Seleccione «Instalar y crear acceso directo».",
-    "Confirme con «Instalar».",
-  ],
-  ios: [
-    "Abra esta página en Safari.",
-    "Pulse Compartir, el cuadrado con la flecha hacia arriba.",
-    "Seleccione «Agregar a pantalla de inicio».",
-    "Confirme con «Agregar».",
-  ],
-  desktop: [
-    "Pulse el icono de instalación en la barra de direcciones.",
-    "Confirme con «Instalar».",
-  ],
-};
-function InstallCard({ installed, onInstall, onDismiss }: { installed: boolean; onInstall: () => void; onDismiss?: () => void }) {
-  return (
-    <div className="bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl px-3 py-2 flex items-center gap-2">
-      <img src={appIcon512} alt="Icono de SyncFinanzas: una casa blanca con flechas de sincronización doradas sobre fondo azul marino" className="w-9 h-9 rounded-xl shrink-0 border border-[var(--border)]" />
-      <p className="text-sm font-bold flex-1 min-w-0">Instale SyncFinanzas en su celular</p>
-      {installed ? (
-        <p className="text-sm font-semibold text-[var(--green)] shrink-0" role="status">Ya instalada.</p>
-      ) : (
-        <button type="button" aria-label="Instalar la aplicación SyncFinanzas en este dispositivo" className={btnPrimary + " shrink-0"} onClick={onInstall}>Instalar</button>
-      )}
-      {onDismiss && <button type="button" aria-label="Descartar el aviso de instalación" onClick={onDismiss} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>}
-    </div>
-  );
-}
-// En iPhone no hay instalación automática: el botón abre estos pasos cortos.
-// En Android/Chrome, si el navegador ofrece la instalación, el botón la dispara.
-function InstallStepsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  if (!open) return null;
-  const platform = detectInstallPlatform();
-  const title = platform === "ios" ? "Instalar en iPhone" : platform === "android" ? "Instalar en Android" : "Instalar en la computadora";
-  return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
-      <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-sm p-3.5" onClick={e=>e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-2">
-          <h2 className="font-display font-bold text-lg">{title}</h2>
-          <button type="button" aria-label="Cerrar las instrucciones de instalación" onClick={onClose} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
-        </div>
-        <p className="text-sm text-[var(--dim)] mt-2">El navegador no ofrece la instalación directa en este momento (por ejemplo, si el aviso se descartó antes). Siga estos pasos:</p>
-        <ol className="list-decimal ml-5 text-sm space-y-1.5 mt-3">
-          {INSTALL_STEPS[platform].map((s, i) => <li key={i}>{s}</li>)}
-        </ol>
-        {platform === "android" && <p className="text-xs text-[var(--dim)] mt-3">Si no aparece «Instalar y crear acceso directo», es posible que la aplicación ya esté instalada.</p>}
-        <button type="button" className={btnPrimary + " mt-3 w-full"} onClick={onClose}>Entendido</button>
-      </div>
-    </div>
-  );
-}
-
 // ---- Mike (respuestas preparadas + respuestas dinámicas con datos reales) ----
 // Botón flotante con una estrella dorada, sin nombre visible, en toda la
 // app mientras el chat está cerrado, en modo Personal y Familiar. La
@@ -451,7 +388,7 @@ export function App(){
   useEffect(()=>{ if(menuOpen){ setOpenDrawerGroups({}); setConfigOpen(tab==="guia" || tab==="seguridad"); setVistaOpen(false); } },[menuOpen]);
   // Instalación en el celular: se captura el evento del navegador y se detecta si ya está instalada.
   const [installPrompt,setInstallPrompt]=useState<BeforeInstallPromptEvent|null>(null); const [appInstalled,setAppInstalled]=useState<boolean>(()=>detectStandalone()); const [installDismissed,setInstallDismissed]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-install-dismissed")==="1"; }catch{ return false; } });
-  const [installStepsOpen,setInstallStepsOpen]=useState(false);
+  const [installStepsOpen,setInstallStepsOpen]=useState(() => shouldAutoShowInstallGuide(detectStandalone()));
   const [chartsSeen,setChartsSeen]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-guide-charts-seen")==="1"; }catch{ return false; } });
   useEffect(()=>{
     // El evento puede haber llegado antes de montar (se capturó temprano en
