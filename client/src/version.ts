@@ -6,4 +6,4 @@
 // app muestra el aviso "Hay una nueva versión" con el botón Actualizar.
 // Nota: el valor nombra el commit de los cambios que se publican; el
 // commit que solo actualiza esta línea no cambia el número.
-export const APP_VERSION = "a5e2183";
+export const APP_VERSION = "ed8cc42";
