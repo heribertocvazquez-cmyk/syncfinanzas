@@ -13,7 +13,7 @@
 //  - Las claves (service_role) viven solo en variables de entorno.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getDb, closeDb } from "../server/src/db.js";
+import { getDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { rateLimitDb } from "../server/src/space-shim.js";
 import { resolveAppUrl } from "../server/src/appUrl.js";
@@ -144,7 +144,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Punto 11: al cliente solo un mensaje formal y un identificador de
     // error; el mensaje y el código internos quedan en el registro.
     errorResponse(res, 400, err, "API error:");
-  } finally {
-    await closeDb();
   }
 }

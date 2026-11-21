@@ -9,7 +9,7 @@
 // token, se rechaza (el código se escribe dentro de la app).
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { eq } from "drizzle-orm";
-import { getDb, closeDb } from "../server/src/db.js";
+import { getDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { resolveInviteToken, tokenIsUsable, isHouseholdCodeToken, isHouseholdGenericToken } from "../server/src/invites.js";
 
@@ -51,7 +51,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch {
     return res.status(400).json({ error: "No se pudo verificar la invitación. Inténtelo de nuevo." });
-  } finally {
-    await closeDb();
   }
 }

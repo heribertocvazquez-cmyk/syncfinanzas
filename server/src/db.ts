@@ -33,12 +33,17 @@ export function getDb(): Db {
   return dbInstance;
 }
 
-/** Cierra la conexión al final de cada petición serverless. En Vercel cada
- *  invocación puede ser una instancia distinta y las conexiones que quedan
- *  abiertas agotan el pooler de Supabase: las peticiones siguientes se
- *  quedan esperando una conexión libre hasta agotar el tiempo de la función.
- *  Se llama en el `finally` de cada endpoint de la API, después de enviar
- *  la respuesta; la siguiente petición vuelve a crear la conexión. */
+/** NO llamar por petición (ni en el `finally` de ningún endpoint).
+ *  Con Fluid Compute varias peticiones concurrentes comparten el único
+ *  cliente de la instancia caliente (`max: 1`): si una petición lo cierra
+ *  mientras otra tiene una consulta en cola, esa consulta queda huérfana
+ *  para siempre (postgres.js no tiene timeout para consultas en cola) y
+ *  la instancia queda envenenada — es el colgamiento de /api/actions
+ *  diagnosticado el 2026-11-21. La instancia caliente debe reutilizar
+ *  su cliente entre peticiones; al reciclarse la instancia, el socket
+ *  muere con ella y Supavisor recoge los clientes inactivos. Esta
+ *  función se conserva solo por si algún día hace falta cerrar el
+ *  cliente de forma explícita fuera del camino de las peticiones. */
 export async function closeDb(): Promise<void> {
   const c = client;
   client = null;

@@ -18,7 +18,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Actions, isTandaOnlyMember } from "../server/src/actions.js";
-import { getDb, closeDb } from "../server/src/db.js";
+import { getDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
 import { buildCtx } from "../server/src/space-shim.js";
 import { resolveAppUrl } from "../server/src/appUrl.js";
@@ -347,7 +347,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Punto 11: al cliente solo un mensaje formal y un identificador de
     // error; el mensaje y el código internos quedan en el registro.
     errorResponse(res, 400, err, "API actions error:");
-  } finally {
-    await closeDb();
   }
 }

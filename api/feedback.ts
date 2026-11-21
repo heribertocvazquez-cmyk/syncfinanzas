@@ -20,7 +20,6 @@ import { z } from "zod";
 import { rateLimitDb } from "../server/src/space-shim.js";
 import { errorResponse } from "../server/src/error-response.js";
 import { supabaseAdmin } from "../server/src/supabase.js";
-import { closeDb } from "../server/src/db.js";
 
 // Dueño de la app: solo él recibe el aviso de cada opinión nueva. Son las
 // mismas constantes que en server/src/actions.ts (APP_OWNER_USER_ID y
@@ -140,8 +139,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     } catch (err) {
       errorResponse(res, 400, err, "API feedback error:");
-    } finally {
-      await closeDb();
     }
     return;
   }
@@ -184,7 +181,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Punto 11: al cliente solo un mensaje formal y un identificador de
     // error; el mensaje y el código internos quedan en el registro.
     errorResponse(res, 400, err, "API feedback error:");
-  } finally {
-    await closeDb();
   }
 }

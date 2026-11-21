@@ -11,7 +11,6 @@
 // que Mercado Pago reintente el aviso.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { closeDb } from "../../server/src/db.js";
 import { errorResponse } from "../../server/src/error-response.js";
 import {
   mpAccessToken,
@@ -113,7 +112,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Mercado Pago reintente el aviso. El pago también se puede confirmar
     // desde la app con «Verificar pago».
     errorResponse(res, 500, err, "Mercado Pago webhook error:");
-  } finally {
-    await closeDb();
   }
 }
