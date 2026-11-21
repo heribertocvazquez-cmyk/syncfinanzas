@@ -27,6 +27,7 @@ const TAB_ICONS: Record<Tab, ReactNode> = {
   categorias: tabIcon(<><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></>),
   perfiles: tabIcon(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>),
   guia: tabIcon(<><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></>),
+  seguridad: tabIcon(<><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></>),
   desarrollador: tabIcon(<><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></>),
 };
 
@@ -62,6 +63,9 @@ export function DrawerMenu(p: {
             <ul className="mt-1 space-y-0.5">
               <li>
                 <button type="button" aria-label="Ir a Guía de uso" aria-current={p.currentTab==="guia"?"page":undefined} onClick={()=>{p.onNavigate("guia");}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${p.currentTab==="guia"?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{TAB_ICONS.guia}<span className="flex-1">Guía de uso</span>{p.currentTab==="guia" && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
+              </li>
+              <li>
+                <button type="button" aria-label="Ir a Seguridad" aria-current={p.currentTab==="seguridad"?"page":undefined} onClick={()=>{p.onNavigate("seguridad");}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${p.currentTab==="seguridad"?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{TAB_ICONS.seguridad}<span className="flex-1">Seguridad</span>{p.currentTab==="seguridad" && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
               </li>
               <li>
                 {/* Enviar comentarios: abre el formulario de dudas y mejoras

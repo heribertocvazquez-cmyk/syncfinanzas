@@ -53,11 +53,11 @@ import { APP_UPDATE_EVENT, APP_UPDATE_GONE_EVENT, UPDATE_APPLY_TIMEOUT_MS, apply
 import { clearDeferredInstallPrompt, consumeDeferredInstallPrompt } from "./installPrompt";
 import appIcon512 from "./assets/app-icon-512.png";
 
-export type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"guia"|"desarrollador";
+export type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"seguridad"|"guia"|"desarrollador";
 const TABS: {id:Tab;label:string}[] = [
   {id:"inicio",label:"Inicio"},{id:"personal",label:"Personal"},{id:"movimientos",label:"Movimientos"},{id:"cuentas",label:"Cuentas"},{id:"presupuestos",label:"Presupuestos"},
   {id:"fondos",label:"Fondos"},{id:"aportaciones",label:"Aportaciones"},{id:"metas",label:"Metas"},{id:"acuerdos",label:"Acuerdos"},{id:"tandas",label:"Tandas"},
-  {id:"patrimonio",label:"Patrimonio"},{id:"categorias",label:"Categorías"},{id:"perfiles",label:"Perfiles"},{id:"hogar",label:"Hogar"},{id:"guia",label:"Guía de uso"},{id:"desarrollador",label:"Desarrollador"},
+  {id:"patrimonio",label:"Patrimonio"},{id:"categorias",label:"Categorías"},{id:"perfiles",label:"Perfiles"},{id:"hogar",label:"Hogar"},{id:"seguridad",label:"Seguridad"},{id:"guia",label:"Guía de uso"},{id:"desarrollador",label:"Desarrollador"},
 ];
 // Los módulos se agrupan por función: varios se desprenden de otros (Aportaciones se calcula
 // desde Movimientos; Fondos son apartados dentro de Cuentas; Presupuestos vigilan Categorías).
@@ -66,7 +66,7 @@ const MODULE_GROUPS: {title:string; tabs:Tab[]}[] = [
   {title:"Planificación", tabs:["presupuestos","fondos","aportaciones","metas"]},
   {title:"Decisiones y patrimonio", tabs:["acuerdos","patrimonio"]},
   {title:"Tandas", tabs:["tandas"]},
-  {title:"Configuración y ayuda", tabs:["categorias","perfiles","hogar","guia"]},
+  {title:"Configuración y ayuda", tabs:["categorias","perfiles","hogar","seguridad","guia"]},
 ];
 // Guía en PDF de cada segmento: se abre dentro de la aplicación, en la pestaña Guía de uso.
 const GUIDE_PDF_BY_GROUP: Record<string,string> = {
@@ -448,7 +448,7 @@ export function App(){
   const [openDrawerGroups, setOpenDrawerGroups] = useState<Record<string, boolean>>({});
   const [configOpen, setConfigOpen] = useState(false);
   const [vistaOpen, setVistaOpen] = useState(false);
-  useEffect(()=>{ if(menuOpen){ setOpenDrawerGroups({}); setConfigOpen(tab==="guia"); setVistaOpen(false); } },[menuOpen]);
+  useEffect(()=>{ if(menuOpen){ setOpenDrawerGroups({}); setConfigOpen(tab==="guia" || tab==="seguridad"); setVistaOpen(false); } },[menuOpen]);
   // Instalación en el celular: se captura el evento del navegador y se detecta si ya está instalada.
   const [installPrompt,setInstallPrompt]=useState<BeforeInstallPromptEvent|null>(null); const [appInstalled,setAppInstalled]=useState<boolean>(()=>detectStandalone()); const [installDismissed,setInstallDismissed]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-install-dismissed")==="1"; }catch{ return false; } });
   const [installStepsOpen,setInstallStepsOpen]=useState(false);
@@ -2915,7 +2915,7 @@ export function App(){
                       <button type="button" aria-label={`Leer la guía en PDF del segmento ${g.title}`} className={btnGhost+" shrink-0"} onClick={()=>setGuidePdf({title:g.title,src:GUIDE_PDF_BY_GROUP[g.title]||""})}>Guía en PDF</button>
                     </div>
                     <div className="divide-y divide-[var(--border)]">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático y arqueo de cuentas.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", guia:"Instalación y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático y arqueo de cuentas.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", seguridad:"Seguridad de su información y bloqueo con PIN.", guia:"Instalación y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
                     </div>
                   </div>
                 ))}
@@ -2951,53 +2951,7 @@ export function App(){
               {data.profiles.map(p=><p key={p.id} className="text-sm py-1.5 border-b border-[var(--border)] last:border-0">{fullName(p)} · {p.role==="admin"?"Administrador del hogar":"Integrante"} · {p.kind==="adult"?"Adulto":"Dependiente"}{p.email?` · ${p.email}`:""}</p>)}
               <p className="text-xs text-[var(--dim)] mt-2">Invite en Perfiles → Invitaciones.</p>
             </CollapsibleCard>
-            <CollapsibleCard
-              toggleLabel="la seguridad de su información"
-              title={<h3 className="font-display font-bold text-lg">Seguridad de su información</h3>}
-              above={<p className="text-sm text-[var(--dim)] mt-1">7 puntos</p>}
-              below={<button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-3 py-2 text-sm font-bold mt-3" onClick={()=>{ void signOut().then(()=>window.location.reload()); }}>Cerrar sesión en este dispositivo</button>}
-            >
-              <ul className="list-disc ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
-                <li>Contraseña de 12 caracteres; bloqueo 15 min tras 5 intentos.</li>
-                <li>Cada registro se valida en el servidor.</li>
-                <li>Lo privado solo lo ve su autor.</li>
-                <li>Límite de peticiones por minuto.</li>
-                <li>Sin claves en el código.</li>
-                <li>Bloqueo con PIN en este dispositivo (opcional).</li>
-                <li>Cierre de sesión en este dispositivo.</li>
-              </ul>
-            </CollapsibleCard>
-            <CollapsibleCard
-              toggleLabel="el bloqueo con PIN"
-              title={<h3 className="font-display font-bold text-lg">Bloqueo con PIN en este dispositivo</h3>}
-              above={<p className="text-sm text-[var(--dim)] mt-1">{pinSetState ? "PIN activo" : "Sin PIN"}</p>}
-            >
-              <p className="text-sm text-[var(--dim)] mt-1">Pide un PIN de 4 dígitos al reabrir la app en este dispositivo. Es un bloqueo local: no cifra sus datos y no impide entrar desde otro dispositivo con su cuenta.</p>
-              {pinSetState ? (
-                <div className="mt-3 space-y-2">
-                  <p className="text-sm"><b>PIN activo</b> en este dispositivo.</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><Label htmlFor="pin-current">PIN actual</Label><input id="pin-current" aria-label="PIN actual" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinCurrent} onChange={e=>setPinCurrent(e.target.value.replace(/\D/g,""))} /></div>
-                    <div><Label htmlFor="pin-new">PIN nuevo</Label><input id="pin-new" aria-label="PIN nuevo de 4 dígitos" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew1} onChange={e=>setPinNew1(e.target.value.replace(/\D/g,""))} /></div>
-                    <div><Label htmlFor="pin-new2">Repita el PIN nuevo</Label><input id="pin-new2" aria-label="Repita el PIN nuevo" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew2} onChange={e=>setPinNew2(e.target.value.replace(/\D/g,""))} /></div>
-                  </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <button type="button" className={btnPrimary} onClick={()=>void changePin()}>Cambiar PIN</button>
-                    <button type="button" className={btnGhost} onClick={()=>void removePin()}>Quitar PIN</button>
-                    <button type="button" className={btnGhost} onClick={()=>{ pinLock(); setPinLocked(true); }}>Bloquear ahora</button>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-3 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><Label htmlFor="pin-new1">PIN de 4 dígitos</Label><input id="pin-new1" aria-label="PIN nuevo de 4 dígitos" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew1} onChange={e=>setPinNew1(e.target.value.replace(/\D/g,""))} /></div>
-                    <div><Label htmlFor="pin-new2b">Repita el PIN</Label><input id="pin-new2b" aria-label="Repita el PIN nuevo" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew2} onChange={e=>setPinNew2(e.target.value.replace(/\D/g,""))} /></div>
-                  </div>
-                  <button type="button" className={btnPrimary} onClick={()=>void createPin()}>Activar PIN</button>
-                </div>
-              )}
-              {pinMsg && <p className="text-sm text-[var(--green)] mt-2">{pinMsg}</p>}
-            </CollapsibleCard>
+
             <CollapsibleCard
               open={activityOpen}
               onToggle={()=>setActivityOpen(v=>!v)}
@@ -3073,6 +3027,61 @@ export function App(){
                 </div>
               )}
             </div>
+          </section>
+        )}
+        {effTab==="seguridad" && (
+          <section className="max-w-2xl space-y-4 md:space-y-6">
+            <div>
+              <h2 className="font-display font-bold text-lg">Seguridad</h2>
+              <p className="text-sm text-[var(--dim)]">Su información y el bloqueo con PIN en este dispositivo.</p>
+            </div>
+            <CollapsibleCard
+              toggleLabel="la seguridad de su información"
+              title={<h3 className="font-display font-bold text-lg">Seguridad de su información</h3>}
+              above={<p className="text-sm text-[var(--dim)] mt-1">7 puntos</p>}
+              below={<button type="button" aria-label="Cerrar sesión en este dispositivo" className="rounded-full border px-3 py-2 text-sm font-bold mt-3" onClick={()=>{ void signOut().then(()=>window.location.reload()); }}>Cerrar sesión en este dispositivo</button>}
+            >
+              <ul className="list-disc ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
+                <li>Contraseña de 12 caracteres; bloqueo 15 min tras 5 intentos.</li>
+                <li>Cada registro se valida en el servidor.</li>
+                <li>Lo privado solo lo ve su autor.</li>
+                <li>Límite de peticiones por minuto.</li>
+                <li>Sin claves en el código.</li>
+                <li>Bloqueo con PIN en este dispositivo (opcional).</li>
+                <li>Cierre de sesión en este dispositivo.</li>
+              </ul>
+            </CollapsibleCard>
+            <CollapsibleCard
+              toggleLabel="el bloqueo con PIN"
+              title={<h3 className="font-display font-bold text-lg">Bloqueo con PIN en este dispositivo</h3>}
+              above={<p className="text-sm text-[var(--dim)] mt-1">{pinSetState ? "PIN activo" : "Sin PIN"}</p>}
+            >
+              <p className="text-sm text-[var(--dim)] mt-1">Pide un PIN de 4 dígitos al reabrir la app en este dispositivo. Es un bloqueo local: no cifra sus datos y no impide entrar desde otro dispositivo con su cuenta.</p>
+              {pinSetState ? (
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm"><b>PIN activo</b> en este dispositivo.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label htmlFor="pin-current">PIN actual</Label><input id="pin-current" aria-label="PIN actual" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinCurrent} onChange={e=>setPinCurrent(e.target.value.replace(/\D/g,""))} /></div>
+                    <div><Label htmlFor="pin-new">PIN nuevo</Label><input id="pin-new" aria-label="PIN nuevo de 4 dígitos" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew1} onChange={e=>setPinNew1(e.target.value.replace(/\D/g,""))} /></div>
+                    <div><Label htmlFor="pin-new2">Repita el PIN nuevo</Label><input id="pin-new2" aria-label="Repita el PIN nuevo" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew2} onChange={e=>setPinNew2(e.target.value.replace(/\D/g,""))} /></div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button type="button" className={btnPrimary} onClick={()=>void changePin()}>Cambiar PIN</button>
+                    <button type="button" className={btnGhost} onClick={()=>void removePin()}>Quitar PIN</button>
+                    <button type="button" className={btnGhost} onClick={()=>{ pinLock(); setPinLocked(true); }}>Bloquear ahora</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><Label htmlFor="pin-new1">PIN de 4 dígitos</Label><input id="pin-new1" aria-label="PIN nuevo de 4 dígitos" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew1} onChange={e=>setPinNew1(e.target.value.replace(/\D/g,""))} /></div>
+                    <div><Label htmlFor="pin-new2b">Repita el PIN</Label><input id="pin-new2b" aria-label="Repita el PIN nuevo" type="password" inputMode="numeric" maxLength={4} autoComplete="off" className={inputCls} value={pinNew2} onChange={e=>setPinNew2(e.target.value.replace(/\D/g,""))} /></div>
+                  </div>
+                  <button type="button" className={btnPrimary} onClick={()=>void createPin()}>Activar PIN</button>
+                </div>
+              )}
+              {pinMsg && <p className="text-sm text-[var(--green)] mt-2">{pinMsg}</p>}
+            </CollapsibleCard>
           </section>
         )}
         {effTab==="desarrollador" && isAppOwner && (
