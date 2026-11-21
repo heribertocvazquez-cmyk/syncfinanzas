@@ -204,6 +204,167 @@ export function pickPinnedFund<T extends FundLike>(funds: T[]): T | null {
   return [...pinned].sort((a, b) => fundPct(b) - fundPct(a) || a.id - b.id)[0] ?? null;
 }
 
+// ---- Plan del fondo (2026-11-20) ----
+// El fondo no tenía plan: solo decía «faltan $X/mes», sin mirar el
+// ingreso ni los gastos, sin ritmo por día/semana y sin decir de dónde
+// agarrarlo. El plan se calcula EN EL CLIENTE con los datos que ya trae
+// getOverview (ingreso y gasto reales del mes — el ingreso es variable,
+// nunca un sueldo fijo supuesto —, lo ya apartado, cuentas y
+// presupuestos), sin acción nueva ni SQL. `nowMs` es inyectable para que
+// las pruebas fijen el «hoy».
+
+export type FundPlanAccount = { id: number; name: string; balance: number };
+export type FundPlanBudget = { name: string; remaining: number };
+
+export type FundPlanVerdict =
+  | "alcanza"
+  | "no-alcanza"
+  | "sin-base"
+  | "alcanzada"
+  | null;
+
+export type FundPlan = {
+  /** Lo que se puede apartar este mes: ingreso − gasto − lo ya apartado.
+   *  Nunca negativo. */
+  capacity: number;
+  /** false cuando el mes aún no tiene ingresos registrados. */
+  hasIncome: boolean;
+  /** Lo que falta para la meta (meta − saldo). null sin meta. */
+  remaining: number | null;
+  /** Días de hoy a la fecha límite. null sin fecha. */
+  daysLeft: number | null;
+  /** true cuando la fecha límite ya pasó. */
+  datePassed: boolean;
+  /** Aporte por día para llegar en la fecha (redondeado hacia arriba).
+   *  null sin fecha, sin meta, con la fecha pasada o con la meta
+   *  alcanzada. */
+  perDay: number | null;
+  /** Aporte por semana: por día × 7, sin pasar del restante. */
+  perWeek: number | null;
+  /** Aporte por mes (fundNeedPerMonth, la fórmula de la meta). */
+  perMonth: number | null;
+  /** Lo que toca apartar este mes: lo menor entre el restante y el
+   *  aporte mensual. null sin fecha o sin meta. */
+  needThisMonth: number | null;
+  verdict: FundPlanVerdict;
+  /** Lo que falta cuando no alcanza (necesidad − capacidad). */
+  shortfall: number;
+  /** Lo que queda después de apartar cuando alcanza (capacidad −
+   *  necesidad). */
+  leftoverAfter: number;
+  /** Aportado neto a ESTE fondo en el mes actual (aportes − retiros). */
+  contributedThisMonth: number;
+  /** La cuenta con mayor saldo (saldo > 0). null si ninguna tiene. */
+  topAccount: FundPlanAccount | null;
+  /** Presupuestos con sobrante, los 2 mayores. */
+  surplusBudgets: FundPlanBudget[];
+};
+
+/** Días enteros de hoy (00:00 local) a la fecha límite. null sin fecha;
+ *  negativo cuando ya pasó. */
+export function fundDaysLeft(
+  targetDate: string | null | undefined,
+  nowMs: number = Date.now(),
+): number | null {
+  if (!targetDate) return null;
+  const [y = 2026, m = 1, d = 1] = targetDate.split("-").map(Number);
+  const target = new Date(y, (m || 1) - 1, d || 1).getTime();
+  const now = new Date(nowMs);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.round((target - today) / 86400000);
+}
+
+export function fundPlan(input: {
+  fund: {
+    id: number;
+    balance: number;
+    targetAmount: number | null;
+    targetDate?: string | null;
+  };
+  monthIncome: number;
+  monthExpense: number;
+  monthSetAside: number;
+  /** fundNeedPerMonth(f), calculado por quien llama. */
+  perMonth: number | null;
+  fundMovements: FundMovementLike[];
+  currentYm: string;
+  accounts: FundPlanAccount[];
+  surplusBudgets: FundPlanBudget[];
+  nowMs?: number;
+}): FundPlan {
+  const nowMs = input.nowMs ?? Date.now();
+  const capacity = Math.max(
+    0,
+    round2(input.monthIncome - input.monthExpense - input.monthSetAside),
+  );
+  const hasIncome = input.monthIncome > 0;
+  const remaining =
+    input.fund.targetAmount == null
+      ? null
+      : round2(input.fund.targetAmount - input.fund.balance);
+  const daysLeft = fundDaysLeft(input.fund.targetDate, nowMs);
+  const datePassed = daysLeft != null && daysLeft < 0;
+  const perDay =
+    remaining != null && remaining > 0 && daysLeft != null && daysLeft >= 0
+      ? Math.ceil(remaining / Math.max(1, daysLeft))
+      : null;
+  const perWeek =
+    perDay != null && remaining != null
+      ? Math.min(remaining, perDay * 7)
+      : null;
+  const perMonth =
+    remaining != null && remaining > 0 && input.perMonth != null && input.perMonth > 0
+      ? input.perMonth
+      : null;
+  const needThisMonth =
+    remaining != null && remaining > 0 && perMonth != null
+      ? Math.min(remaining, perMonth)
+      : null;
+  let verdict: FundPlanVerdict = null;
+  if (remaining != null && remaining <= 0) verdict = "alcanzada";
+  else if (!hasIncome) verdict = "sin-base";
+  else if (needThisMonth != null)
+    verdict = capacity >= needThisMonth ? "alcanza" : "no-alcanza";
+  const shortfall =
+    verdict === "no-alcanza" && needThisMonth != null
+      ? round2(needThisMonth - capacity)
+      : 0;
+  const leftoverAfter =
+    verdict === "alcanza" && needThisMonth != null
+      ? round2(capacity - needThisMonth)
+      : 0;
+  const withBalance = input.accounts.filter((a) => a.balance > 0);
+  const topAccount =
+    withBalance.length === 0
+      ? null
+      : [...withBalance].sort((a, b) => b.balance - a.balance)[0] ?? null;
+  const surplusBudgets = [...input.surplusBudgets]
+    .filter((b) => b.remaining > 0)
+    .sort((a, b) => b.remaining - a.remaining)
+    .slice(0, 2);
+  return {
+    capacity,
+    hasIncome,
+    remaining,
+    daysLeft,
+    datePassed,
+    perDay,
+    perWeek,
+    perMonth,
+    needThisMonth,
+    verdict,
+    shortfall,
+    leftoverAfter,
+    contributedThisMonth: netFundMovementsInMonth(
+      input.fundMovements,
+      input.fund.id,
+      input.currentYm,
+    ),
+    topAccount,
+    surplusBudgets,
+  };
+}
+
 /** La meta a la que apunta el consejo («coquito») de un presupuesto:
  *  una meta CON plan activo (aceptado o en riesgo, con fondo y con algo
  *  por ahorrar: es la única que puede recibir el sobrante por la vía de

@@ -18,7 +18,7 @@ import { exceededCategoryName, findTandaForNotification, visibleNotifications } 
 import { MovementsFilter } from "./components/MovementsFilter";
 import { DEFAULT_MOVEMENTS_FILTER, filterMovements, type MovementsFilterValue } from "./lib/movementsFilter";
 import { buildBalanceBreakdown } from "./lib/balanceBreakdown";
-import { pickTipGoal, planCumulativeContributed, planMonthShortfall, planPriorSurplus, pickPinnedGoal, pickPinnedFund, fundPct, fundNeedPerMonth, totalMonthShortfall } from "./lib/goalMonth";
+import { pickTipGoal, planCumulativeContributed, planMonthShortfall, planPriorSurplus, pickPinnedGoal, pickPinnedFund, fundPct, fundNeedPerMonth, fundPlan, totalMonthShortfall } from "./lib/goalMonth";
 import { accountSummaryRows, type AccountSummary } from "./lib/accountSummary";
 import { MoneyLocationModal } from "./components/MoneyLocationModal";
 import { IncExpDetailModal } from "./components/IncExpDetailModal";
@@ -1832,6 +1832,94 @@ export function App(){
   const renderQuickFundForm = (f:{id:number;name:string}) => (
     <form className="mt-2 border border-[var(--gold)] rounded-2xl p-4 sm:p-5 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); const amt=Number(quickFundAmt); if(!amt||amt<=0) return; const notice=requiredGoalAccountNotice(quickFundAcc); if(notice){ setQuickFundAccError(notice); return; } fundMove.mutate({fundId:f.id,type:"contribution",amount:amt,accountId:Number(quickFundAcc)},{onSuccess:()=>{setQuickFundId(null);setQuickFundAmt("");setQuickFundAcc("");setQuickFundAccError("");}});}}><p className="font-display font-bold text-sm">Aportar a {f.name}</p><div><Label htmlFor={`qf-amt-${f.id}`}>Importe ($)</Label><input id={`qf-amt-${f.id}`} autoFocus aria-label={`Importe a aportar a ${f.name}`} type="number" min="0.01" step="0.01" required className={inputCls+" text-lg font-bold"} value={quickFundAmt} onChange={e=>setQuickFundAmt(e.target.value)} /></div><div><Label htmlFor={`qf-acc-${f.id}`}>¿De dónde se descuenta?</Label><select id={`qf-acc-${f.id}`} aria-label={`Cuenta de donde se descuenta el aporte a ${f.name}`} className={inputCls} value={quickFundAcc} onChange={e=>{setQuickFundAcc(e.target.value);setQuickFundAccError("");}}><option value="">Seleccione la cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{quickFundAccError && <p className="text-sm text-[var(--red)]">{quickFundAccError}</p>}{fundMove.error && <p className="text-sm text-[var(--red)]">{String(fundMove.error)}</p>}<div className="flex gap-2"><button className={btnPrimary+" flex-1"} disabled={fundMove.isPending||!quickFundAmt}>{fundMove.isPending?"Guardando…":"Guardar aporte"}</button><button type="button" className={btnGhost} onClick={()=>setQuickFundId(null)}>Cancelar</button></div></form>
   );
+  // «Plan del fondo»: cuánto se puede apartar este mes y a qué ritmo,
+  // calculado en vivo con el ingreso y los gastos reales del mes (nunca
+  // un sueldo fijo supuesto), la cuenta con mayor saldo y los
+  // presupuestos con sobrante. Se usa en la tarjeta del fondo fijado y
+  // en la tarjeta del fondo en Fondos. `onToday` prellena el formulario
+  // de aporte con el monto del día y la cuenta sugerida.
+  const renderFundPlan = (
+    f: { id: number; name: string; balance: number; targetAmount: number | null; targetDate?: string | null },
+    onToday: (amount: number, accountId: number | null) => void,
+  ) => {
+    const surplus = monthBudgets
+      .filter((b) => b.remaining > 0)
+      .sort((a, b) => b.remaining - a.remaining)
+      .slice(0, 2)
+      .map((b) => ({ name: getCatName(b.categoryId), remaining: b.remaining }));
+    const plan = fundPlan({
+      fund: f,
+      monthIncome: s.monthIncome,
+      monthExpense: s.monthExpense,
+      monthSetAside,
+      perMonth: fundNeedPerMonth(f),
+      fundMovements: data.fundMovements,
+      currentYm: s.currentMonth,
+      accounts: data.accounts.map((a) => ({ id: a.id, name: a.name, balance: a.balance })),
+      surplusBudgets: surplus,
+    });
+    return (
+      <div className="mt-3 rounded-2xl bg-[var(--surface2)] p-3 sm:p-4">
+        <p className="font-display font-bold text-sm">Plan del fondo</p>
+        {plan.hasIncome ? (
+          <>
+            <p className="text-sm mt-1">Este mes entraron {money(s.monthIncome)} y gastaste {money(s.monthExpense)}.</p>
+            <p className="text-xs text-[var(--dim)] mt-2">Puedes apartar este mes</p>
+            <p className="font-display font-extrabold text-2xl text-[var(--accent)]">{money(plan.capacity)}</p>
+          </>
+        ) : (
+          <p className="text-sm mt-1">Este mes aún no hay ingresos registrados, así que no hay base para calcular el plan.</p>
+        )}
+        {plan.remaining != null && plan.remaining > 0 && !plan.datePassed && plan.perDay != null && plan.perWeek != null && plan.perMonth != null && f.targetDate && (
+          <>
+            <p className="text-sm mt-2">Para llegar a los {money(plan.remaining)} el {fmtDate(f.targetDate)} (quedan {plan.daysLeft} {plan.daysLeft === 1 ? "día" : "días"}):</p>
+            <div className="mt-2 space-y-2">
+              <div className="flex justify-between gap-2 bg-[var(--surface)] rounded-xl px-3 py-2 text-sm"><span>Por día</span><b className="whitespace-nowrap">{money(plan.perDay)}</b></div>
+              <div className="flex justify-between gap-2 bg-[var(--surface)] rounded-xl px-3 py-2 text-sm"><span>Por semana</span><b className="whitespace-nowrap">{money(plan.perWeek)}</b></div>
+              <div className="flex justify-between gap-2 bg-[var(--surface)] rounded-xl px-3 py-2 text-sm"><span>Por mes</span><b className="whitespace-nowrap">{money(plan.perMonth)}</b></div>
+            </div>
+          </>
+        )}
+        {plan.remaining != null && plan.remaining > 0 && plan.datePassed && (
+          <p className="text-sm mt-2 font-semibold text-[var(--red)]">La fecha límite ya pasó.</p>
+        )}
+        {plan.remaining != null && plan.remaining <= 0 && (
+          <p className="text-sm mt-2 font-semibold">Meta alcanzada.</p>
+        )}
+        {f.targetAmount != null && !f.targetDate && (
+          <p className="text-sm mt-2">Agrega una fecha límite para ver cuánto aportar por día, semana y mes.</p>
+        )}
+        {f.targetAmount == null && (
+          <p className="text-sm mt-2">Pon una meta y una fecha límite para ver el plan completo.</p>
+        )}
+        {(plan.topAccount || plan.surplusBudgets.length > 0) && (
+          <>
+            <p className="text-sm font-semibold mt-3">¿De dónde agarrar?</p>
+            {plan.topAccount && <p className="text-sm mt-1">· {plan.topAccount.name}, la cuenta con mayor saldo</p>}
+            {plan.surplusBudgets.map((b) => (
+              <p key={b.name} className="text-sm mt-1">· Sobrante de {b.name}: {money(b.remaining)} sin gastar</p>
+            ))}
+          </>
+        )}
+        {plan.verdict === "alcanza" && (
+          <p className="text-sm mt-2 font-semibold text-[var(--green)]">Sí alcanza: después de apartar te quedan {money(plan.leftoverAfter)}.</p>
+        )}
+        {plan.verdict === "no-alcanza" && (
+          <>
+            <p className="text-sm mt-2 font-semibold text-[var(--red)]">No alcanza este mes: faltan {money(plan.shortfall)}.</p>
+            <p className="text-sm mt-1">Revise sus gastos o mueva la fecha límite.</p>
+          </>
+        )}
+        <p className="text-xs text-[var(--dim)] mt-2">Aportado este mes: {money(plan.contributedThisMonth)}{plan.needThisMonth != null ? ` de ${money(plan.needThisMonth)}` : ""}</p>
+        {plan.needThisMonth != null && plan.needThisMonth > 0 && (
+          <div className="h-2 bg-[var(--surface)] rounded-full mt-1"><div className="h-full bg-[var(--gold)] rounded-full" style={{ width: `${Math.min(100, Math.round((plan.contributedThisMonth / plan.needThisMonth) * 100))}%` }} /></div>
+        )}
+        {plan.perDay != null && plan.perDay > 0 && (
+          <button type="button" aria-label={`Aportar ${money(plan.perDay)} hoy al fondo ${f.name}`} className={btnPrimary + " mt-3 w-full"} onClick={() => onToday(plan.perDay!, plan.topAccount?.id ?? null)}>Aportar {money(plan.perDay)} (hoy)</button>
+        )}
+      </div>
+    );
+  };
   // Meses con al menos un movimiento visible: el selector de mes solo
   // habilita esos meses, para que no se pueda elegir un mes en blanco.
   // La lista la calcula el servidor sobre todo el historial.
@@ -2148,6 +2236,7 @@ export function App(){
                 <button type="button" className={btnGhost+" flex-1"} onClick={()=>goTab("fondos")}>Ver en Fondos</button>
               </div>
               {quickFundId===pinnedFund.id && renderQuickFundForm(pinnedFund)}
+              {renderFundPlan(pinnedFund, (amt, accId) => { setQuickFundId(pinnedFund.id); setQuickFundAmt(String(amt)); setQuickFundAcc(accId != null ? String(accId) : ""); setQuickFundAccError(""); })}
             </CollapsibleCard>}
             {/* Tarjeta principal quieta (propuesta Unslop): Disponible en
                 36 px, flujo del mes y variación contra el mes anterior,
@@ -2421,7 +2510,7 @@ export function App(){
             {fundImpPendingSql && <p className="text-sm text-[var(--red)] mt-2">La importancia se guardará cuando se ejecute el SQL pendiente (supabase/add-funds-importance.sql).</p>}
             <div className="mt-3"><Help>El dinero sigue en su cuenta; no cuenta como disponible.</Help></div>
             <div className="grid sm:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
-              {data.funds.map(f=>{ const mode=fundMode[f.id]??"contribution"; const accErr=fundAccError[f.id]||""; return <div key={f.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">{f.name}</p><p className="font-display text-xl font-extrabold mt-1 whitespace-nowrap">{money2(f.balance)}</p>{f.targetAmount && <p className="text-xs text-[var(--dim)]">Meta {money(f.targetAmount)} · {Math.min(100,Math.round(f.balance/f.targetAmount*100))}%</p>}{f.targetDate && <p className="text-xs text-[var(--dim)] mt-1">Meta {fmtDate(f.targetDate)}{(()=>{const need=fundNeedPerMonth(f); return need!==null && need>0 ? ` · faltan ${money(need)}/mes` : "";})()}</p>}<p className="text-sm mt-2"><span className="font-semibold">★ {f.importance ?? 3} de 5</span><button type="button" aria-label={`Cambiar la importancia de ${f.name}`} className="text-xs underline font-bold ml-1" onClick={()=>{setImpEditFundId(impEditFundId===f.id?null:f.id); setImpEditFundValue(String(f.importance ?? 3));}}>Cambiar</button><button type="button" aria-label={`Editar el fondo ${f.name}`} className="text-xs underline font-bold ml-2" onClick={()=>{setFundEditId(fundEditId===f.id?null:f.id); setFundEditTarget(f.targetAmount!=null?String(f.targetAmount):""); setFundEditDate(f.targetDate ?? ""); setFundEditDatePendingSql(false);}}>Editar</button></p>{impEditFundId===f.id && renderFundImpEditor(f)}{fundEditId===f.id && (<form className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); updateFund.mutate({id:f.id,targetAmount:fundEditTarget?Number(fundEditTarget):null,targetDate:fundEditDate});}}><div><Label htmlFor={`fund-edit-target-${f.id}`}>Meta ($, opcional)</Label><input id={`fund-edit-target-${f.id}`} aria-label={`Meta del fondo ${f.name}`} type="number" min="0" step="0.01" className={inputCls} value={fundEditTarget} onChange={e=>setFundEditTarget(e.target.value)} /></div><div><Label htmlFor={`fund-edit-date-${f.id}`}>Fecha límite (opcional)</Label><input id={`fund-edit-date-${f.id}`} aria-label={`Fecha límite del fondo ${f.name}`} type="date" className={inputCls} value={fundEditDate} onChange={e=>setFundEditDate(e.target.value)} /></div>{fundEditDatePendingSql && <p className="text-xs text-[var(--red)]">La fecha límite se guardará cuando se ejecute el SQL pendiente (supabase/add-funds-target-date.sql).</p>}<div className="flex gap-2"><button type="submit" aria-label={`Guardar los cambios del fondo ${f.name}`} className={btnPrimary} disabled={updateFund.isPending}>{updateFund.isPending?"Guardando…":"Guardar"}</button><button type="button" aria-label="Cancelar la edición del fondo" className={btnGhost} onClick={()=>setFundEditId(null)}>Cancelar</button></div></form>)}<div className="flex gap-2 mt-3"><button type="button" aria-label={`Aportar a ${f.name}`} aria-pressed={mode==="contribution"} className={mode==="contribution"?btnPrimary:btnGhost} onClick={()=>{setFundMode({...fundMode,[f.id]:"contribution"});setFundAccError(a=>({...a,[f.id]:""}));}}>Aportar</button><button type="button" aria-label={`Retirar de ${f.name}`} aria-pressed={mode==="withdrawal"} className={mode==="withdrawal"?btnPrimary:btnGhost} onClick={()=>{setFundMode({...fundMode,[f.id]:"withdrawal"});setFundAccError(a=>({...a,[f.id]:""}));}}>Retirar</button></div><div className="mt-2"><Label htmlFor={`fund-amt-${f.id}`}>Importe ($)</Label><input id={`fund-amt-${f.id}`} aria-label={`Monto para ${f.name}`} type="number" min="0" placeholder="$ Monto" className={inputCls} value={fundAmt[f.id]||""} onChange={e=>setFundAmt({...fundAmt,[f.id]:e.target.value})} /></div><div className="mt-2"><Label htmlFor={`fund-acc-${f.id}`}>{mode==="withdrawal"?"¿A qué cuenta vuelve?":"¿De dónde se descuenta?"}</Label><select id={`fund-acc-${f.id}`} aria-label={mode==="withdrawal"?`Cuenta a la que vuelve el dinero de ${f.name}`:`Cuenta de donde se descuenta el aporte a ${f.name}`} className={inputCls} value={fundAcc[f.id]||""} onChange={e=>{setFundAcc({...fundAcc,[f.id]:e.target.value});setFundAccError(a=>({...a,[f.id]:""}));}}><option value="">Seleccione la cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{accErr && <p className="text-sm text-[var(--red)] mt-1">{accErr}</p>}{fundMove.error && <p className="text-sm text-[var(--red)] mt-1">{String(fundMove.error)}</p>}<div className="mt-3"><button aria-label={`Guardar movimiento de ${f.name}`} className={btnPrimary} disabled={fundMove.isPending} onClick={()=>{ const amt=Number(fundAmt[f.id])||0; if(amt<=0) return; const notice=mode==="withdrawal"?requiredGoalReturnAccountNotice(fundAcc[f.id]):requiredGoalAccountNotice(fundAcc[f.id]); if(notice){ setFundAccError(a=>({...a,[f.id]:notice})); return; } fundMove.mutate({fundId:f.id,type:mode,amount:amt,accountId:Number(fundAcc[f.id])}); }}>{fundMove.isPending?"Guardando…":"Guardar"}</button></div><button aria-label={`Eliminar fondo ${f.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>setConfirmDelFundId(confirmDelFundId===f.id?null:f.id)}>Eliminar fondo</button>{confirmDelFundId===f.id && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Está seguro de eliminar este fondo?</p><p className="text-xs text-[var(--dim)] mt-1">«{f.name}» por <b className="whitespace-nowrap">{money2(f.balance)}</b>. Esta acción no se puede deshacer.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la eliminación del fondo ${f.name}`} className={btnPrimary} disabled={delFund.isPending} onClick={()=>delFund.mutate(f.id)}>{delFund.isPending?"Eliminando…":"Eliminar"}</button><button type="button" aria-label="Cancelar la eliminación del fondo" className={btnGhost} onClick={()=>setConfirmDelFundId(null)}>Cancelar</button></div></div>}</div>; })}
+              {data.funds.map(f=>{ const mode=fundMode[f.id]??"contribution"; const accErr=fundAccError[f.id]||""; return <div key={f.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><p className="font-display font-bold text-lg">{f.name}</p><p className="font-display text-xl font-extrabold mt-1 whitespace-nowrap">{money2(f.balance)}</p>{f.targetAmount && <p className="text-xs text-[var(--dim)]">Meta {money(f.targetAmount)} · {Math.min(100,Math.round(f.balance/f.targetAmount*100))}%</p>}{f.targetDate && <p className="text-xs text-[var(--dim)] mt-1">Meta {fmtDate(f.targetDate)}{(()=>{const need=fundNeedPerMonth(f); return need!==null && need>0 ? ` · faltan ${money(need)}/mes` : "";})()}</p>}<p className="text-sm mt-2"><span className="font-semibold">★ {f.importance ?? 3} de 5</span><button type="button" aria-label={`Cambiar la importancia de ${f.name}`} className="text-xs underline font-bold ml-1" onClick={()=>{setImpEditFundId(impEditFundId===f.id?null:f.id); setImpEditFundValue(String(f.importance ?? 3));}}>Cambiar</button><button type="button" aria-label={`Editar el fondo ${f.name}`} className="text-xs underline font-bold ml-2" onClick={()=>{setFundEditId(fundEditId===f.id?null:f.id); setFundEditTarget(f.targetAmount!=null?String(f.targetAmount):""); setFundEditDate(f.targetDate ?? ""); setFundEditDatePendingSql(false);}}>Editar</button></p>{impEditFundId===f.id && renderFundImpEditor(f)}{fundEditId===f.id && (<form className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)] space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); updateFund.mutate({id:f.id,targetAmount:fundEditTarget?Number(fundEditTarget):null,targetDate:fundEditDate});}}><div><Label htmlFor={`fund-edit-target-${f.id}`}>Meta ($, opcional)</Label><input id={`fund-edit-target-${f.id}`} aria-label={`Meta del fondo ${f.name}`} type="number" min="0" step="0.01" className={inputCls} value={fundEditTarget} onChange={e=>setFundEditTarget(e.target.value)} /></div><div><Label htmlFor={`fund-edit-date-${f.id}`}>Fecha límite (opcional)</Label><input id={`fund-edit-date-${f.id}`} aria-label={`Fecha límite del fondo ${f.name}`} type="date" className={inputCls} value={fundEditDate} onChange={e=>setFundEditDate(e.target.value)} /></div>{fundEditDatePendingSql && <p className="text-xs text-[var(--red)]">La fecha límite se guardará cuando se ejecute el SQL pendiente (supabase/add-funds-target-date.sql).</p>}<div className="flex gap-2"><button type="submit" aria-label={`Guardar los cambios del fondo ${f.name}`} className={btnPrimary} disabled={updateFund.isPending}>{updateFund.isPending?"Guardando…":"Guardar"}</button><button type="button" aria-label="Cancelar la edición del fondo" className={btnGhost} onClick={()=>setFundEditId(null)}>Cancelar</button></div></form>)}{renderFundPlan(f, (amt, accId) => { setFundMode({ ...fundMode, [f.id]: "contribution" }); setFundAmt({ ...fundAmt, [f.id]: String(amt) }); setFundAcc({ ...fundAcc, [f.id]: accId != null ? String(accId) : "" }); setFundAccError((a) => ({ ...a, [f.id]: "" })); })}<div className="flex gap-2 mt-3"><button type="button" aria-label={`Aportar a ${f.name}`} aria-pressed={mode==="contribution"} className={mode==="contribution"?btnPrimary:btnGhost} onClick={()=>{setFundMode({...fundMode,[f.id]:"contribution"});setFundAccError(a=>({...a,[f.id]:""}));}}>Aportar</button><button type="button" aria-label={`Retirar de ${f.name}`} aria-pressed={mode==="withdrawal"} className={mode==="withdrawal"?btnPrimary:btnGhost} onClick={()=>{setFundMode({...fundMode,[f.id]:"withdrawal"});setFundAccError(a=>({...a,[f.id]:""}));}}>Retirar</button></div><div className="mt-2"><Label htmlFor={`fund-amt-${f.id}`}>Importe ($)</Label><input id={`fund-amt-${f.id}`} aria-label={`Monto para ${f.name}`} type="number" min="0" placeholder="$ Monto" className={inputCls} value={fundAmt[f.id]||""} onChange={e=>setFundAmt({...fundAmt,[f.id]:e.target.value})} /></div><div className="mt-2"><Label htmlFor={`fund-acc-${f.id}`}>{mode==="withdrawal"?"¿A qué cuenta vuelve?":"¿De dónde se descuenta?"}</Label><select id={`fund-acc-${f.id}`} aria-label={mode==="withdrawal"?`Cuenta a la que vuelve el dinero de ${f.name}`:`Cuenta de donde se descuenta el aporte a ${f.name}`} className={inputCls} value={fundAcc[f.id]||""} onChange={e=>{setFundAcc({...fundAcc,[f.id]:e.target.value});setFundAccError(a=>({...a,[f.id]:""}));}}><option value="">Seleccione la cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>{accErr && <p className="text-sm text-[var(--red)] mt-1">{accErr}</p>}{fundMove.error && <p className="text-sm text-[var(--red)] mt-1">{String(fundMove.error)}</p>}<div className="mt-3"><button aria-label={`Guardar movimiento de ${f.name}`} className={btnPrimary} disabled={fundMove.isPending} onClick={()=>{ const amt=Number(fundAmt[f.id])||0; if(amt<=0) return; const notice=mode==="withdrawal"?requiredGoalReturnAccountNotice(fundAcc[f.id]):requiredGoalAccountNotice(fundAcc[f.id]); if(notice){ setFundAccError(a=>({...a,[f.id]:notice})); return; } fundMove.mutate({fundId:f.id,type:mode,amount:amt,accountId:Number(fundAcc[f.id])}); }}>{fundMove.isPending?"Guardando…":"Guardar"}</button></div><button aria-label={`Eliminar fondo ${f.name}`} className="text-xs underline text-[var(--red)] mt-2" onClick={()=>setConfirmDelFundId(confirmDelFundId===f.id?null:f.id)}>Eliminar fondo</button>{confirmDelFundId===f.id && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Está seguro de eliminar este fondo?</p><p className="text-xs text-[var(--dim)] mt-1">«{f.name}» por <b className="whitespace-nowrap">{money2(f.balance)}</b>. Esta acción no se puede deshacer.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la eliminación del fondo ${f.name}`} className={btnPrimary} disabled={delFund.isPending} onClick={()=>delFund.mutate(f.id)}>{delFund.isPending?"Eliminando…":"Eliminar"}</button><button type="button" aria-label="Cancelar la eliminación del fondo" className={btnGhost} onClick={()=>setConfirmDelFundId(null)}>Cancelar</button></div></div>}</div>; })}
               {data.funds.length===0 && <Empty title="Sin fondos" body="Cree el fondo de emergencia." />}
             </div>
           </section>
