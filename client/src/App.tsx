@@ -619,10 +619,32 @@ export function App(){
   };
   const handleBudgetSuggestion=(n:{id:number;type:string;body:string;amount?:number|null;createdAt:string})=>{
     const t=budgetSuggestionTarget(n);
-    void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false);
+    // El aviso NO se marca leído aquí: solo se resuelve al crear el
+    // presupuesto (el servidor lo marca al guardar) o al guardar la
+    // posposición. Si se cancela el formulario, el aviso sigue ahí.
+    setNotifOpen(false);
     if(t?.cat) openBudgetForm(t.cat.id,t.month,t.amount); else goTab("presupuestos");
   };
-  const openNotif=(n:{id:number;target:string;type:string;body:string;amount?:number|null;createdAt:string})=>{ void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); if(n.type==="presupuesto_sugerido"){ const t=budgetSuggestionTarget(n); if(t?.cat){ openBudgetForm(t.cat.id,t.month,t.amount); } else { goTab("presupuestos"); } return; } const tandaId=findTandaForNotification(n, allTandas); if(tandaId!=null){ openTandaDetail(tandaId); return; } goTab(n.target as Tab); };
+  // Posposición del aviso de sugerencia («No por ahora»): «Avísame de
+  // nuevo cuando el total del mes llegue a $X». La centena siguiente
+  // arriba del total actual es la propuesta (total $3,200 → $3,300; si
+  // cae exacto en centena, +$100). El presupuesto nunca se crea solo.
+  const nextHundredAbove=(total:number)=> (Math.floor(total/100)+1)*100;
+  const ymAddStr=(ym:string,k:number)=>{ const [y=2026,m=1]=ym.split("-").map(Number); const d=new Date(Date.UTC(y,m-1+k,1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}`; };
+  const monthTotalOf=(categoryId:number,month:string)=> data?.categoryMonthlyTotals?.find((t)=>t.categoryId===categoryId && t.month===month)?.total ?? null;
+  const avg3Of=(categoryId:number,month:string)=>{ const totals=[ymAddStr(month,-1),ymAddStr(month,-2),ymAddStr(month,-3)].map((ym)=>monthTotalOf(categoryId,ym) ?? 0); const withData=totals.filter((t)=>t>0); return { avg: withData.length>0 ? withData.reduce((s,t)=>s+t,0)/withData.length : 0, monthsWithData: withData.length }; };
+  // Total del mes que nombra el aviso: del overview si está, si no del
+  // cuerpo («{categoría} lleva $X este mes»), si no del sugerido.
+  const suggestionMonthTotal=(n:{body:string;amount?:number|null},categoryId:number,month:string)=>{ const t=monthTotalOf(categoryId,month); if(t!=null) return t; const m=(n.body||"").match(/lleva \$([\d,]+)/); const mm=m?.[1]; if(mm) return Number(mm.replace(/,/g,""))||0; return n.amount ?? 0; };
+  const [snoozeNotifId,setSnoozeNotifId]=useState<number|null>(null);
+  const [snoozeAmt,setSnoozeAmt]=useState("");
+  const [snoozePendingSql,setSnoozePendingSql]=useState(false);
+  const [snoozeRowOpen,setSnoozeRowOpen]=useState<Record<number,boolean>>({});
+  const [snoozeRowAmt,setSnoozeRowAmt]=useState<Record<number,string>>({});
+  const snoozeMut=useMutation({mutationFn:async(v:{categoryId:number;month:string;nextThreshold:number})=>await api.snoozeBudgetSuggestion({householdId:data!.household!.id,...v}),onSuccess:(r)=>{ if(!r.saved){ setSnoozePendingSql(true); return; } qc.invalidateQueries({queryKey:["notifications"]}); qc.invalidateQueries({queryKey:["budgetSnoozes"]}); setSnoozeNotifId(null); }});
+  const snoozesQuery=useQuery({queryKey:["budgetSnoozes",data?.household?.id,monthNow()],queryFn:()=>api.listBudgetSnoozes({householdId:data!.household!.id,month:monthNow()}),enabled:!!data?.household});
+  const snoozeMap=new Map((snoozesQuery.data?.snoozes ?? []).map((x)=>[x.categoryId,x.nextThreshold]));
+  const openNotif=(n:{id:number;target:string;type:string;body:string;amount?:number|null;createdAt:string})=>{ if(n.type!=="presupuesto_sugerido") void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); if(n.type==="presupuesto_sugerido"){ const t=budgetSuggestionTarget(n); if(t?.cat){ openBudgetForm(t.cat.id,t.month,t.amount); } else { goTab("presupuestos"); } return; } const tandaId=findTandaForNotification(n, allTandas); if(tandaId!=null){ openTandaDetail(tandaId); return; } goTab(n.target as Tab); };
   // Reglas de auto-categorización: si el concepto contiene la palabra, la
   // app pone sola esa categoría. Si la tabla aún no existe (falta correr
   // supabase/category-rules.sql), la lista sale vacía.
@@ -2175,6 +2197,7 @@ export function App(){
             <ul className="mt-2 space-y-2">
               {visibleNotifs.map(n=>{
                 const sug=n.type==="presupuesto_sugerido"?budgetSuggestionTarget(n):null;
+                const sc=sug?.cat ?? null;
                 const exc=n.type==="presupuesto_excedido"?exceededBudgetTarget(n):null;
                 return (
                 <li key={n.id}>
@@ -2185,6 +2208,20 @@ export function App(){
                       <p className="text-xs text-[var(--dim)] mt-1">{new Date(n.createdAt).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}</p>
                     </button>
                     {sug?.cat && <button type="button" className={btnGold+" mt-2"} onClick={(e)=>{e.stopPropagation(); handleBudgetSuggestion(n);}}>Crear presupuesto para {sug.cat.name}</button>}
+                    {sc && <button type="button" className={btnGhost+" mt-2"} onClick={(e)=>{e.stopPropagation(); setSnoozeNotifId(n.id); setSnoozeAmt(String(nextHundredAbove(suggestionMonthTotal(n,sc.id,String(n.createdAt).slice(0,7))))); setSnoozePendingSql(false);}}>No por ahora</button>}
+                    {snoozeNotifId===n.id && sc && (
+                      <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
+                        <p className="text-sm font-bold">¿Cuándo le aviso de nuevo?</p>
+                        <p className="text-xs text-[var(--dim)] mt-0.5">{sc.name} lleva {money(suggestionMonthTotal(n,sc.id,String(n.createdAt).slice(0,7)))} este mes.</p>
+                        <div className="mt-2"><Label htmlFor={`snooze-amt-${n.id}`}>Avísame de nuevo cuando llegue a ($)</Label><input id={`snooze-amt-${n.id}`} aria-label="Avísame de nuevo cuando llegue a" type="number" min="0" className={inputCls} value={snoozeAmt} onChange={e=>setSnoozeAmt(e.target.value)} /></div>
+                        <p className="text-xs text-[var(--dim)] mt-1">Propuesto: {money(nextHundredAbove(suggestionMonthTotal(n,sc.id,String(n.createdAt).slice(0,7))))}, la centena siguiente arriba del total. Usted lo puede cambiar.</p>
+                        {snoozePendingSql && <p className="text-xs text-[var(--red)] mt-1">La posposición se guardará cuando se ejecute el SQL pendiente (supabase/add-budget-suggestion-snooze.sql).</p>}
+                        <div className="flex gap-2 mt-2">
+                          <button type="button" className={btnPrimary} disabled={snoozeMut.isPending} onClick={()=>{ const v=Number(snoozeAmt)||0; if(v<=0) return; snoozeMut.mutate({categoryId:sc.id,month:String(n.createdAt).slice(0,7),nextThreshold:v}); }}>Guardar aviso</button>
+                          <button type="button" className={btnGhost} onClick={()=>setSnoozeNotifId(null)}>Cancelar</button>
+                        </div>
+                      </div>
+                    )}
                     {exc && <button type="button" className={btnGhost+" mt-2"} onClick={(e)=>{e.stopPropagation(); void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); openCoquitoForBudget(exc,"excedido");}}>Consejo</button>}
                   </div>
                 </li>
@@ -2508,6 +2545,23 @@ export function App(){
               <button className={btnPrimary} disabled={saveBud.isPending}>Crear presupuesto</button>
             </form>
             <Help>Los gastos de la categoría en el mes se descuentan solos del presupuesto.</Help>
+            {(()=>{ const cur=monthNow(); const rows=data.categories.filter((c)=>c.kind==="expense").map((c)=>{ const total=monthTotalOf(c.id,cur) ?? 0; const a=avg3Of(c.id,cur); return { cat:c, total, avg:a.avg, monthsWithData:a.monthsWithData, suggested:Math.ceil(Math.max(total,a.avg)/100)*100, snoozed:snoozeMap.get(c.id) ?? null }; }).filter((r)=>r.total>=1 && !data.budgets.some((b)=>b.categoryId===r.cat.id && b.month===cur)).sort((a,b)=>b.total-a.total); if(rows.length===0) return null; return (
+            <CollapsibleCard className="mt-4 md:mt-6" defaultOpen title={<h2 className="font-display font-bold text-lg">Categorías sin presupuesto este mes</h2>} above={<p className="text-sm text-[var(--dim)] mt-1">{rows.length} {rows.length===1?"categoría":"categorías"} con gasto y sin presupuesto · desde $1</p>} toggleLabel="categorías sin presupuesto">
+              {rows.map((r)=>(<div key={r.cat.id} className="py-3 border-b border-[var(--border)] last:border-0">
+                <p className="font-semibold">{r.cat.name}</p>
+                <p className="text-sm text-[var(--dim)]">Total del mes {money(r.total)} · {r.monthsWithData>0 ? `Promedio ${r.monthsWithData===3?"3 meses":`de ${r.monthsWithData} ${r.monthsWithData===1?"mes":"meses"}`}: ${money(r.avg)}` : "Aún no hay promedio de meses anteriores"} · Límite sugerido {money(r.suggested)}</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button type="button" className={btnPrimary} onClick={()=>openBudgetForm(r.cat.id,cur,r.suggested)}>Crear presupuesto</button>
+                  <button type="button" className={btnGhost} onClick={()=>{ setSnoozeRowOpen((o)=>({...o,[r.cat.id]:!(o[r.cat.id] ?? false)})); setSnoozeRowAmt((a)=>({...a,[r.cat.id]:a[r.cat.id] ?? String(nextHundredAbove(r.total))})); }}>Avísame cuando llegue a…</button>
+                </div>
+                {r.snoozed!=null && !(snoozeRowOpen[r.cat.id] ?? false) && <p className="text-sm mt-2">Aviso guardado: le pregunto de nuevo cuando llegue a {money(r.snoozed)}. <button type="button" className="text-xs underline font-bold" onClick={()=>{ setSnoozeRowOpen((o)=>({...o,[r.cat.id]:true})); setSnoozeRowAmt((a)=>({...a,[r.cat.id]:String(r.snoozed)})); }}>Cambiar</button></p>}
+                {(snoozeRowOpen[r.cat.id] ?? false) && (<div className="mt-2 flex flex-wrap gap-2 items-end">
+                  <div><Label htmlFor={`snooze-row-${r.cat.id}`}>Avísame cuando llegue a ($)</Label><input id={`snooze-row-${r.cat.id}`} aria-label={`Avísame de nuevo de ${r.cat.name} cuando llegue a`} type="number" min="0" className={inputCls} value={snoozeRowAmt[r.cat.id] ?? ""} onChange={(e)=>setSnoozeRowAmt((a)=>({...a,[r.cat.id]:e.target.value}))} /></div>
+                  <button type="button" className={btnPrimary} disabled={snoozeMut.isPending} onClick={()=>{ const v=Number(snoozeRowAmt[r.cat.id])||0; if(v<=0) return; snoozeMut.mutate({categoryId:r.cat.id,month:cur,nextThreshold:v}); setSnoozeRowOpen((o)=>({...o,[r.cat.id]:false})); }}>Guardar aviso</button>
+                </div>)}
+                {snoozePendingSql && <p className="text-xs text-[var(--red)] mt-2">La posposición se guardará cuando se ejecute el SQL pendiente (supabase/add-budget-suggestion-snooze.sql).</p>}
+              </div>))}
+            </CollapsibleCard>); })()}
             <div className="grid sm:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
               {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado <span className="whitespace-nowrap">{money(b.amount)}</span> · Gastado <span className="whitespace-nowrap">{money(b.spent)}</span> · {b.remaining<0?<b className="text-[var(--red)] whitespace-nowrap">Sobrepasado por {money(-b.remaining)}</b>:<b className="whitespace-nowrap">Restan {money(b.remaining)}</b>}</p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-xs mt-1 font-bold text-[var(--red)]">Presupuesto excedido · {b.pct}% usado</p>:<p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado</p>}<button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
               {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Uno por categoría y mes." action={{label:"+ Agregar presupuesto",onClick:()=>focusField("bud-amount")}} />}

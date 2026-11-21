@@ -7,7 +7,7 @@ import {
   parseMpExternalReference,
   requireMpToken,
 } from "./mercadopago.js";
-import { and, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import * as schema from "./schema.js";
 import { fmtDateEs, notifyTandaOrganizer, notifyTandaOrganizerAcceptOtherEmail } from "./tandaNotify.js";
 import { supabaseAdmin } from "./supabase.js";
@@ -106,7 +106,7 @@ const budgetSuggestionBody = (catName: string, monthTotal: number, threshold: nu
     : monthsWithData === 3
       ? `Promedio 3 meses: ${moneyShort(avg)}`
       : `Promedio de ${monthsWithData} ${monthsWithData === 1 ? "mes" : "meses"}: ${moneyShort(avg)}`;
-  return `${catName} lleva ${moneyShort(monthTotal)} este mes y superó su límite de ${moneyShort(threshold)}. Póngale su límite real para monitorearlo. Límite sugerido: ${moneyShort(suggested)} · ${avgText}.`;
+  return `${catName} lleva ${moneyShort(monthTotal)} este mes y superó su límite de ${moneyShort(threshold)}. ¿Quiere crearle un presupuesto? Límite sugerido: ${moneyShort(suggested)} · ${avgText}.`;
 };
 // Crea el aviso `presupuesto_sugerido` para una categoría sin presupuesto
 // en un mes, si no hay ya uno vivo para esa categoría+mes (clave: el
@@ -121,9 +121,57 @@ async function createBudgetSuggestion(ctx: Ctx, householdId: number, args: { cat
   const monthsWithData = prevTotals.filter((t) => t > 0).length;
   const avg = monthsWithData > 0 ? prevTotals.reduce((s, t) => s + t, 0) / monthsWithData : 0;
   const suggested = Math.ceil(Math.max(args.monthTotal, avg) / 100) * 100;
+  // Posposición: si el hogar dijo «No por ahora» para esta categoría+mes
+  // y el total aún no llega al monto guardado, no se crea aviso nuevo.
+  const snoozedUntil = await getBudgetSnooze(ctx.db, householdId, args.categoryId, args.month);
+  if (snoozedUntil != null && args.monthTotal < snoozedUntil) return false;
   if (await unreadAlertExists(ctx, householdId, "presupuesto_sugerido", `${args.catName} lleva`, args.month)) return false;
   await notifyHousehold(ctx, householdId, { type: "presupuesto_sugerido", title: `${args.catName} no tiene presupuesto`, body: budgetSuggestionBody(args.catName, args.monthTotal, args.threshold, suggested, avg, monthsWithData), amount: suggested, target: "presupuestos" });
   return true;
+}
+// Posposición del aviso de sugerencia de presupuesto (tabla
+// budget_suggestion_snoozes, supabase/add-budget-suggestion-snooze.sql):
+// «Avísame de nuevo cuando el total del mes llegue a $X», una fila por
+// hogar, categoría y mes. Acceso por SQL directo (lección Drizzle): la
+// tabla NO está en el esquema de Drizzle; si el SQL aún no se ha corrido,
+// la lectura devuelve null (sin posposición) y la escritura devuelve false
+// (el cliente lo avisa), y el aviso con sus dos botones sigue funcionando.
+async function getBudgetSnooze(db: Ctx["db"], householdId: number, categoryId: number, month: string): Promise<number | null> {
+  try {
+    const res = (await db.execute(sql`SELECT next_threshold FROM budget_suggestion_snoozes WHERE household_id = ${householdId} AND category_id = ${categoryId} AND month = ${month} LIMIT 1`)) as unknown as { rows?: { next_threshold: number }[] } | { next_threshold: number }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    return rows[0]?.next_threshold ?? null;
+  } catch { return null; }
+}
+async function listBudgetSnoozeMap(db: Ctx["db"], householdId: number, month: string): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  try {
+    const res = (await db.execute(sql`SELECT category_id, next_threshold FROM budget_suggestion_snoozes WHERE household_id = ${householdId} AND month = ${month}`)) as unknown as { rows?: { category_id: number; next_threshold: number }[] } | { category_id: number; next_threshold: number }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    for (const row of rows) out.set(row.category_id, row.next_threshold);
+  } catch { /* tabla aún no creada */ }
+  return out;
+}
+async function saveBudgetSnooze(db: Ctx["db"], householdId: number, categoryId: number, month: string, nextThreshold: number): Promise<boolean> {
+  try {
+    await db.execute(sql`INSERT INTO budget_suggestion_snoozes (household_id, category_id, month, next_threshold) VALUES (${householdId}, ${categoryId}, ${month}, ${nextThreshold}) ON CONFLICT (household_id, category_id, month) DO UPDATE SET next_threshold = EXCLUDED.next_threshold, created_at = now()`);
+    return true;
+  } catch { return false; }
+}
+// Resuelve el aviso `presupuesto_sugerido` de una categoría+mes: se marca
+// leído solo cuando se crea el presupuesto de esa categoría+mes
+// (saveBudget) o se guarda la posposición (snoozeBudgetSuggestion). Es la
+// única manera de que el aviso salga del panel: ni abrirlo ni «Marcar
+// todas como leídas» lo tocan (regla de Heriberto 2026-11-21). El aviso es
+// del hogar: se resuelven las copias sin leer de todos los integrantes.
+async function resolveBudgetSuggestion(ctx: Ctx, householdId: number, categoryId: number, month: string) {
+  try {
+    const cat = (await ctx.db.select().from(schema.categories).where(eq(schema.categories.id, categoryId)).limit(1))[0];
+    if (!cat) return;
+    const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, householdId), eq(schema.notifications.type, "presupuesto_sugerido"), eq(schema.notifications.isRead, 0)));
+    const ids = rows.filter((r) => r.body.startsWith(`${cat.name} lleva`) && (r.createdAt instanceof Date ? r.createdAt.toISOString().slice(0, 7) : String(r.createdAt).slice(0, 7)) === month).map((r) => r.id);
+    if (ids.length > 0) await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(inArray(schema.notifications.id, ids));
+  } catch { /* tabla aún no creada */ }
 }
 // Reparación al abrir la campanilla (lección del 78e6c11: la reparación va
 // en la ruta de lectura, no en la de escritura): las categorías que ya
@@ -2085,11 +2133,44 @@ export const Actions = {
     description: "Creates or updates a monthly budget.",
     request: z.object({ id: z.number().optional(), householdId: z.number(), categoryId: z.number(), month: z.string().regex(/^\d{4}-\d{2}$/), amount: z.number().min(0), visibility: vis }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; if(args.id){ await db.update(schema.budgets).set({categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } // Un solo presupuesto por categoría y mes: si ya existe, se actualiza
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; if(args.id){ await db.update(schema.budgets).set({categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,args.id)); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true,id:args.id}; } // Un solo presupuesto por categoría y mes: si ya existe, se actualiza
     // su monto en lugar de crear una segunda tarjeta con el mismo gasto.
-    const existing = await db.select().from(schema.budgets).where(and(eq(schema.budgets.householdId,args.householdId),eq(schema.budgets.categoryId,args.categoryId),eq(schema.budgets.month,args.month))).limit(1); if(existing[0]){ await db.update(schema.budgets).set({amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,existing[0].id)); ctx.invalidateQueries(); return {ok:true,id:existing[0].id}; } const [r]=await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).returning({id:schema.budgets.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    const existing = await db.select().from(schema.budgets).where(and(eq(schema.budgets.householdId,args.householdId),eq(schema.budgets.categoryId,args.categoryId),eq(schema.budgets.month,args.month))).limit(1); if(existing[0]){ await db.update(schema.budgets).set({amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,existing[0].id)); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true,id:existing[0].id}; } const [r]=await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).returning({id:schema.budgets.id}); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
   deleteBudget: defineAction({ description: "Deletes a budget.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.budgets).where(eq(schema.budgets.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
+  // Posponer el aviso de sugerencia de presupuesto («No por ahora»):
+  // guarda «Avísame de nuevo cuando el total del mes llegue a $X» para
+  // esa categoría+mes y resuelve el aviso. La escritura es tolerante si
+  // la tabla aún no existe (falta correr
+  // supabase/add-budget-suggestion-snooze.sql): devuelve saved:false y
+  // el cliente lo dice, en vez de romper — igual que setFundImportance.
+  // El despachador resuelve el hogar desde householdId (rama genérica).
+  snoozeBudgetSuggestion: defineAction({
+    description: "Snoozes a budget-suggestion notice for a category and month: ask again only when the month total reaches nextThreshold. Resolves the notice. Returns saved:false if the SQL file hasn't been run yet.",
+    request: z.object({ householdId: z.number(), categoryId: z.number(), month: z.string().regex(/^\d{4}-\d{2}$/), nextThreshold: z.number().positive() }),
+    response: z.object({ ok: z.literal(true), saved: z.boolean() }),
+    async handler(ctx, args): Promise<{ ok: true; saved: boolean }> {
+      const cat = (await ctx.db.select().from(schema.categories).where(and(eq(schema.categories.id, args.categoryId), eq(schema.categories.householdId, args.householdId))).limit(1))[0];
+      if (!cat) throw new Error("Categoría no encontrada.");
+      const saved = await saveBudgetSnooze(ctx.db, args.householdId, args.categoryId, args.month, args.nextThreshold);
+      if (!saved) return { ok: true as const, saved: false };
+      await resolveBudgetSuggestion(ctx, args.householdId, args.categoryId, args.month);
+      ctx.invalidateQueries();
+      return { ok: true as const, saved: true };
+    },
+  }),
+  // Posposiciones vigentes del mes, para la lista de ejercicio de
+  // Presupuestos («Categorías sin presupuesto este mes»): sin la tabla, la
+  // lista sale vacía y nada se rompe.
+  listBudgetSnoozes: defineAction({
+    description: "Lists the household's budget-suggestion snoozes for a month (categoryId to next threshold). Empty if the SQL file hasn't been run yet.",
+    request: z.object({ householdId: z.number(), month: z.string().regex(/^\d{4}-\d{2}$/) }),
+    response: z.object({ snoozes: z.array(z.object({ categoryId: z.number(), nextThreshold: z.number() })) }),
+    async handler(ctx, args) {
+      const map = await listBudgetSnoozeMap(ctx.db, args.householdId, args.month);
+      return { snoozes: [...map.entries()].map(([categoryId, nextThreshold]) => ({ categoryId, nextThreshold })) };
+    },
+  }),
 
   // Crea o actualiza un fondo. La fecha límite y la importancia se
   // escriben TOLERANTES (patrón setGoalImportance): si las columnas aún
@@ -3997,22 +4078,30 @@ export const Actions = {
     },
   }),
   markNotificationRead: defineAction({
-    description: "Marks one of the current user's notifications as read.",
+    description: "Marks one of the current user's notifications as read. A budget-suggestion notice (presupuesto_sugerido) is NOT marked: it stays until the budget is created or the snooze is saved.",
     request: z.object({ id: z.number() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
-      try { await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.id, args.id), eq(schema.notifications.userId, ctx.user.id))); } catch { /* tabla aún no creada */ }
+      try {
+        // El aviso `presupuesto_sugerido` no se quita hasta actuar: ni
+        // abrirlo ni marcarlo leído lo saca del panel; solo se resuelve
+        // al crear el presupuesto o guardar la posposición
+        // (resolveBudgetSuggestion).
+        const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.id, args.id), eq(schema.notifications.userId, ctx.user.id))).limit(1);
+        if (rows[0]?.type === "presupuesto_sugerido") { ctx.invalidateQueries(); return { ok: true }; }
+        await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.id, args.id), eq(schema.notifications.userId, ctx.user.id)));
+      } catch { /* tabla aún no creada */ }
       ctx.invalidateQueries(); return { ok: true };
     },
   }),
   markAllNotificationsRead: defineAction({
-    description: "Marks all of the current user's notifications in the household as read (including their guest-tanda notifications, which are listed in their bell even when their active household is their own).",
+    description: "Marks all of the current user's notifications in the household as read (including their guest-tanda notifications, which are listed in their bell even when their active household is their own). Budget-suggestion notices (presupuesto_sugerido) are NOT marked: they stay until the budget is created or the snooze is saved.",
     request: z.object({ householdId: z.number() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       try {
         const hids = [...new Set([args.householdId, ...(await guestTandaHouseholdIds(ctx.db, ctx.user.id, ctx.user.email))])];
-        await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.userId, ctx.user.id), inArray(schema.notifications.householdId, hids)));
+        await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.userId, ctx.user.id), inArray(schema.notifications.householdId, hids), ne(schema.notifications.type, "presupuesto_sugerido")));
       } catch { /* tabla aún no creada */ }
       ctx.invalidateQueries(); return { ok: true };
     },
