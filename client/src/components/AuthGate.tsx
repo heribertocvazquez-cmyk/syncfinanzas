@@ -9,6 +9,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { supabase } from "../supabase";
 import { fetchSession } from "../api";
+import { WelcomeVidaFinanciera } from "./WelcomeVidaFinanciera";
 
 export function passwordChecks(password: string): { ok: boolean; message: string } {
   if (password.length < 12) return { ok: false, message: "Mínimo 12 caracteres." };
@@ -69,6 +70,21 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
+  // Bienvenida «Aquí empieza su vida financiera»: solo se muestra cuando
+  // la cuenta se creó en ESTA sesión (el registro recién completado). El
+  // criterio es este estado en memoria: nunca se lee una bandera guardada
+  // para decidir mostrarla, así a quien ya tiene cuenta jamás le aparece
+  // tras un despliegue ni al volver a entrar. Al cerrar se anota
+  // `sf-bienvenida-vista` en localStorage solo como registro.
+  const [showWelcome, setShowWelcome] = useState(false);
+  const dismissWelcome = () => {
+    setShowWelcome(false);
+    try {
+      window.localStorage.setItem("sf-bienvenida-vista", "1");
+    } catch {
+      // Sin almacenamiento disponible: nada que anotar.
+    }
+  };
 
   // La sesión vive en la cookie segura del servidor (punto 10): se
   // consulta a GET /api/session. El cliente ya no guarda el token en
@@ -100,7 +116,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (session === null) {
     return <p className="p-6 text-center text-sm text-[var(--dim)]">Cargando SyncFinanzas…</p>;
   }
-  if (session) return <>{children}</>;
+  if (session) {
+    if (showWelcome) {
+      return <WelcomeVidaFinanciera onStart={dismissWelcome} onSkip={dismissWelcome} />;
+    }
+    return <>{children}</>;
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -148,6 +169,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
         const u = await fetchSession();
         if (!u) throw new Error("No se pudo iniciar la sesión. Inténtelo de nuevo.");
         setSession(true);
+        // Cuenta recién creada en esta sesión: mostrar la bienvenida una
+        // sola vez. Al iniciar sesión con una cuenta existente no se
+        // muestra (criterio en memoria, no bandera guardada).
+        if (mode === "signup") setShowWelcome(true);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ocurrió un error. Inténtelo de nuevo.");
@@ -169,6 +194,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <div className="w-full max-w-md bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-6 mt-8 sm:mt-0">
         <h1 className="font-display font-bold text-2xl">SyncFinanzas</h1>
         <p className="text-sm text-[var(--dim)] mt-1">Finanzas del hogar, claras y compartidas.</p>
+        <p className="font-display font-bold text-base mt-2">Aquí empieza su vida financiera</p>
         {invitePreview && (
           <div className="mt-4 rounded-2xl border-2 border-[var(--gold)] bg-[var(--surface2)] p-4" role="status">
             <p className="font-display font-bold">Usted recibió una invitación</p>
@@ -219,6 +245,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
           )}
           {(mode === "signup" || mode === "recovery") && password.length > 0 && (
             <p className={`text-xs ${check.ok ? "text-[var(--green)]" : "text-[var(--red)]"}`}>{check.message}</p>
+          )}
+          {mode === "signup" && (
+            // El ejemplo debe cumplir la regla (12 caracteres, mayúscula,
+            // minúscula, número y símbolo): «Casa2026!» solo tiene 9 y
+            // fallaría la validación, así que se usa su extensión válida.
+            <p className="text-xs text-[var(--dim)]">
+              Mínimo 12 caracteres, con mayúscula, minúscula, número y símbolo. Ejemplo: Casa2026!Azul
+            </p>
           )}
           {mode !== "forgot" && mode !== "recovery" && (
             <label className="flex items-center gap-2 text-sm">
