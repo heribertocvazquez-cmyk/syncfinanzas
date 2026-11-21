@@ -2123,7 +2123,7 @@ export function App(){
                                 <Suspense fallback={DonutFallback}><CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={10} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth,pct:d.pct})} /></Suspense>
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
-                <h2 className="font-display font-bold text-lg">Ingresos vs gastos · últimos 6 meses</h2>
+                <h2 className="font-display font-bold text-lg">Ingresos vs gastos · 3 meses atrás</h2>
                 <Suspense fallback={BarsFallback}><MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} todayMonth={todayISO().slice(0,7)} inicio onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} /></Suspense>
               </div>
             </div>
@@ -2833,7 +2833,7 @@ export function App(){
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b className="whitespace-nowrap">{money2(data.personal.monthSpent)}</b> · Restante: <b className="whitespace-nowrap">{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
-                  <h2 className="font-display font-bold text-lg">Ingresos vs gastos · últimos 6 meses</h2>
+                  <h2 className="font-display font-bold text-lg">Ingresos vs gastos · 3 meses atrás</h2>
                   <Suspense fallback={BarsFallback}><MonthlyChart series={s.monthlySeries} currentMonth={s.currentMonth} todayMonth={todayISO().slice(0,7)} inicio onSelect={(kind,month,label)=>setIncExpDetail({kind,month,label})} /></Suspense>
                 </div>
                 <HomeTandasCard tandas={allTandas} onOpenDetail={openTandaDetail} onGoTandas={()=>goTab("tandas")} />

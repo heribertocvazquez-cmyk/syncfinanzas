@@ -20,7 +20,7 @@
 - getOverview devuelve receiptUrl firmada por movimiento (ctx.blobs.getUrl) para mostrar miniatura y detalle. Sin foto = null y la fila se ve limpia.
 - SIN OCR: la UI lo dice explícito — la foto es comprobante visual, no se lee ni se extraen datos.
 ### Gráficas
-- summary.monthlySeries: últimos 6 meses calculados en servidor desde movimientos reales [{month, income, expense}].
+- summary.monthlySeries: últimos 3 meses calculados en servidor desde movimientos reales [{month, income, expense}].
 - Gasto por categoría del mes: ya calculado (personal.byCategory) y reutilizado en Familiar como gasto del hogar por categoría.
 - Render con Recharts (dependencia ya presente): barras por categoría y barras ingreso vs gasto por mes, con etiquetas y montos en MXN, en Personal y en Inicio Familiar.
 

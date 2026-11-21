@@ -1532,10 +1532,10 @@ export const Actions = {
 
 
 
-      // ---- Monthly series (last 6 months) + movement receipt URLs ----
+      // ---- Monthly series (last 3 months) + movement receipt URLs ----
       const monthLabel = (ym:string)=>{ const [yy=2026,mm=1]=ym.split("-").map(Number); return new Date(yy,(mm||1)-1,1).toLocaleDateString("es-MX",{month:"short"}); };
       const monthlySeries: {month:string;label:string;income:number;expense:number}[] = [];
-      for (let k=5;k>=0;k--){ const d=new Date(viewDate.getFullYear(), viewDate.getMonth()-k, 1); const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; const ms=activeMovs.filter(m=>m.date.startsWith(ym)); monthlySeries.push({ month: ym, label: monthLabel(ym), income: Math.round(ms.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0)*100)/100, expense: Math.round(ms.filter(m=>m.type==="expense"||m.type==="debt_payment").reduce((s,m)=>s+m.amount,0)*100)/100 }); }
+      for (let k=2;k>=0;k--){ const d=new Date(viewDate.getFullYear(), viewDate.getMonth()-k, 1); const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; const ms=activeMovs.filter(m=>m.date.startsWith(ym)); monthlySeries.push({ month: ym, label: monthLabel(ym), income: Math.round(ms.filter(m=>m.type==="income").reduce((s,m)=>s+m.amount,0)*100)/100, expense: Math.round(ms.filter(m=>m.type==="expense"||m.type==="debt_payment").reduce((s,m)=>s+m.amount,0)*100)/100 }); }
       // ---- Movimientos: solo viaja el mes visible ----
       // Antes se enviaban TODOS los movimientos del hogar en cada carga
       // (~250 B por fila) y se re-descargaban en cada guardado y al
