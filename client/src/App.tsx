@@ -639,6 +639,16 @@ export function App(){
     try{ today=todayISO(); if(localStorage.getItem("sf-periodic-alerts-date")===today) return; }catch{ return; }
     void api.checkPeriodicAlerts({householdId:data.household.id}).then((r)=>{ try{ localStorage.setItem("sf-periodic-alerts-date",today); }catch{} if(r.created>0) qc.invalidateQueries({queryKey:["notifications"]}); }).catch(()=>{});
   },[data?.household]);
+  // Sincroniza el formulario de «Hogar y ajustes» con el hogar activo:
+  // los estados de edición nacen con valores fijos ("familiar", "1",
+  // "1500", "equal", "unanimous") mientras los campos muestran
+  // defaultValue={hh.*}; sin este efecto, guardar sin tocar un campo
+  // pisaba el valor real con el fijo (así un hogar Personal se volteaba
+  // a Familiar solo por cambiar el nombre). Solo corre al cambiar de
+  // hogar (el id), para no pisar lo que el usuario ya escribió si los
+  // datos se recargan. Va aquí, antes de los retornos tempranos, para
+  // no cambiar el orden de los hooks entre renders.
+  useEffect(()=>{ const h=data?.household; if(!h) return; setEditMode(h.mode as "personal"|"familiar"); setEditCutoff(String(h.cutoffDay)); setEditThreshold(String(h.approvalThreshold)); setEditContrib(h.contributionRule as "equal"|"proportional"); setEditApproval(h.approvalRule as "unanimous"|"majority"); setEditName(""); },[data?.household?.id]);
   // Bloqueo con PIN local de 4 dígitos (solo en este dispositivo; no cifra
   // los datos). Se pide al entrar si está activado y al volver a la app
   // después de más de 10 minutos fuera.
