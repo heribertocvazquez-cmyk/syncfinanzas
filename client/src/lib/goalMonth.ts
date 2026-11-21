@@ -300,6 +300,18 @@ export function fundProjected(
 export type FundPlanAccount = { id: number; name: string; balance: number };
 export type FundPlanBudget = { name: string; remaining: number };
 
+export type FundSmallStart = {
+  /** Monto asequible por día. */
+  perDay: number;
+  /** Asequible por semana (por día × 7, sin pasar del restante). */
+  perWeek: number;
+  /** Asequible por mes. */
+  perMonth: number;
+  /** Cuenta de la que saldría (capacidad 0). null cuando sale de la
+   *  capacidad del mes. */
+  account: FundPlanAccount | null;
+};
+
 export type FundPlanVerdict =
   | "alcanza"
   | "no-alcanza"
@@ -336,16 +348,23 @@ export type FundPlan = {
   /** Lo que queda después de apartar cuando alcanza (capacidad −
    *  necesidad). */
   leftoverAfter: number;
+  /** Inicio chico («Empiece con poco») cuando la necesidad del mes
+   *  supera lo que se puede apartar: ritmo asequible. null cuando la
+   *  capacidad cubre, sin fecha/meta, con la fecha pasada o con la
+   *  meta alcanzada. */
+  smallStart: FundSmallStart | null;
   /** Aportado neto a ESTE fondo en el mes actual (aportes − retiros). */
   contributedThisMonth: number;
   /** Días transcurridos desde la creación (o el inicio del mes, lo
    *  último). null sin ritmo. */
   elapsedDays: number | null;
   /** Lo que ya debería llevar aportado a este ritmo (por día × días
-   *  transcurridos, con tope en lo restante). null sin ritmo. */
+   *  transcurridos, con tope en lo restante; con el ritmo asequible
+   *  cuando hay inicio chico). null sin ritmo. */
   expectedByNow: number | null;
   /** A cuánto se llega en la fecha límite con cada frecuencia
-   *  (fundProjected). null sin ritmo. */
+   *  (fundProjected, con el ritmo asequible cuando hay inicio chico).
+   *  null sin ritmo. */
   projected: { dia: number; semana: number; mes: number } | null;
   /** La cuenta con mayor saldo (saldo > 0). null si ninguna tiene. */
   topAccount: FundPlanAccount | null;
@@ -438,20 +457,62 @@ export function fundPlan(input: {
     .sort((a, b) => b.remaining - a.remaining)
     .slice(0, 2);
   const hasRhythm = perDay != null && perWeek != null && perMonth != null && daysLeft != null && remaining != null && remaining > 0;
+  // ---- Empiece con poco (2026-11-21) ----
+  // Cuando la necesidad del mes supera lo que se puede apartar, el
+  // plan no se queda en «No alcanza»: propone el ritmo asequible.
+  // Caso A (capacidad > 0): sale de la capacidad del mes, X =
+  // floor(capacidad / días restantes), mínimo $1; semana X×7 sin
+  // pasar del restante; mes min(capacidad, necesidad).
+  // Caso B (capacidad 0): sale de lo ahorrado en la cuenta con mayor
+  // saldo, $20/día si la cuenta lo sostiene hasta la fecha; si no,
+  // $10/día; nunca más de $50/día. Sin cuenta que lo sostenga, null
+  // (la vista muestra que aún no hay con qué empezar).
+  let smallStart: FundSmallStart | null = null;
+  if (hasRhythm && remaining != null && daysLeft != null && needThisMonth != null) {
+    const days = Math.max(1, daysLeft);
+    if (verdict === "no-alcanza" && capacity > 0) {
+      const d = Math.max(1, Math.floor(capacity / days));
+      smallStart = {
+        perDay: d,
+        perWeek: Math.min(remaining, d * 7),
+        perMonth: Math.min(capacity, needThisMonth),
+        account: null,
+      };
+    } else if (capacity === 0 && topAccount != null) {
+      let d: number | null = null;
+      if (topAccount.balance >= 20 * days) d = 20;
+      else if (topAccount.balance >= 10 * days) d = 10;
+      if (d != null) {
+        d = Math.min(50, d);
+        smallStart = {
+          perDay: d,
+          perWeek: Math.min(remaining, d * 7),
+          perMonth: Math.min(remaining, d * Math.min(30, days)),
+          account: topAccount,
+        };
+      }
+    }
+  }
+  // El ritmo efectivo es el asequible cuando hay inicio chico: lo
+  // esperado hasta hoy y lo proyectado se calculan con él, para no
+  // dejar al usuario «atrasado» frente a un ritmo que no puede pagar.
+  const effPerDay = smallStart?.perDay ?? perDay;
+  const effPerWeek = smallStart?.perWeek ?? perWeek;
+  const effPerMonth = smallStart?.perMonth ?? perMonth;
   const elapsedDays = hasRhythm
     ? fundElapsedDays(input.fund.createdAt ?? null, input.currentYm, nowMs)
     : null;
   const expectedByNow =
-    hasRhythm && elapsedDays != null && remaining != null
-      ? Math.min(remaining, round2(perDay! * elapsedDays))
+    hasRhythm && elapsedDays != null && remaining != null && effPerDay != null
+      ? Math.min(remaining, round2(effPerDay * elapsedDays))
       : null;
   const monthsLeft = hasRhythm ? fundMonthsLeft(input.fund.targetDate, nowMs) ?? 1 : 1;
   const projected =
-    hasRhythm && daysLeft != null
+    hasRhythm && daysLeft != null && effPerDay != null && effPerWeek != null && effPerMonth != null
       ? {
-          dia: fundProjected(input.fund.balance, perDay!, "dia", daysLeft, monthsLeft),
-          semana: fundProjected(input.fund.balance, perWeek!, "semana", daysLeft, monthsLeft),
-          mes: fundProjected(input.fund.balance, perMonth!, "mes", daysLeft, monthsLeft),
+          dia: fundProjected(input.fund.balance, effPerDay, "dia", daysLeft, monthsLeft),
+          semana: fundProjected(input.fund.balance, effPerWeek, "semana", daysLeft, monthsLeft),
+          mes: fundProjected(input.fund.balance, effPerMonth, "mes", daysLeft, monthsLeft),
         }
       : null;
   return {
@@ -467,6 +528,7 @@ export function fundPlan(input: {
     verdict,
     shortfall,
     leftoverAfter,
+    smallStart,
     contributedThisMonth: netFundMovementsInMonth(
       input.fundMovements,
       input.fund.id,

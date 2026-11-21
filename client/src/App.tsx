@@ -1871,10 +1871,16 @@ export function App(){
     });
     // Frecuencia elegida para este fondo (Por día por defecto): cambia
     // el botón de aportar y el cálculo de lo esperado y lo proyectado.
+    // Con inicio chico, el ritmo efectivo es el asequible.
     const freq = fundFrequency(f.id);
-    const todayAmount = freq === "dia" ? plan.perDay : freq === "semana" ? plan.perWeek : plan.perMonth;
+    const effPerDay = plan.smallStart?.perDay ?? plan.perDay;
+    const effPerWeek = plan.smallStart?.perWeek ?? plan.perWeek;
+    const effPerMonth = plan.smallStart?.perMonth ?? plan.perMonth;
+    const todayAmount = freq === "dia" ? effPerDay : freq === "semana" ? effPerWeek : effPerMonth;
     const todayLabel = freq === "dia" ? "hoy" : freq === "semana" ? "esta semana" : "este mes";
     const projected = plan.projected ? plan.projected[freq] : null;
+    // Hay ritmo cuando hay meta, fecha vigente y aporte por día/semana/mes.
+    const hasRhythm = plan.remaining != null && plan.remaining > 0 && !plan.datePassed && effPerDay != null && effPerWeek != null && effPerMonth != null && f.targetDate;
     return (
       <div className="mt-3 rounded-2xl bg-[var(--surface2)] p-3 sm:p-4">
         <p className="font-display font-bold text-sm">Plan del fondo</p>
@@ -1883,19 +1889,31 @@ export function App(){
             <p className="text-sm mt-1">Este mes entraron {money(s.monthIncome)} y gastaste {money(s.monthExpense)}.</p>
             <p className="text-xs text-[var(--dim)] mt-2">Puedes apartar este mes</p>
             <p className="font-display font-extrabold text-2xl text-[var(--accent)]">{money(plan.capacity)}</p>
+            {plan.capacity === 0 && plan.smallStart == null && hasRhythm && (
+              <p className="text-sm mt-2">El gasto de este mes ya se comió el ingreso, así que el plan no tiene con qué empezar este mes.</p>
+            )}
           </>
+        ) : plan.smallStart?.account ? (
+          <p className="text-sm mt-1">Este mes aún no hay ingresos registrados, pero puede empezar con lo que tiene en {plan.smallStart.account.name}.</p>
+        ) : hasRhythm ? (
+          <p className="text-sm mt-1">Aún no hay ingresos registrados este mes. En cuanto registre uno, el plan le dirá con cuánto empezar.</p>
         ) : (
           <p className="text-sm mt-1">Este mes aún no hay ingresos registrados, así que no hay base para calcular el plan.</p>
         )}
-        {plan.remaining != null && plan.remaining > 0 && !plan.datePassed && plan.perDay != null && plan.perWeek != null && plan.perMonth != null && f.targetDate && (
+        {plan.remaining != null && plan.remaining > 0 && !plan.datePassed && effPerDay != null && effPerWeek != null && effPerMonth != null && f.targetDate && (
           <>
             <p className="text-sm mt-2">Para llegar a los {money(plan.remaining)} el {fmtDate(f.targetDate)} (quedan {plan.daysLeft} {plan.daysLeft === 1 ? "día" : "días"}):</p>
+            {plan.smallStart && (
+              <div className="mt-2 rounded-xl border-2 border-[var(--accent)] bg-[var(--surface)] p-3">
+                <p className="text-sm font-bold">Empiece con poco: {money(plan.smallStart.perDay)} al día{plan.smallStart.account ? ` desde ${plan.smallStart.account.name}` : ""}</p>
+              </div>
+            )}
             <p className="text-sm mt-2">Elige cómo aportar:</p>
             <div className="mt-2 space-y-2">
               {([
-                { key: "dia" as FundFrequency, label: "Por día", amount: plan.perDay },
-                { key: "semana" as FundFrequency, label: "Por semana", amount: plan.perWeek },
-                { key: "mes" as FundFrequency, label: "Por mes", amount: plan.perMonth },
+                { key: "dia" as FundFrequency, label: "Por día", amount: effPerDay },
+                { key: "semana" as FundFrequency, label: "Por semana", amount: effPerWeek },
+                { key: "mes" as FundFrequency, label: "Por mes", amount: effPerMonth },
               ]).map((row) => {
                 const selected = freq === row.key;
                 return (
@@ -1919,6 +1937,8 @@ export function App(){
                 <p className="text-sm mt-2">Con este ritmo llegas a {money(projected)} el {fmtDate(f.targetDate)}.</p>
                 {projected >= f.targetAmount ? (
                   <p className="text-sm mt-1 font-semibold text-[var(--green)]">Cubre la meta.</p>
+                ) : plan.smallStart ? (
+                  <p className="text-sm mt-1 font-semibold text-[var(--red)]">No cubre la meta de {money(f.targetAmount)}: mueva la fecha o ponga una meta más chica.</p>
                 ) : (
                   <>
                     <p className="text-sm mt-1 font-semibold text-[var(--red)]">No llega: faltan {money(f.targetAmount - projected)}.</p>
@@ -1964,7 +1984,7 @@ export function App(){
           <div className="h-2 bg-[var(--surface)] rounded-full mt-1"><div className="h-full bg-[var(--gold)] rounded-full" style={{ width: `${Math.min(100, Math.round((plan.contributedThisMonth / plan.needThisMonth) * 100))}%` }} /></div>
         )}
         {todayAmount != null && todayAmount > 0 && (
-          <button type="button" aria-label={`Aportar ${money(todayAmount)} ${todayLabel} al fondo ${f.name}`} className={btnPrimary + " mt-3 w-full"} onClick={() => onToday(todayAmount, plan.topAccount?.id ?? null)}>Aportar {money(todayAmount)} ({todayLabel})</button>
+          <button type="button" aria-label={`Aportar ${money(todayAmount)} ${todayLabel} al fondo ${f.name}`} className={btnPrimary + " mt-3 w-full"} onClick={() => onToday(todayAmount, plan.smallStart?.account?.id ?? plan.topAccount?.id ?? null)}>Aportar {money(todayAmount)} ({todayLabel})</button>
         )}
       </div>
     );
