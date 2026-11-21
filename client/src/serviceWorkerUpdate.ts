@@ -21,6 +21,13 @@
 // registration.update() explícito, que salta ese límite, igual que el
 // botón manual "Buscar actualizaciones".
 export const APP_UPDATE_EVENT = "sf-update-available";
+// Aviso de que la actualización en espera ya no existe (el worker se
+// volvió redundante o el navegador lo descartó): la app oculta el aviso
+// para no ofrecer un botón que no puede hacer nada.
+export const APP_UPDATE_GONE_EVENT = "sf-update-gone";
+// Tiempo límite para que la recarga llegue tras pedir la activación:
+// si no llega, el botón vuelve a servir con «Reintentar».
+export const UPDATE_APPLY_TIMEOUT_MS = 15000;
 
 let registration: ServiceWorkerRegistration | null = null;
 let updateNotified = false;
@@ -30,6 +37,24 @@ let reloadScheduled = false;
 function notifyUpdateAvailable() {
   updateNotified = true;
   window.dispatchEvent(new CustomEvent(APP_UPDATE_EVENT));
+}
+
+function notifyUpdateGone() {
+  if (!updateNotified) return;
+  updateNotified = false;
+  window.dispatchEvent(new CustomEvent(APP_UPDATE_GONE_EVENT));
+}
+
+// Limpia el aviso cuando ya no hay worker en espera: la bandera
+// `updateNotified` se prendía una vez y quedaba prendida para siempre,
+// así que el aviso seguía ofreciendo actualizar aunque el worker en
+// espera ya no existiera (redundante tras otra revisión, o descartado
+// por el navegador). Pulsar Actualizar entonces no hacía nada y el
+// botón se quedaba en «Actualizando…» sin salida.
+function clearStaleNotice() {
+  if (!updateNotified) return;
+  if (registration?.waiting) return;
+  notifyUpdateGone();
 }
 
 // Si el aviso ya se disparó antes de que la app montara su oyente (el
@@ -44,6 +69,9 @@ function trackWorker(worker: ServiceWorker | null) {
   if (worker.state === "installed" && registration?.waiting === worker) notifyUpdateAvailable();
   worker.addEventListener("statechange", () => {
     if (worker.state === "installed" && registration?.waiting === worker) notifyUpdateAvailable();
+    // El worker en espera se volvió redundante (otra revisión instaló
+    // uno más nuevo, o el navegador lo descartó): el aviso ya no vale.
+    if (worker.state === "redundant") clearStaleNotice();
   });
 }
 
@@ -69,7 +97,12 @@ export function registerAppServiceWorker() {
       .register("/sw.js")
       .then((reg) => {
         registration = reg;
-        if (reg.waiting) notifyUpdateAvailable();
+        if (reg.waiting) {
+          notifyUpdateAvailable();
+          // Seguir también al worker que ya estaba en espera: si se
+          // vuelve redundante, el aviso debe apagarse.
+          trackWorker(reg.waiting);
+        }
         reg.addEventListener("updatefound", () => trackWorker(reg.installing));
         // Revisar si hay versión nueva al volver a la app.
         document.addEventListener("visibilitychange", () => {
@@ -123,14 +156,35 @@ export async function checkForAppUpdate(): Promise<"update" | "latest" | "unavai
     notifyUpdateAvailable();
     return "update";
   }
+  // No hay worker en espera: si el aviso seguía prendido de una
+  // revisión anterior, ya no vale y se apaga.
+  clearStaleNotice();
   return "latest";
 }
 
 // Aplica la versión nueva en espera: el worker se activa y la página
 // recarga sola cuando toma el control. No cierra la sesión ni borra datos.
-export function applyAppUpdate() {
-  const waiting = registration?.waiting;
-  if (!waiting) return;
+// Devuelve si se aplicó o si ya no había actualización en espera: antes
+// era void y si no había worker en espera no hacía nada en silencio,
+// mientras la app ya había puesto el botón en «Actualizando…» y nunca
+// lo volvía a habilitar. Si no hay worker en espera, reintenta una
+// revisión antes de rendirse.
+export async function applyAppUpdate(): Promise<"applied" | "no-update"> {
+  let waiting = registration?.waiting ?? null;
+  if (!waiting && registration) {
+    try {
+      await registration.update();
+    } catch {
+      // Sin red no se puede revisar: no hay nada que aplicar.
+    }
+    await waitForWaiting(registration, 10000);
+    waiting = registration.waiting;
+  }
+  if (!waiting) {
+    clearStaleNotice();
+    return "no-update";
+  }
   updateApplied = true;
   waiting.postMessage({ type: "SKIP_WAITING" });
+  return "applied";
 }

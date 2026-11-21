@@ -49,7 +49,7 @@ import guiaDecisionesPdf from "./assets/guia-decisiones-patrimonio.pdf";
 import guiaTandasPdf from "./assets/guia-tandas.pdf";
 import guiaConfiguracionPdf from "./assets/guia-configuracion-ayuda.pdf";
 import { APP_VERSION } from "./version";
-import { APP_UPDATE_EVENT, applyAppUpdate, checkForAppUpdate, isUpdateAvailable } from "./serviceWorkerUpdate";
+import { APP_UPDATE_EVENT, APP_UPDATE_GONE_EVENT, UPDATE_APPLY_TIMEOUT_MS, applyAppUpdate, checkForAppUpdate, isUpdateAvailable } from "./serviceWorkerUpdate";
 import { clearDeferredInstallPrompt, consumeDeferredInstallPrompt } from "./installPrompt";
 import appIcon512 from "./assets/app-icon-512.png";
 
@@ -477,17 +477,44 @@ export function App(){
   // También actualiza el theme-color de la barra de estado, para que en
   // claro la banda superior no quede negra (ver main.tsx).
   const setThemeMode=(next:boolean)=>{ setDarkMode(next); try{ localStorage.setItem("sf-theme", next?"dark":"light"); }catch{} try{ document.documentElement.classList.toggle("dark", next); }catch{} try{ document.querySelector('meta[name="theme-color"]')?.setAttribute("content", next?"#151515":"#EEE3CC"); }catch{} };
-  const [updateAvailable,setUpdateAvailable]=useState(false); const [updateApplying,setUpdateApplying]=useState(false); const [updateChecking,setUpdateChecking]=useState(false); const [updateCheckMsg,setUpdateCheckMsg]=useState<string|null>(null);
+  const [updateAvailable,setUpdateAvailable]=useState(false); const [updateApplying,setUpdateApplying]=useState(false); const [updateFailed,setUpdateFailed]=useState(false); const [updateChecking,setUpdateChecking]=useState(false); const [updateCheckMsg,setUpdateCheckMsg]=useState<string|null>(null);
+  // Tiempo límite para que la recarga llegue tras pulsar Actualizar:
+  // si no llega, el botón vuelve a servir con «Reintentar».
+  const updateApplyTimerRef=useRef<number|null>(null);
+  useEffect(()=>()=>{ if(updateApplyTimerRef.current) window.clearTimeout(updateApplyTimerRef.current); },[]);
+  // Aplica la actualización del botón de la campanilla. Si ya no hay
+  // versión en espera, el aviso se oculta y se dice que ya está al día
+  // (antes el botón se quedaba en «Actualizando…» para siempre).
+  const handleApplyUpdate=async()=>{
+    setUpdateFailed(false);
+    setUpdateApplying(true);
+    const result=await applyAppUpdate();
+    if(result==="no-update"){
+      setUpdateApplying(false);
+      setUpdateAvailable(false);
+      setUpdateCheckMsg("Ya tiene la versión más reciente.");
+      return;
+    }
+    if(updateApplyTimerRef.current) window.clearTimeout(updateApplyTimerRef.current);
+    updateApplyTimerRef.current=window.setTimeout(()=>{
+      setUpdateApplying(false);
+      setUpdateFailed(true);
+    }, UPDATE_APPLY_TIMEOUT_MS);
+  };
   useEffect(()=>{
     const onUpdate=()=>setUpdateAvailable(true);
+    // La actualización en espera ya no existe: el aviso se oculta y,
+    // si el botón estaba en «Actualizando…», vuelve a servir.
+    const onUpdateGone=()=>{ setUpdateAvailable(false); setUpdateApplying(false); setUpdateFailed(false); };
     window.addEventListener(APP_UPDATE_EVENT,onUpdate);
+    window.addEventListener(APP_UPDATE_GONE_EVENT,onUpdateGone);
     // Aviso "pegajoso": si el worker nuevo ya quedó en espera antes de
     // que este oyente se montara, el aviso no se pierde hasta la siguiente
     // revisión. También se revisa al abrir la app, por si hay una versión
     // nueva esperando desde antes.
     if(isUpdateAvailable()) setUpdateAvailable(true);
     void checkForAppUpdate();
-    return ()=>window.removeEventListener(APP_UPDATE_EVENT,onUpdate);
+    return ()=>{ window.removeEventListener(APP_UPDATE_EVENT,onUpdate); window.removeEventListener(APP_UPDATE_GONE_EVENT,onUpdateGone); };
   },[]);
   // Correo de la sesión actual: solo el dueño de la app (Heriberto) ve el
   // registro de usuarios de la app y el módulo Desarrollador; el servidor
@@ -2003,7 +2030,7 @@ export function App(){
             </div>
             {notifQuery.isPending && <p className="text-sm text-[var(--dim)] mt-2">Cargando avisos…</p>}
             {notifQuery.data && visibleNotifs.length===0 && !updateAvailable && <p className="text-sm text-[var(--dim)] mt-2">Sin avisos por ahora.</p>}
-            <UpdateBellNotice updateAvailable={updateAvailable} updateApplying={updateApplying} onUpdate={()=>{ setUpdateApplying(true); applyAppUpdate(); }} />
+            <UpdateBellNotice updateAvailable={updateAvailable} updateApplying={updateApplying} updateFailed={updateFailed} onUpdate={handleApplyUpdate} />
             <ul className="mt-2 space-y-2">
               {visibleNotifs.map(n=>{
                 const sug=n.type==="presupuesto_sugerido"?budgetSuggestionTarget(n):null;
