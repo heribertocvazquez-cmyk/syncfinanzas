@@ -44,6 +44,7 @@ import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview }
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
 import { QuickBar, QUICK_BAR_BOTTOM_PX, QUICK_BAR_HEIGHT_PX } from "./components/QuickBar";
 import { DRAWER_GROUPS, orderDrawerTabs } from "./lib/drawerOrder";
+import { readQuickShortcuts, toggleQuickShortcut, writeQuickShortcuts, type QuickShortcutId } from "./lib/quickBar";
 import { HELP_FAQS, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { applyMovementChange, type MovementChange, type SavedMovement } from "./lib/optimisticOverview";
 import { api, fetchSession, signOut } from "./api";
@@ -402,6 +403,10 @@ export { TesterFeedbackForm };
 export function App(){
   const qc=useQueryClient();
   const [tab,setTab]=useState<Tab>("inicio"); const [menuOpen,setMenuOpen]=useState(false); const [guidePdf,setGuidePdf]=useState<{title:string;src:string}|null>(null);
+  // Atajos del menú rápido (estrellas del cajón, 2026-11-24): la lista
+  // vive en el dispositivo (localStorage «sf-menu-rapido»); sin nada
+  // guardado trae Nuevo gasto, Metas y Presupuestos.
+  const [quickShortcuts,setQuickShortcuts]=useState<QuickShortcutId[]>(()=>readQuickShortcuts());
   // Menú abierto: se bloquea el desplazamiento de la app de atrás; solo el menú se desplaza.
   useEffect(()=>{
     if(!menuOpen) return;
@@ -1770,7 +1775,26 @@ export function App(){
   // en lib/drawerOrder). Configuración participa como un grupo más (Guía
   // de uso y Vista); Mike no es un grupo y sigue al pie del cajón.
   const tabLabel = (tid:Tab)=> TABS.find(x=>x.id===tid)?.label ?? tid;
-  const drawerSections: DrawerMenuSection[] = [...drawerGroups.map(g=>({title:g.title, tabs: orderDrawerTabs(g.title, g.tabs, tabLabel).map(tid=>({id:tid, label:tabLabel(tid)}))})), {title:"Configuración", tabs:[], config:true}];
+  // Atajos del menú rápido (estrellas del cajón, 2026-11-24): tocar la
+  // estrella fija o quita el atajo en el acto, sin pop-up ni aviso; si la
+  // barra está llena (4), no cabe más y no cambia nada.
+  const togglePin = (id:QuickShortcutId)=>{
+    setQuickShortcuts((prev)=>{
+      const next = toggleQuickShortcut(prev, id);
+      writeQuickShortcuts(next);
+      return next;
+    });
+  };
+  const drawerSections: DrawerMenuSection[] = [
+    ...drawerGroups.map((g) => {
+      const tabs = orderDrawerTabs(g.title, g.tabs, tabLabel).map((tid) => ({ id: tid, label: tabLabel(tid) }));
+      // «Nuevo gasto» abre el formulario desde el cajón y lleva su propia
+      // estrella, para fijarlo o quitarlo como los demás atajos.
+      const rows = g.title === "Mi dinero" ? [{ action: "nuevo-gasto" as const, label: "Nuevo gasto" }, ...tabs] : tabs;
+      return { title: g.title, tabs: rows };
+    }),
+    { title: "Configuración", tabs: [], config: true },
+  ];
   // Ir a un módulo y dejar el campo del importe a la vista con el cursor listo:
   // cambia de pestaña y, cuando el formulario ya se pintó, lo desplaza al centro
   // (así el encabezado fijo no lo tapa) y le da el foco para escribir.
@@ -2250,6 +2274,9 @@ export function App(){
           sections={drawerSections}
           currentTab={effTab}
           onNavigate={(t)=>{goTab(t);setMenuOpen(false);}}
+          pinned={quickShortcuts}
+          onTogglePin={togglePin}
+          onNewExpense={()=>{ setMenuOpen(false); openNewMovement("expense"); }}
           openGroups={openDrawerGroups}
           onToggleGroup={(title, open)=>setOpenDrawerGroups(prev=>({...prev,[title]:open}))}
           configOpen={configOpen}
@@ -3679,6 +3706,8 @@ export function App(){
         <QuickBar
           currentTab={effTab}
           menuOpen={menuOpen}
+          shortcuts={quickShortcuts}
+          tabLabel={tabLabel}
           onToggleMenu={() => setMenuOpen((o) => !o)}
           onNewExpense={() => openNewMovement("expense")}
           onGoTab={(t) => { goTab(t); setMenuOpen(false); }}

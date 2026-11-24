@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { ReactNode } from "react";
 import type { Tab } from "../App";
+import type { QuickShortcutId } from "../lib/quickBar";
 
 // Texto grande (Vista, mejora «Acceso más fácil para mayores»,
 // 2026-11-21): la elección vive en el dispositivo (localStorage
@@ -39,8 +40,9 @@ const tabIcon = (children: ReactNode) => (
   <svg aria-hidden="true" className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
 );
 // Icono de cada módulo. Hogar lleva la casita; Inicio lleva un icono de
-// tablero (cuadrícula de 2×2), para no repetir la casita.
-const TAB_ICONS: Record<Tab, ReactNode> = {
+// tablero (cuadrícula de 2×2), para no repetir la casita. Se exporta para
+// que la barra rápida use el mismo icono que el cajón en cada atajo.
+export const TAB_ICONS: Record<Tab, ReactNode> = {
   inicio: tabIcon(<><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></>),
   hogar: tabIcon(<><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>),
   personal: tabIcon(<><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>),
@@ -64,8 +66,82 @@ const TAB_ICONS: Record<Tab, ReactNode> = {
 /** Icono de la fila de un módulo. */
 const rowIcon = (tid: Tab): ReactNode => TAB_ICONS[tid];
 
-export type DrawerMenuTab = { id: Tab; label: string };
+export type DrawerMenuTab =
+  | { id: Tab; label: string }
+  | { action: "nuevo-gasto"; label: string };
 export type DrawerMenuSection = { title: string; tabs: DrawerMenuTab[]; config?: boolean };
+
+/** Id del atajo que fija o quita una fila (el módulo, o la acción Nuevo gasto). */
+const rowShortcutId = (t: DrawerMenuTab): QuickShortcutId => ("action" in t ? t.action : t.id);
+
+// Estrella chica para fijar o quitar un atajo (16 px, como en la vista
+// previa aprobada 2026-11-24): dorada rellena si está fijado, contorno
+// apagado si no. Es el mismo trazo de estrella que la de Mike.
+function PinStar(p: { pinned: boolean; current: boolean }) {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4 pointer-events-none" viewBox="0 0 24 24" fill={p.pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+    </svg>
+  );
+}
+
+// Una fila del cajón con su estrellita: la estrella NO se muestra
+// siempre; solo sale cuando el botón se mantiene presionado (el padre
+// pasa revealed=true tras ~500 ms). Al tocarla se fija o se quita el
+// atajo en el acto, sin pop-up ni aviso. Un toque corto navega como
+// siempre; el clic que cierra una pulsación larga se ignora (el padre lo
+// marca con guardLongPressClick).
+function NavRow(p: {
+  id: QuickShortcutId;
+  label: string;
+  ariaLabel: string;
+  icon: ReactNode;
+  current: boolean;
+  pinned: boolean;
+  revealed: boolean;
+  onNavigate: () => void;
+  onTogglePin: (id: QuickShortcutId) => void;
+  onPressStart: (id: QuickShortcutId) => (e: ReactPointerEvent) => void;
+  onPressMove: (e: ReactPointerEvent) => void;
+  onPressEnd: () => void;
+  onPressCancel: () => void;
+  guardLongPressClick: () => boolean;
+}) {
+  const starLabel = p.pinned ? `Quitar ${p.label} de la barra rápida` : `Poner ${p.label} en la barra rápida`;
+  return (
+    <li className="flex items-center gap-1">
+      <button
+        type="button"
+        aria-label={p.ariaLabel}
+        aria-current={p.current ? "page" : undefined}
+        onPointerDown={p.onPressStart(p.id)}
+        onPointerMove={p.onPressMove}
+        onPointerUp={p.onPressEnd}
+        onPointerCancel={p.onPressCancel}
+        onPointerLeave={p.onPressCancel}
+        onContextMenu={(e) => e.preventDefault()}
+        onClick={() => { if (p.guardLongPressClick()) return; p.onNavigate(); }}
+        style={{ WebkitTouchCallout: "none" }}
+        className={`min-w-0 flex-1 flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold select-none ${p.current ? "bg-[var(--accent)] text-[var(--accent-text)]" : "text-[var(--text)]"}`}
+      >
+        {p.icon}
+        <span className="flex-1 truncate">{p.label}</span>
+        {p.current && <span className="text-[11px] font-semibold opacity-80 shrink-0">Actual</span>}
+      </button>
+      {p.revealed && (
+        <button
+          type="button"
+          aria-label={starLabel}
+          aria-pressed={p.pinned}
+          onClick={(e) => { e.stopPropagation(); p.onTogglePin(p.id); }}
+          className={`shrink-0 flex h-8 w-8 items-center justify-center rounded-full ${p.pinned ? "text-amber-400" : p.current ? "text-[var(--accent-text)]" : "text-[var(--dim)]"}`}
+        >
+          <PinStar pinned={p.pinned} current={p.current} />
+        </button>
+      )}
+    </li>
+  );
+}
 
 export function DrawerMenu(p: {
   sections: DrawerMenuSection[];
@@ -85,6 +161,12 @@ export function DrawerMenu(p: {
   textoGrande?: boolean;
   onSetTextoGrande?: (on: boolean) => void;
   onFeedback?: () => void;
+  // Atajos del menú rápido (estrellas, 2026-11-24): los atajos fijados y
+  // el cambio al tocar una estrella; la fila «Nuevo gasto» abre el
+  // formulario de gasto desde el cajón.
+  pinned: QuickShortcutId[];
+  onTogglePin: (id: QuickShortcutId) => void;
+  onNewExpense: () => void;
 }) {
   const [textoGrandeLocal, setTextoGrandeLocal] = useState<boolean>(() => readTextoGrande());
   const textoGrandeActivo = p.textoGrande ?? textoGrandeLocal;
@@ -94,25 +176,60 @@ export function DrawerMenu(p: {
     if (p.onSetTextoGrande) p.onSetTextoGrande(next);
     else { setTextoGrandeLocal(next); writeTextoGrande(next); }
   };
+  // Pulsación larga (2026-11-24, decisión de Heriberto): mantener
+  // presionado el botón del menú ~500 ms muestra su estrellita chica;
+  // un toque corto navega como siempre y un desliz (scroll) la cancela.
+  // La estrella queda visible hasta cerrar el cajón o presionar otra
+  // fila. El clic que sigue a una pulsación larga se ignora, para no
+  // navegar al soltar el dedo.
+  const LONG_PRESS_MS = 500;
+  const LONG_PRESS_MOVE_PX = 10;
+  const [revealedId, setRevealedId] = useState<QuickShortcutId | null>(null);
+  const pressTimer = useRef<number | null>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const longPressed = useRef(false);
+  const clearPressTimer = () => {
+    if (pressTimer.current !== null) { window.clearTimeout(pressTimer.current); pressTimer.current = null; }
+  };
+  const startPress = (id: QuickShortcutId) => (e: ReactPointerEvent) => {
+    longPressed.current = false;
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    clearPressTimer();
+    pressTimer.current = window.setTimeout(() => { longPressed.current = true; setRevealedId(id); }, LONG_PRESS_MS);
+  };
+  const movePress = (e: ReactPointerEvent) => {
+    const s = pressStart.current;
+    if (s && (Math.abs(e.clientX - s.x) > LONG_PRESS_MOVE_PX || Math.abs(e.clientY - s.y) > LONG_PRESS_MOVE_PX)) {
+      clearPressTimer(); pressStart.current = null;
+    }
+  };
+  const endPress = () => { clearPressTimer(); pressStart.current = null; };
+  const cancelPress = () => { clearPressTimer(); pressStart.current = null; longPressed.current = false; };
+  const guardLongPressClick = (): boolean => {
+    if (longPressed.current) { longPressed.current = false; return true; }
+    return false;
+  };
+  const navRowProps = (id: QuickShortcutId, label: string, ariaLabel: string, icon: ReactNode, current: boolean, onNavigate: () => void) => ({
+    id, label, ariaLabel, icon, current,
+    pinned: p.pinned.includes(id),
+    revealed: revealedId === id,
+    onNavigate, onTogglePin: p.onTogglePin,
+    onPressStart: startPress, onPressMove: movePress, onPressEnd: endPress,
+    onPressCancel: cancelPress, guardLongPressClick,
+  });
   return (
     <nav id="menu-modulos" aria-label="Módulos" className="flex-1 overflow-y-auto px-3 py-3">
       {p.sections.map(sec=>{ if(sec.config){ return (
         <div key="Configuración" className="mt-2 first:mt-0">
-          <button type="button" aria-expanded={p.configOpen} onClick={()=>p.onToggleConfig()} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
+          <button type="button" aria-label={p.configOpen ? "Cerrar Configuración" : "Abrir Configuración"} aria-expanded={p.configOpen} onClick={()=>p.onToggleConfig()} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
             <span className="flex-1 text-[11px] font-bold tracking-widest text-[var(--dim)]">CONFIGURACIÓN</span>
             <svg aria-hidden="true" className={`w-4 h-4 shrink-0 text-[var(--dim)] transition-transform ${p.configOpen?"rotate-180":""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           {p.configOpen && (
             <ul className="mt-1 space-y-0.5">
-              <li>
-                <button type="button" aria-label="Ir a Guía de uso" aria-current={p.currentTab==="guia"?"page":undefined} onClick={()=>{p.onNavigate("guia");}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${p.currentTab==="guia"?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{TAB_ICONS.guia}<span className="flex-1">Guía de uso</span>{p.currentTab==="guia" && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
-              </li>
-              <li>
-                <button type="button" aria-label="Ir a Seguridad" aria-current={p.currentTab==="seguridad"?"page":undefined} onClick={()=>{p.onNavigate("seguridad");}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${p.currentTab==="seguridad"?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{TAB_ICONS.seguridad}<span className="flex-1">Seguridad</span>{p.currentTab==="seguridad" && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
-              </li>
-              <li>
-                <button type="button" aria-label="Ir a Documentos legales" aria-current={p.currentTab==="legales"?"page":undefined} onClick={()=>{p.onNavigate("legales");}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${p.currentTab==="legales"?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{TAB_ICONS.legales}<span className="flex-1">Documentos legales</span>{p.currentTab==="legales" && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
-              </li>
+              <NavRow {...navRowProps("guia", "Guía de uso", "Ir a Guía de uso", TAB_ICONS.guia, p.currentTab === "guia", () => { p.onNavigate("guia"); })} />
+              <NavRow {...navRowProps("seguridad", "Seguridad", "Ir a Seguridad", TAB_ICONS.seguridad, p.currentTab === "seguridad", () => { p.onNavigate("seguridad"); })} />
+              <NavRow {...navRowProps("legales", "Documentos legales", "Ir a Documentos legales", TAB_ICONS.legales, p.currentTab === "legales", () => { p.onNavigate("legales"); })} />
               <li>
                 {/* Enviar comentarios: abre el formulario de dudas y mejoras
                     dentro de la app (sin salir al enlace público). */}
@@ -147,19 +264,25 @@ export function DrawerMenu(p: {
           )}
         </div>
       ); }
-      const g=sec; const open = p.openGroups[g.title] ?? g.tabs.some(t=>t.id===p.currentTab); return (
+      const g=sec; const open = p.openGroups[g.title] ?? g.tabs.some(t=>"id" in t && t.id===p.currentTab); return (
         <div key={g.title} className="mt-2 first:mt-0">
-          <button type="button" aria-expanded={open} onClick={()=>p.onToggleGroup(g.title, !open)} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
+          <button type="button" aria-label={open ? `Cerrar grupo ${g.title}` : `Abrir grupo ${g.title}`} aria-expanded={open} onClick={()=>p.onToggleGroup(g.title, !open)} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
             <span className="flex-1 text-[11px] font-bold tracking-widest text-[var(--dim)]">{g.title.toUpperCase()}</span>
             <svg aria-hidden="true" className={`w-4 h-4 shrink-0 text-[var(--dim)] transition-transform ${open?"rotate-180":""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           {open && (
           <ul className="mt-1 space-y-0.5">
-            {g.tabs.map(t=>{ const current=p.currentTab===t.id; return (
-              <li key={t.id}>
-                <button type="button" aria-label={`Ir a ${t.label}`} aria-current={current?"page":undefined} onClick={()=>{p.onNavigate(t.id);}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${current?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{rowIcon(t.id)}<span className="flex-1">{t.label}</span>{current && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
-              </li>
-            ); })}
+            {g.tabs.map(t => {
+              const id = rowShortcutId(t);
+              const icon = "action" in t
+                ? tabIcon(<><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></>)
+                : rowIcon(t.id);
+              const current = "action" in t ? false : p.currentTab === t.id;
+              const navigate = "action" in t ? () => { p.onNewExpense(); } : () => { p.onNavigate(t.id); };
+              return (
+                <NavRow key={id} {...navRowProps(id, t.label, "action" in t ? t.label : `Ir a ${t.label}`, icon, current, navigate)} />
+              );
+            })}
           </ul>
           )}
         </div>

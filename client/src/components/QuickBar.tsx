@@ -1,13 +1,17 @@
 // Menú rápido (aprobado por Heriberto 2026-11-24, «Si adelante»):
-// barra fija abajo, una sola fila, 4 botones — hamburguesa (abre el mismo
-// cajón que el botón del encabezado), Nuevo gasto, Metas y Presupuestos.
+// barra fija abajo, una sola fila — hamburguesa (abre el mismo cajón que
+// el botón del encabezado) + los atajos fijados con las estrellas del
+// cajón (2026-11-24: mantener presionado un botón del menú muestra su
+// estrellita; tocarla la fija o la quita, sin pop-up ni aviso). Sin nada
+// guardado, los atajos son los 3 de hoy: Nuevo gasto, Metas y
+// Presupuestos (localStorage «sf-menu-rapido», por dispositivo; ver
+// lib/quickBar). Como máximo 4 atajos; la hamburguesa siempre va primera
+// y no se quita. Cada atajo usa el mismo icono que su fila del cajón.
 // Variante B, solo intuitiva: SIN símbolo «i», SIN leyenda, SIN texto de
-// descripción. Los 3 atajos son fijos por ahora (sin personalización);
-// la personalización con la estrella viene después, fuera de este cambio.
-// La barra se oculta mientras el cajón está abierto (el cajón es z-50 y
-// el encabezado es el control para cerrarlo); el contenido de la app
-// lleva relleno inferior (main: 80 px + área segura) para que el scroll
-// no se dañe.
+// descripción. La barra se oculta mientras el cajón está abierto (el
+// cajón es z-50 y el encabezado es el control para cerrarlo); el
+// contenido de la app lleva relleno inferior (main: 80 px + área segura)
+// para que el scroll no se dañe.
 //
 // Medidas (corrección 2026-11-24, reporte de Heriberto desde su teléfono):
 // la barra mide QUICK_BAR_HEIGHT_PX de alto y flota a
@@ -17,6 +21,8 @@
 // relleno vertical. App.tsx usa estas constantes para que la estrella de
 // Mike quede siempre POR ENCIMA de la barra (ver FAB_BOTTOM_RESERVE_PX).
 import type { Tab } from "../App";
+import { TAB_ICONS } from "./DrawerMenu";
+import type { QuickShortcutId } from "../lib/quickBar";
 
 // Alto real de la barra: botón 44 px (py-1.5 + icono 20 + hueco 2 +
 // letra 10) + relleno vertical del contenedor 8 px (py-1).
@@ -30,36 +36,28 @@ function IconPlus() {
   );
 }
 
-function IconGift() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><polyline points="20 12 20 22 4 22 4 12" /><rect x="2" y="7" width="20" height="5" /><line x1="12" y1="22" x2="12" y2="7" /><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" /><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></svg>
-  );
-}
-
-function IconPie() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M21.21 15.89A10 10 0 1 1 8 2.83" /><path d="M22 12A10 10 0 0 0 12 2v10z" /></svg>
-  );
-}
-
 export function QuickBar(p: {
   currentTab: Tab;
   menuOpen: boolean;
+  shortcuts: QuickShortcutId[];
+  tabLabel: (t: Tab) => string;
   onToggleMenu: () => void;
   onNewExpense: () => void;
   onGoTab: (t: Tab) => void;
 }) {
   const tabBtn = (active: boolean) =>
-    `flex flex-col items-center justify-center gap-0.5 rounded-full py-1.5 ${
+    `min-w-0 flex flex-col items-center justify-center gap-0.5 rounded-full py-1.5 ${
       active ? "bg-[var(--surface2)] text-[var(--accent)]" : "text-[var(--text)]"
     }`;
+  // Una columna por botón: hamburguesa + un atajo fijado cada uno.
+  const cols = 1 + p.shortcuts.length;
   return (
     <nav
       aria-label="Menú rápido"
       className="fixed inset-x-3 z-40 mx-auto max-w-xl"
       style={{ bottom: `calc(${QUICK_BAR_BOTTOM_PX}px + env(safe-area-inset-bottom, 0px))` }}
     >
-      <div className="grid grid-cols-4 items-stretch gap-1 rounded-full border-2 border-[var(--accent)] bg-[var(--surface)] px-1.5 py-1 shadow-2xl">
+      <div className="grid items-stretch gap-1 rounded-full border-2 border-[var(--accent)] bg-[var(--surface)] px-1.5 py-1 shadow-2xl" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
         <button
           type="button"
           aria-label={p.menuOpen ? "Cerrar menú" : "Abrir menú"}
@@ -71,30 +69,24 @@ export function QuickBar(p: {
           <span aria-hidden="true" className={`block h-[2px] w-4 rounded bg-[var(--accent-text)] transition-opacity ${p.menuOpen ? "opacity-0" : ""}`} />
           <span aria-hidden="true" className={`block h-[2px] w-4 rounded bg-[var(--accent-text)] transition-transform ${p.menuOpen ? "-translate-y-[6px] -rotate-45" : ""}`} />
         </button>
-        <button type="button" aria-label="Nuevo gasto" onClick={p.onNewExpense} className={tabBtn(false)}>
-          <IconPlus />
-          <span className="text-[10px] font-bold leading-none">Nuevo gasto</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Ir a Metas"
-          aria-current={p.currentTab === "metas" ? "page" : undefined}
-          onClick={() => p.onGoTab("metas")}
-          className={tabBtn(p.currentTab === "metas")}
-        >
-          <IconGift />
-          <span className="text-[10px] font-bold leading-none">Metas</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Ir a Presupuestos"
-          aria-current={p.currentTab === "presupuestos" ? "page" : undefined}
-          onClick={() => p.onGoTab("presupuestos")}
-          className={tabBtn(p.currentTab === "presupuestos")}
-        >
-          <IconPie />
-          <span className="text-[10px] font-bold leading-none">Presupuestos</span>
-        </button>
+        {p.shortcuts.map((id) => id === "nuevo-gasto" ? (
+          <button key={id} type="button" aria-label="Nuevo gasto" onClick={p.onNewExpense} className={tabBtn(false)}>
+            <IconPlus />
+            <span className="text-[10px] font-bold leading-none truncate max-w-full">Nuevo gasto</span>
+          </button>
+        ) : (
+          <button
+            key={id}
+            type="button"
+            aria-label={`Ir a ${p.tabLabel(id)}`}
+            aria-current={p.currentTab === id ? "page" : undefined}
+            onClick={() => p.onGoTab(id)}
+            className={tabBtn(p.currentTab === id)}
+          >
+            {TAB_ICONS[id]}
+            <span className="text-[10px] font-bold leading-none truncate max-w-full">{p.tabLabel(id)}</span>
+          </button>
+        ))}
       </div>
     </nav>
   );
