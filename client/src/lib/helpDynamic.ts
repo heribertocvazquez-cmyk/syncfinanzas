@@ -19,6 +19,7 @@
 // Nada de esto sale del dispositivo ni se guarda en la base de datos.
 import type { Tab } from "../App";
 import type { api } from "../api";
+import { todayISO } from "./format";
 
 export type HelpOption = { label: string; send: string };
 export type HelpMsg = { from: "user" | "bot"; text: string; go?: Tab; goLabel?: string; options?: HelpOption[] };
@@ -330,12 +331,42 @@ export function pickOpeningMessage(ov: OverviewData): string | null {
 
 // ---- Revisión en vivo al capturar un movimiento ----
 // Avisos que no bloquean: el usuario siempre puede guardar. Se revisa el
-// importe contra el presupuesto restante de la categoría en el mes de la
-// fecha del movimiento, un posible duplicado (mismo concepto, mismo importe
-// y mismo día) y un monto muy por arriba del promedio usual de la categoría
-// (más de 1.5 veces el promedio de los últimos 3 meses y al menos $100 más).
-// Para ingresos no aplica el presupuesto ni el promedio; el duplicado sí.
-export type MovementDraft = { type: "income" | "expense" | "transfer" | "debt_payment"; amount: number; categoryId: number | null; concept: string; date: string; excludeId?: number | null };
+// importe contra el presupuesto restante AL QUE APLICA el gasto en el mes
+// de la fecha del movimiento — el mismo conteo nuevo de las tarjetas (un
+// gasto cuenta como máximo en un presupuesto: la elección explícita manda,
+// si no el de subcategoría reclama por ventana y el general cuenta lo no
+// reclamado; el gastado ya viene calculado por el servidor) —, un posible
+// duplicado (mismo concepto, mismo importe y mismo día) y un monto muy por
+// arriba del promedio de la categoría (más de 1.5 veces el promedio de los
+// últimos 3 meses y al menos $100 más). Si el gasto no aplica a ningún
+// presupuesto, no hay línea de presupuesto. Para ingresos no aplica el
+// presupuesto ni el promedio; el duplicado sí.
+export type MovementDraft = { type: "income" | "expense" | "transfer" | "debt_payment"; amount: number; categoryId: number | null; concept: string; date: string; excludeId?: number | null; subcategory?: string | null; budgetId?: number | null };
+
+// Presupuesto al que aplica el borrador, con la regla de no duplicar: la
+// elección explícita manda; si no, el presupuesto de subcategoría reclama
+// por ventana y, si no, el general cuenta lo no reclamado. Un gasto nuevo
+// se captura ahora: solo una fecha de inicio futura lo deja fuera de la
+// ventana de un presupuesto «como nuevo» (sin fecha elegida, el corte es
+// la creación, siempre pasada). Si no aplica a ninguno, devuelve null.
+type DraftBudget = OverviewData["budgets"][number];
+function applicableBudget(ov: OverviewData, d: MovementDraft): DraftBudget | null {
+  const month = d.date.slice(0, 7);
+  if (d.categoryId == null) return null;
+  if (d.budgetId != null) {
+    const chosen = ov.budgets.find((b) => b.id === d.budgetId);
+    if (chosen && chosen.month === month && chosen.categoryId === d.categoryId) return chosen;
+  }
+  const today = todayISO();
+  const inWindow = (b: DraftBudget) => !(b.startDate && b.startDate > today);
+  if (d.subcategory) {
+    const sub = ov.budgets.find((b) => b.month === month && b.categoryId === d.categoryId && b.subcategory === d.subcategory);
+    if (sub && inWindow(sub)) return sub;
+  }
+  const general = ov.budgets.find((b) => b.month === month && b.categoryId === d.categoryId && b.subcategory == null);
+  if (general && inWindow(general)) return general;
+  return null;
+}
 export function reviewMovement(ov: OverviewData, d: MovementDraft): string[] {
   const out: string[] = [];
   if (!ov.household || d.type === "transfer" || !(d.amount > 0)) return out;
@@ -343,12 +374,25 @@ export function reviewMovement(ov: OverviewData, d: MovementDraft): string[] {
   const cat = d.categoryId != null ? ov.categories.find(c => c.id === d.categoryId) : undefined;
   const isExpense = d.type === "expense" || d.type === "debt_payment";
   if (isExpense && cat) {
-    const b = ov.budgets.find(x => x.month === month && x.categoryId === cat.id);
+    const b = applicableBudget(ov, d);
     if (b && b.amount > 0) {
-      const spent = spentByCategory(ov, month).get(cat.id) ?? 0;
-      const remaining = Math.round((b.amount - spent) * 100) / 100;
-      if (d.amount > remaining) out.push(`Este gasto supera el presupuesto restante de ${cat.name} por ${money(d.amount - remaining)}.`);
-      else out.push(`De ${cat.name} le quedan ${money(remaining)} de presupuesto; con este gasto quedarían ${money(remaining - d.amount)}.`);
+      // El gastado del presupuesto ya es el conteo nuevo (sin duplicar),
+      // calculado por el servidor: lo que queda es lo que dice la tarjeta.
+      let remaining = Math.round(b.remaining * 100) / 100;
+      // Al editar, el gastado incluye el importe viejo del movimiento: se
+      // devuelve para no contarlo dos veces en la revisión. Solo si el
+      // movimiento viejo contaba en este mismo presupuesto (por su
+      // asignación guardada o por las reglas de reclamo).
+      if (d.excludeId != null) {
+        const old = ov.movements.find((m) => m.id === d.excludeId);
+        if (old && (old.type === "expense" || old.type === "debt_payment") && !old.isReversed && old.reversalOfId == null) {
+          const oldBudget = applicableBudget(ov, { type: old.type as "expense" | "debt_payment", amount: old.amount, categoryId: old.categoryId, subcategory: old.subcategory, budgetId: old.budgetId, concept: old.concept, date: old.date });
+          if (oldBudget?.id === b.id) remaining = Math.round((remaining + old.amount) * 100) / 100;
+        }
+      }
+      const label = b.subcategory ? `${cat.name} · ${b.subcategory}` : cat.name;
+      if (d.amount > remaining) out.push(`Este gasto supera el presupuesto restante de ${label} por ${money(d.amount - remaining)}.`);
+      else out.push(`De ${label} le quedan ${money(remaining)} de presupuesto; con este gasto quedarían ${money(remaining - d.amount)}.`);
     }
   }
   const nc = normHelp(d.concept);
