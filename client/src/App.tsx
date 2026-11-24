@@ -405,7 +405,7 @@ export function App(){
   const [tab,setTab]=useState<Tab>("inicio"); const [menuOpen,setMenuOpen]=useState(false); const [guidePdf,setGuidePdf]=useState<{title:string;src:string}|null>(null);
   // Atajos del menú rápido (estrellas del cajón, 2026-11-24): la lista
   // vive en el dispositivo (localStorage «sf-menu-rapido»); sin nada
-  // guardado trae Nuevo gasto, Metas y Presupuestos.
+  // guardado trae Nuevo, Metas y Presupuestos.
   const [quickShortcuts,setQuickShortcuts]=useState<QuickShortcutId[]>(()=>readQuickShortcuts());
   // Menú abierto: se bloquea el desplazamiento de la app de atrás; solo el menú se desplaza.
   useEffect(()=>{
@@ -1788,11 +1788,11 @@ export function App(){
   const drawerSections: DrawerMenuSection[] = [
     ...drawerGroups.map((g) => {
       const tabs = orderDrawerTabs(g.title, g.tabs, tabLabel).map((tid) => ({ id: tid, label: tabLabel(tid) }));
-      // «Nuevo gasto» abre el formulario desde el cajón y lleva su propia
+      // «Nuevo» abre el formulario desde el cajón y lleva su propia
       // estrella, para fijarlo o quitarlo como los demás atajos. Va AL
       // FINAL de Mi dinero (corrección de Heriberto 2026-11-24 ~12:06),
       // después de Movimientos.
-      const rows = g.title === "Mi dinero" ? [...tabs, { action: "nuevo-gasto" as const, label: "Nuevo gasto" }] : tabs;
+      const rows = g.title === "Mi dinero" ? [...tabs, { action: "nuevo-gasto" as const, label: "Nuevo" }] : tabs;
       return { title: g.title, tabs: rows };
     }),
     { title: "Configuración", tabs: [], config: true },

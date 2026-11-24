@@ -3,7 +3,7 @@
 // el botón del encabezado) + los atajos fijados con las estrellas del
 // cajón (2026-11-24: mantener presionado un botón del menú muestra su
 // estrellita; tocarla la fija o la quita, sin pop-up ni aviso). Sin nada
-// guardado, los atajos son los 3 de hoy: Nuevo gasto, Metas y
+// guardado, los atajos son los 3 de hoy: Nuevo, Metas y
 // Presupuestos (localStorage «sf-menu-rapido», por dispositivo; ver
 // lib/quickBar). Como máximo 4 atajos; la hamburguesa siempre va primera
 // y no se quita. Cada atajo usa el mismo icono que su fila del cajón.
@@ -73,9 +73,9 @@ export function QuickBar(p: {
           <span aria-hidden="true" className={`block h-[2px] w-4 rounded bg-[var(--accent-text)] transition-transform ${p.menuOpen ? "-translate-y-[6px] -rotate-45" : ""}`} />
         </button>
         {shortcuts.map((id) => id === "nuevo-gasto" ? (
-          <button key={id} type="button" aria-label="Nuevo gasto" onClick={p.onNewExpense} className={tabBtn(false)}>
+          <button key={id} type="button" aria-label="Nuevo" onClick={p.onNewExpense} className={tabBtn(false)}>
             <IconPlus />
-            <span className="text-[10px] font-bold leading-none truncate max-w-full">Nuevo gasto</span>
+            <span className="text-[10px] font-bold leading-none truncate max-w-full">Nuevo</span>
           </button>
         ) : (
           <button

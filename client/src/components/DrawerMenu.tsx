@@ -162,7 +162,7 @@ export function DrawerMenu(p: {
   onSetTextoGrande?: (on: boolean) => void;
   onFeedback?: () => void;
   // Atajos del menú rápido (estrellas, 2026-11-24): los atajos fijados y
-  // el cambio al tocar una estrella; la fila «Nuevo gasto» abre el
+  // el cambio al tocar una estrella; la fila «Nuevo» abre el
   // formulario de gasto desde el cajón. La estrella de una fila fijada
   // se muestra siempre (dorada), para que se vea cuáles están en el
   // acceso rápido; la de una fila no fijada sale solo al mantenerla

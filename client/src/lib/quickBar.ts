@@ -7,7 +7,7 @@
 //
 // La elección vive en el dispositivo (localStorage «sf-menu-rapido»),
 // como «Texto grande»: cada teléfono tiene su propia barra. Sin nada
-// guardado, la barra trae los 3 atajos de hoy: Nuevo gasto, Metas y
+// guardado, la barra trae los 3 atajos de hoy: Nuevo, Metas y
 // Presupuestos. La barra admite como máximo MAX_QUICK_SHORTCUTS atajos
 // (la hamburguesa siempre va primera y no se quita); si está llena,
 // tocar otra estrella no hace nada, sin aviso.
