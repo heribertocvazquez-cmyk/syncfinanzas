@@ -1993,7 +1993,14 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db; if (args.role === "admin" && ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede asignar el rol de administrador.");
-      if (args.id) { await requireRowHousehold(db, schema.profiles, args.id, args.householdId, "El perfil indicado"); await db.update(schema.profiles).set({ name: args.name, lastName: args.lastName||null, ...(args.role?{role:args.role}:{}) , email: args.email||null, kind: args.kind, dependentType: args.dependentType||null, monthlyIncome: args.monthlyIncome, fixedCommitments: args.fixedCommitments }).where(eq(schema.profiles.id, args.id)); ctx.invalidateQueries(); return { ok: true, id: args.id }; }
+      if (args.id) { await requireRowHousehold(db, schema.profiles, args.id, args.householdId, "El perfil indicado");
+        // Solo el admin puede CAMBIAR el rol de un perfil: la comprobación
+        // de arriba solo bloquea asignar «admin». Si el rol enviado es
+        // distinto al rol actual de la fila y quien llama no es admin, se
+        // rechaza (un miembro no puede degradar al admin). Si el rol no
+        // cambia, un miembro sigue editando su propio perfil.
+        if (args.role) { const cur = await db.select({ role: schema.profiles.role }).from(schema.profiles).where(eq(schema.profiles.id, args.id)).limit(1); if (cur[0] && cur[0].role !== args.role && ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede cambiar el rol de un perfil."); }
+        await db.update(schema.profiles).set({ name: args.name, lastName: args.lastName||null, ...(args.role?{role:args.role}:{}) , email: args.email||null, kind: args.kind, dependentType: args.dependentType||null, monthlyIncome: args.monthlyIncome, fixedCommitments: args.fixedCommitments }).where(eq(schema.profiles.id, args.id)); ctx.invalidateQueries(); return { ok: true, id: args.id }; }
       const [r] = await db.insert(schema.profiles).values({ householdId: args.householdId, name: args.name, lastName: args.lastName||null, role: args.role||"member", email: args.email||null, kind: args.kind, dependentType: args.dependentType||null, monthlyIncome: args.monthlyIncome, fixedCommitments: args.fixedCommitments }).returning({ id: schema.profiles.id });
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
     },
