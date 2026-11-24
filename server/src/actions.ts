@@ -29,6 +29,16 @@ async function rateLimit(key: string, max: number, windowMs: number) {
 async function logActivity(ctx: Ctx, householdId: number, action: string, detail: string) {
   try { const db = ctx.db; await db.insert(schema.activityLog).values({ householdId, action, detail: detail.slice(0, 300) }); } catch { /* sin registro antes que sin operación */ }
 }
+// H-01 (hardening idea #22): al actualizar por id, la fila debe existir y
+// pertenecer al hogar de quien llama. El despachador solo valida ser miembro
+// del hogar que el cliente afirma; sin esta comprobación, un usuario de otro
+// hogar podía sobrescribir cuentas, metas, presupuestos, patrimonio,
+// categorías y perfiles ajenos (incluido degradar al admin con saveProfile).
+// Mismo patrón que saveMovement/saveFund.
+async function requireRowHousehold(db: Ctx["db"], table: any, id: number, householdId: number, label: string): Promise<void> {
+  const rows = await db.select({ householdId: table.householdId }).from(table).where(eq(table.id, id)).limit(1);
+  if (!rows[0] || rows[0].householdId !== householdId) throw new Error(`${label} no pertenece a este hogar.`);
+}
 
 // ---- Avisos dentro de la app (campanita + insignia del icono) ----
 // Un aviso por integrante del hogar (user_id destinatario). Nunca bloquea
@@ -1983,7 +1993,7 @@ export const Actions = {
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db; if (args.role === "admin" && ctx.userRole !== "admin") throw new Error("Solo el administrador del hogar puede asignar el rol de administrador.");
-      if (args.id) { await db.update(schema.profiles).set({ name: args.name, lastName: args.lastName||null, ...(args.role?{role:args.role}:{}) , email: args.email||null, kind: args.kind, dependentType: args.dependentType||null, monthlyIncome: args.monthlyIncome, fixedCommitments: args.fixedCommitments }).where(eq(schema.profiles.id, args.id)); ctx.invalidateQueries(); return { ok: true, id: args.id }; }
+      if (args.id) { await requireRowHousehold(db, schema.profiles, args.id, args.householdId, "El perfil indicado"); await db.update(schema.profiles).set({ name: args.name, lastName: args.lastName||null, ...(args.role?{role:args.role}:{}) , email: args.email||null, kind: args.kind, dependentType: args.dependentType||null, monthlyIncome: args.monthlyIncome, fixedCommitments: args.fixedCommitments }).where(eq(schema.profiles.id, args.id)); ctx.invalidateQueries(); return { ok: true, id: args.id }; }
       const [r] = await db.insert(schema.profiles).values({ householdId: args.householdId, name: args.name, lastName: args.lastName||null, role: args.role||"member", email: args.email||null, kind: args.kind, dependentType: args.dependentType||null, monthlyIncome: args.monthlyIncome, fixedCommitments: args.fixedCommitments }).returning({ id: schema.profiles.id });
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
     },
@@ -1994,7 +2004,7 @@ export const Actions = {
     description: "Creates or updates an account.",
     request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1), type: z.enum(["bank","cash","credit","investment","loan"]), visibility: vis, initialBalance: z.number(), ownerProfileId: z.number().nullable().optional() }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; if(args.id){ await db.update(schema.accounts).set({name:args.name,type:args.type,visibility:args.visibility,initialBalance:args.initialBalance,ownerProfileId:args.ownerProfileId??null}).where(eq(schema.accounts.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.accounts).values({householdId:args.householdId,name:args.name,type:args.type,visibility:args.visibility,initialBalance:args.initialBalance,ownerProfileId:args.ownerProfileId??null}).returning({id:schema.accounts.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; if(args.id){ await requireRowHousehold(db, schema.accounts, args.id, args.householdId, "La cuenta indicada"); await db.update(schema.accounts).set({name:args.name,type:args.type,visibility:args.visibility,initialBalance:args.initialBalance,ownerProfileId:args.ownerProfileId??null}).where(eq(schema.accounts.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.accounts).values({householdId:args.householdId,name:args.name,type:args.type,visibility:args.visibility,initialBalance:args.initialBalance,ownerProfileId:args.ownerProfileId??null}).returning({id:schema.accounts.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
   deleteAccount: defineAction({ description: "Deletes an account.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.accounts).where(eq(schema.accounts.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
@@ -2002,7 +2012,7 @@ export const Actions = {
     description: "Creates or updates a category with subcategories. Creating a category whose name already exists in the household (same kind, ignoring case and extra spaces) reuses it and returns its id instead of duplicating it.",
     request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1).max(40), kind: z.enum(["income","expense"]), subcategories: z.array(z.string()).default([]), isActive: z.number().default(1) }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const subs=JSON.stringify(args.subcategories); const name=args.name.trim().replace(/\s+/g," "); if(!name) throw new Error("Escriba el nombre de la categoría."); if(args.id){ await db.update(schema.categories).set({name,kind:args.kind,subcategories:subs,isActive:args.isActive}).where(eq(schema.categories.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const existing=await db.select().from(schema.categories).where(and(eq(schema.categories.householdId,args.householdId),eq(schema.categories.kind,args.kind))); const dup=existing.find(c=>c.name.trim().replace(/\s+/g," ").toLowerCase()===name.toLowerCase()); if(dup){ ctx.invalidateQueries(); return {ok:true,id:dup.id}; } const [r]=await db.insert(schema.categories).values({householdId:args.householdId,name,kind:args.kind,subcategories:subs,isSystem:0,isActive:1}).returning({id:schema.categories.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const subs=JSON.stringify(args.subcategories); const name=args.name.trim().replace(/\s+/g," "); if(!name) throw new Error("Escriba el nombre de la categoría."); if(args.id){ await requireRowHousehold(db, schema.categories, args.id, args.householdId, "La categoría indicada"); await db.update(schema.categories).set({name,kind:args.kind,subcategories:subs,isActive:args.isActive}).where(eq(schema.categories.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const existing=await db.select().from(schema.categories).where(and(eq(schema.categories.householdId,args.householdId),eq(schema.categories.kind,args.kind))); const dup=existing.find(c=>c.name.trim().replace(/\s+/g," ").toLowerCase()===name.toLowerCase()); if(dup){ ctx.invalidateQueries(); return {ok:true,id:dup.id}; } const [r]=await db.insert(schema.categories).values({householdId:args.householdId,name,kind:args.kind,subcategories:subs,isSystem:0,isActive:1}).returning({id:schema.categories.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
 
   addSubcategory: defineAction({
@@ -2133,7 +2143,7 @@ export const Actions = {
     description: "Creates or updates a monthly budget.",
     request: z.object({ id: z.number().optional(), householdId: z.number(), categoryId: z.number(), month: z.string().regex(/^\d{4}-\d{2}$/), amount: z.number().min(0), visibility: vis }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; if(args.id){ await db.update(schema.budgets).set({categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,args.id)); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true,id:args.id}; } // Un solo presupuesto por categoría y mes: si ya existe, se actualiza
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; if(args.id){ await requireRowHousehold(db, schema.budgets, args.id, args.householdId, "El presupuesto indicado"); await db.update(schema.budgets).set({categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,args.id)); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true,id:args.id}; } // Un solo presupuesto por categoría y mes: si ya existe, se actualiza
     // su monto en lugar de crear una segunda tarjeta con el mismo gasto.
     const existing = await db.select().from(schema.budgets).where(and(eq(schema.budgets.householdId,args.householdId),eq(schema.budgets.categoryId,args.categoryId),eq(schema.budgets.month,args.month))).limit(1); if(existing[0]){ await db.update(schema.budgets).set({amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,existing[0].id)); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true,id:existing[0].id}; } const [r]=await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).returning({id:schema.budgets.id}); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
@@ -2261,7 +2271,7 @@ export const Actions = {
     description: "Creates or updates a savings goal.",
     request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1), targetAmount: z.number().positive(), savedAmount: z.number().min(0).default(0), targetDate: z.string().optional(), visibility: vis, importance: z.number().int().min(1).max(5).optional() }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const vals={householdId:args.householdId,name:args.name,targetAmount:args.targetAmount,savedAmount:args.savedAmount,targetDate:args.targetDate||null,visibility:args.visibility}; const storeImportance = async (goalId:number)=>{ if(args.importance==null) return; try{ await db.execute(sql`UPDATE goals SET importance = ${args.importance} WHERE id = ${goalId}`); }catch{ /* columna aún no creada */ } }; if(args.id){ await db.update(schema.goals).set(vals).where(eq(schema.goals.id,args.id)); await storeImportance(args.id); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.goals).values(vals).returning({id:schema.goals.id}); if(r?.id) await storeImportance(r.id); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const vals={householdId:args.householdId,name:args.name,targetAmount:args.targetAmount,savedAmount:args.savedAmount,targetDate:args.targetDate||null,visibility:args.visibility}; const storeImportance = async (goalId:number)=>{ if(args.importance==null) return; try{ await db.execute(sql`UPDATE goals SET importance = ${args.importance} WHERE id = ${goalId}`); }catch{ /* columna aún no creada */ } }; if(args.id){ await requireRowHousehold(db, schema.goals, args.id, args.householdId, "La meta indicada"); await db.update(schema.goals).set(vals).where(eq(schema.goals.id,args.id)); await storeImportance(args.id); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.goals).values(vals).returning({id:schema.goals.id}); if(r?.id) await storeImportance(r.id); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
   // Importancia 1–5 de una meta (G): la escritura es tolerante si la
   // columna aún no existe (el SQL está pendiente de correr): devuelve
@@ -2758,7 +2768,7 @@ export const Actions = {
     description: "Creates or updates a patrimony item (asset or liability). Totals are computed, never typed.",
     request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1), kind: z.enum(["asset","liability"]), category: z.string().default(""), value: z.number().min(0), owner: z.string().optional() }),
     response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const vals={householdId:args.householdId,name:args.name,kind:args.kind,category:args.category,value:args.value,owner:args.owner||null}; if(args.id){ await db.update(schema.patrimonyItems).set(vals).where(eq(schema.patrimonyItems.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.patrimonyItems).values(vals).returning({id:schema.patrimonyItems.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const vals={householdId:args.householdId,name:args.name,kind:args.kind,category:args.category,value:args.value,owner:args.owner||null}; if(args.id){ await requireRowHousehold(db, schema.patrimonyItems, args.id, args.householdId, "El elemento de patrimonio indicado"); await db.update(schema.patrimonyItems).set(vals).where(eq(schema.patrimonyItems.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.patrimonyItems).values(vals).returning({id:schema.patrimonyItems.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
   }),
   deletePatrimony: defineAction({ description: "Deletes a patrimony item.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.patrimonyItems).where(eq(schema.patrimonyItems.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
