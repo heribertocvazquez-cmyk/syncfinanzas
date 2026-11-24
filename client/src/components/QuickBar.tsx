@@ -6,7 +6,8 @@
 // la personalización con la estrella viene después, fuera de este cambio.
 // La barra se oculta mientras el cajón está abierto (el cajón es z-50 y
 // el encabezado es el control para cerrarlo); el contenido de la app
-// lleva relleno inferior (main pb-20) para que el scroll no se dañe.
+// lleva relleno inferior (main: 80 px + área segura) para que el scroll
+// no se dañe.
 //
 // Medidas (corrección 2026-11-24, reporte de Heriberto desde su teléfono):
 // la barra mide QUICK_BAR_HEIGHT_PX de alto y flota a

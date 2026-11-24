@@ -2340,7 +2340,11 @@ export function App(){
         )}
       </header>
 
-      <main className="max-w-5xl mx-auto px-3 pb-20 pt-4">
+      {/* Relleno inferior: 80 px base (barra 52 + margen 12 + 16 de aire)
+          MÁS el área segura del teléfono, porque la barra también sube esa
+          distancia (bottom: 12 px + safe-area): sin sumarla, en el iPhone
+          la barra tapa los últimos ~18 px de la viñeta final. */}
+      <main className="max-w-5xl mx-auto px-3 pt-4" style={{ paddingBottom: "calc(80px + env(safe-area-inset-bottom, 0px))" }}>
         {renderTokenInviteBanner()}
         {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-4 sm:p-5 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
