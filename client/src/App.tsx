@@ -42,6 +42,7 @@ import { FeedbackReviewList } from "./components/FeedbackReview";
 import type { FeedbackState } from "./lib/feedback";
 import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview } from "./components/TandaDetail";
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
+import { QuickBar } from "./components/QuickBar";
 import { DRAWER_GROUPS, orderDrawerTabs } from "./lib/drawerOrder";
 import { HELP_FAQS, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { applyMovementChange, type MovementChange, type SavedMovement } from "./lib/optimisticOverview";
@@ -2310,7 +2311,7 @@ export function App(){
         )}
       </header>
 
-      <main className="max-w-5xl mx-auto px-3 pb-8 pt-4">
+      <main className="max-w-5xl mx-auto px-3 pb-28 pt-4">
         {renderTokenInviteBanner()}
         {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-4 sm:p-5 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
@@ -3638,6 +3639,17 @@ export function App(){
           <button type="button" className="text-xs underline mt-4" onClick={async()=>{ pinRemove(); setPinSetState(false); setPinLocked(false); await signOut(); window.location.reload(); }}>Olvidé mi PIN · Cerrar sesión y quitar el PIN</button>
           <p className="text-xs text-[var(--dim)] mt-4 text-center max-w-xs">Bloqueo local en este dispositivo: no cifra sus datos.</p>
         </div>
+      )}
+      {/* Menú rápido: fijo abajo en todas las pestañas; se oculta mientras
+          el cajón está abierto (el encabezado es el control para cerrarlo). */}
+      {!menuOpen && (
+        <QuickBar
+          currentTab={effTab}
+          menuOpen={menuOpen}
+          onToggleMenu={() => setMenuOpen((o) => !o)}
+          onNewExpense={() => openNewMovement("expense")}
+          onGoTab={(t) => { goTab(t); setMenuOpen(false); }}
+        />
       )}
     </div>
   );
