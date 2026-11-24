@@ -614,11 +614,11 @@ export function App(){
     const cat=data.categories.find((c)=>c.name.trim().toLowerCase()===name.trim().toLowerCase()) ?? null;
     if(!cat) return null;
     const month=String(n.createdAt).slice(0,7);
-    const b=data.budgets.find((x)=>x.categoryId===cat.id && x.month===month) ?? null;
+    const b=data.budgets.find((x)=>x.categoryId===cat.id && x.month===month && x.subcategory==null) ?? data.budgets.find((x)=>x.categoryId===cat.id && x.month===month) ?? null;
     return b && b.remaining<0 ? b : null;
   };
   const openBudgetForm=(categoryId:number,month:string,amount:number|null)=>{
-    setBudCat(String(categoryId)); setBudMonth(month); setBudAmount(amount!=null?String(amount):"");
+    setBudCat(String(categoryId)); setBudMonth(month); setBudAmount(amount!=null?String(amount):""); setBudSub(""); setBudIncludePrior(false); setBudPendingSql(false);
     goTab("presupuestos"); window.setTimeout(()=>focusField("bud-amount"),60);
   };
   const handleBudgetSuggestion=(n:{id:number;type:string;body:string;amount?:number|null;createdAt:string})=>{
@@ -912,7 +912,12 @@ export function App(){
 
   // budget
   const [budCat,setBudCat]=useState(""); const [budMonth,setBudMonth]=useState(monthNow()); const [budAmount,setBudAmount]=useState(""); const [budVis,setBudVis]=useState<"private"|"shared">("shared");
-  const saveBud=useMutation({mutationFn:async()=>await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis}),onSuccess:()=>{inv();setBudAmount("");}});
+  // Subcategoría (vacío = toda la categoría) y gastos ya capturados:
+  // por defecto NO se incluyen (el presupuesto nace como nuevo, como
+  // pidió Heriberto). El servidor dice si quedaron guardados
+  // (saved:false cuando falta correr su SQL).
+  const [budSub,setBudSub]=useState(""); const [budIncludePrior,setBudIncludePrior]=useState(false); const [budPendingSql,setBudPendingSql]=useState(false);
+  const saveBud=useMutation({mutationFn:async()=>await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis,subcategory:budSub||undefined,includePriorExpenses:budIncludePrior}),onSuccess:(r)=>{inv();setBudAmount("");setBudSub("");setBudIncludePrior(false);setBudPendingSql(r?.saved===false);}});
   const delBud=useMutation({mutationFn:async(id:number)=>await api.deleteBudget({id}),onSuccess:inv});
 
   // category
@@ -2541,15 +2546,18 @@ export function App(){
 
         {effTab==="presupuestos" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();saveBud.mutate();}}>
-              <div><Label htmlFor="bud-cat">Categoría de gasto</Label><select id="bud-cat" aria-label="Categoría del presupuesto" required className={inputCls} value={budCat} onChange={e=>setBudCat(e.target.value)}><option value="">Seleccione…</option>{data.categories.filter(c=>c.kind==="expense").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();setBudPendingSql(false);saveBud.mutate();}}>
+              <div><Label htmlFor="bud-cat">Categoría de gasto</Label><select id="bud-cat" aria-label="Categoría del presupuesto" required className={inputCls} value={budCat} onChange={e=>{setBudCat(e.target.value);setBudSub("");}}><option value="">Seleccione…</option>{data.categories.filter(c=>c.kind==="expense").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+              <div><Label htmlFor="bud-sub">Subcategoría</Label><select id="bud-sub" aria-label="Subcategoría del presupuesto" className={inputCls} value={budSub} onChange={e=>setBudSub(e.target.value)} disabled={!budCat}><option value="">Toda la categoría</option>{(data.categories.find(c=>c.id===Number(budCat))?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}</select></div>
               <div><Label htmlFor="bud-month">Mes</Label><input id="bud-month" aria-label="Mes del presupuesto" type="month" required className={inputCls} value={budMonth} onChange={e=>setBudMonth(e.target.value)} /></div>
               <div><Label htmlFor="bud-amount">Presupuestado ($)</Label><input id="bud-amount" aria-label="Monto presupuestado" type="number" min="0" required className={inputCls} value={budAmount} onChange={e=>setBudAmount(e.target.value)} /></div>
               <div><Label htmlFor="bud-vis">Visibilidad</Label><select id="bud-vis" aria-label="Visibilidad del presupuesto" className={inputCls} value={budVis} onChange={e=>setBudVis(e.target.value as "private"|"shared")}><option value="shared">Compartido</option><option value="private">Privado</option></select></div>
+              <div className="md:col-span-4"><Label htmlFor="bud-prior">Gastos ya capturados este mes</Label><select id="bud-prior" aria-label="Gastos ya capturados este mes" className={inputCls} value={budIncludePrior?"yes":"no"} onChange={e=>setBudIncludePrior(e.target.value==="yes")}><option value="no">No, empezar desde cero</option><option value="yes">Sí, incluirlos en el presupuesto</option></select></div>
               <button className={btnPrimary} disabled={saveBud.isPending}>Crear presupuesto</button>
             </form>
-            <Help>Los gastos de la categoría en el mes se descuentan solos del presupuesto.</Help>
-            {(()=>{ const cur=monthNow(); const rows=data.categories.filter((c)=>c.kind==="expense").map((c)=>{ const total=monthTotalOf(c.id,cur) ?? 0; const a=avg3Of(c.id,cur); return { cat:c, total, avg:a.avg, monthsWithData:a.monthsWithData, suggested:Math.ceil(Math.max(total,a.avg)/100)*100, snoozed:snoozeMap.get(c.id) ?? null }; }).filter((r)=>r.total>=1 && !data.budgets.some((b)=>b.categoryId===r.cat.id && b.month===cur)).sort((a,b)=>b.total-a.total); if(rows.length===0) return null; return (
+            <Help>{budSub ? `Solo cuentan los gastos de ${budSub}. ` : "Cuentan los gastos de toda la categoría. "}{budIncludePrior ? "Los gastos ya capturados este mes se descuentan del presupuesto." : "Nace como nuevo: los gastos ya capturados este mes no se descuentan; solo cuentan los gastos que registre desde ahora."}</Help>
+            {budPendingSql && <p className="text-sm text-[var(--red)] mt-2">La subcategoría y la elección de gastos previos se guardarán cuando se ejecute el SQL pendiente (supabase/add-budget-subcategory.sql).</p>}
+            {(()=>{ const cur=monthNow(); const rows=data.categories.filter((c)=>c.kind==="expense").map((c)=>{ const total=monthTotalOf(c.id,cur) ?? 0; const a=avg3Of(c.id,cur); return { cat:c, total, avg:a.avg, monthsWithData:a.monthsWithData, suggested:Math.ceil(Math.max(total,a.avg)/100)*100, snoozed:snoozeMap.get(c.id) ?? null }; }).filter((r)=>r.total>=1 && !data.budgets.some((b)=>b.categoryId===r.cat.id && b.month===cur && b.subcategory==null)).sort((a,b)=>b.total-a.total); if(rows.length===0) return null; return (
             <CollapsibleCard className="mt-4 md:mt-6" defaultOpen title={<h2 className="font-display font-bold text-lg">Categorías sin presupuesto este mes</h2>} above={<p className="text-sm text-[var(--dim)] mt-1">{rows.length} {rows.length===1?"categoría":"categorías"} con gasto y sin presupuesto · desde $1</p>} toggleLabel="categorías sin presupuesto">
               {rows.map((r)=>(<div key={r.cat.id} className="py-3 border-b border-[var(--border)] last:border-0">
                 <p className="font-semibold">{r.cat.name}</p>
@@ -2567,8 +2575,8 @@ export function App(){
               </div>))}
             </CollapsibleCard>); })()}
             <div className="grid sm:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
-              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado <span className="whitespace-nowrap">{money(b.amount)}</span> · Gastado <span className="whitespace-nowrap">{money(b.spent)}</span> · {b.remaining<0?<b className="text-[var(--red)] whitespace-nowrap">Sobrepasado por {money(-b.remaining)}</b>:<b className="whitespace-nowrap">Restan {money(b.remaining)}</b>}</p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-xs mt-1 font-bold text-[var(--red)]">Presupuesto excedido · {b.pct}% usado</p>:<p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado</p>}<button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
-              {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Uno por categoría y mes." action={{label:"+ Agregar presupuesto",onClick:()=>focusField("bud-amount")}} />}
+              {data.budgets.map(b=><div key={b.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><div className="flex justify-between"><b className="font-display">{getCatName(b.categoryId)}{b.subcategory?` · ${b.subcategory}`:""}</b><span className="text-xs bg-[var(--surface2)] rounded-full px-2 py-1">{b.month} · {b.visibility==="shared"?"Compartido":"Privado"}</span></div><p className="text-sm mt-2">Presupuestado <span className="whitespace-nowrap">{money(b.amount)}</span> · Gastado <span className="whitespace-nowrap">{money(b.spent)}</span> · {b.remaining<0?<b className="text-[var(--red)] whitespace-nowrap">Sobrepasado por {money(-b.remaining)}</b>:<b className="whitespace-nowrap">Restan {money(b.remaining)}</b>}</p><div className="h-2 bg-[var(--surface2)] rounded-full mt-2 overflow-hidden"><div className={`h-full ${b.pct>=100?"bg-[var(--red)]":b.pct>=80?"bg-[var(--gold)]":"bg-[var(--green)]"}`} style={{width:`${Math.min(100,b.pct)}%`}} /></div>{b.remaining<0?<p className="text-xs mt-1 font-bold text-[var(--red)]">Presupuesto excedido · {b.pct}% usado</p>:<p className="text-xs text-[var(--dim)] mt-1">{b.pct}% usado</p>}{!b.includePriorExpenses && <p className="text-xs text-[var(--dim)] mt-1">Cuenta solo los gastos desde su creación.</p>}<button aria-label={`Eliminar presupuesto de ${getCatName(b.categoryId)}${b.subcategory?` · ${b.subcategory}`:""}`} className="text-xs underline text-[var(--red)] mt-1" onClick={()=>delBud.mutate(b.id)}>Eliminar</button></div>)}
+              {data.budgets.length===0 && <Empty title="Sin presupuestos" body="Uno por categoría o subcategoría y mes." action={{label:"+ Agregar presupuesto",onClick:()=>focusField("bud-amount")}} />}
             </div>
           </section>
         )}
