@@ -219,16 +219,100 @@ async function writeBudgetStartDate(db: Ctx["db"], budgetId: number, startDate: 
     return true;
   } catch { return false; }
 }
-// Gastado de un presupuesto: gastos (y pagos de deuda) del mes de la
-// categoría; si es de una subcategoría, solo los de esa subcategoría; si
-// nació «como nuevo», solo los capturados desde su fecha de inicio: si el
-// usuario eligió una, desde el inicio de ese día (00:00 UTC); si no, desde
-// su creación (la fecha de captura, no la fecha del gasto: un gasto fechado
-// el mismo día pero capturado antes no se cuenta).
-function budgetSpent(movs: { categoryId: number | null; subcategory: string | null; date: string; type: string; amount: number; createdAt: Date | string | number | null }[], categoryId: number, month: string, extra: BudgetExtra): number {
-  const cutoff = extra.includePrior ? null : (extra.startDate != null ? new Date(`${extra.startDate}T00:00:00Z`).getTime() : extra.createdAt);
-  const total = movs.filter((m) => m.categoryId === categoryId && m.date.startsWith(month) && (m.type === "expense" || m.type === "debt_payment") && (extra.subcategory == null || m.subcategory === extra.subcategory) && (cutoff == null || (m.createdAt != null && (m.createdAt instanceof Date ? m.createdAt.getTime() : new Date(String(m.createdAt)).getTime()) >= cutoff))).reduce((s, m) => s + m.amount, 0);
-  return Math.round(total * 100) / 100;
+// Asignación de un gasto a un presupuesto (pregunta al meter el gasto,
+// supabase/add-movement-budget-assignment.sql): columna nueva
+// movements.budget_id (INTEGER, sin clave foránea a propósito: si el
+// presupuesto se borra, la asignación queda vieja y el gasto cae en las
+// reglas de reclamo). Acceso por SQL directo (lección Drizzle): la
+// columna NO está en el esquema de Drizzle; si el SQL aún no se ha
+// corrido, la lectura devuelve un mapa vacío y la escritura false, en
+// vez de romper — mismo patrón que los extras de presupuesto.
+async function readMovementBudgetIds(db: Ctx["db"], householdId: number): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  try {
+    const res = (await db.execute(sql`SELECT id, budget_id FROM movements WHERE household_id = ${householdId}`)) as unknown as { rows?: { id: number; budget_id: number | null }[] } | { id: number; budget_id: number | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    for (const row of rows) if (row.budget_id != null) out.set(row.id, row.budget_id);
+  } catch { /* columna aún no creada: sin asignaciones */ }
+  return out;
+}
+async function readMovementBudgetId(db: Ctx["db"], movementId: number): Promise<number | null> {
+  try {
+    const res = (await db.execute(sql`SELECT budget_id FROM movements WHERE id = ${movementId} LIMIT 1`)) as unknown as { rows?: { budget_id: number | null }[] } | { budget_id: number | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    return rows[0]?.budget_id ?? null;
+  } catch { return null; }
+}
+async function writeMovementBudgetId(db: Ctx["db"], movementId: number, budgetId: number | null): Promise<boolean> {
+  try {
+    await db.execute(sql`UPDATE movements SET budget_id = ${budgetId} WHERE id = ${movementId}`);
+    return true;
+  } catch { return false; }
+}
+// Corte de un presupuesto «como nuevo»: si el usuario eligió una fecha
+// de inicio, desde el inicio de ese día (00:00 UTC); si no, desde su
+// creación (la fecha de CAPTURA, no la fecha del gasto: un gasto fechado
+// el mismo día pero capturado antes no se cuenta). Con «sí, incluirlos»
+// no hay corte: el mes completo.
+type BudgetCalc = { id: number; categoryId: number; month: string; subcategory: string | null; includePrior: boolean; createdAt: number | null; startDate: string | null };
+const budgetCutoffOf = (b: BudgetCalc): number | null => b.includePrior ? null : (b.startDate != null ? new Date(`${b.startDate}T00:00:00Z`).getTime() : b.createdAt);
+const capturedAtMs = (m: { createdAt: Date | string | number | null }): number | null => m.createdAt == null ? null : (m.createdAt instanceof Date ? m.createdAt.getTime() : new Date(String(m.createdAt)).getTime());
+// Gastado de TODOS los presupuestos de un hogar en un solo pase (un
+// gasto cuenta como máximo en UN presupuesto, 2026-11-24, decisión de
+// Heriberto «Preguntar al meter cada gasto»): el presupuesto de
+// subcategoría reclama el gasto si coinciden subcategoría y mes Y (fue
+// asignado a él, O (sin asignar Y dentro de su ventana: «sí, incluirlos»
+// → todo el mes; «como nuevo» → capturado desde su fecha de inicio));
+// el presupuesto general (toda la categoría) cuenta los gastos de la
+// categoría NO reclamados por ningún presupuesto de subcategoría y
+// dentro de su propia ventana: si el general nació «como nuevo», un
+// gasto capturado antes de su corte no cuenta en ningún presupuesto (si
+// no, un general «como nuevo» contaría gastos previos y la fecha de
+// inicio no serviría para él). Una asignación a un presupuesto que ya no
+// coincide (otra categoría, subcategoría o mes, o presupuesto borrado o
+// de otro hogar) se ignora y el gasto cae en las reglas de reclamo. La
+// asignación explícita gana a la ventana: si el usuario eligió que el
+// gasto aplica a un presupuesto, cuenta ahí aunque esté fuera de su
+// ventana. Los gastos viejos sin asignar se reclaman según las ventanas;
+// si ninguno los reclama, quedan en el general.
+function computeBudgetSpents(movs: { categoryId: number | null; subcategory: string | null; date: string; type: string; amount: number; createdAt: Date | string | number | null; budgetId?: number | null }[], budgets: BudgetCalc[]): Map<number, number> {
+  const spent = new Map<number, number>(budgets.map(b => [b.id, 0]));
+  const byId = new Map(budgets.map(b => [b.id, b]));
+  for (const m of movs) {
+    if (m.type !== "expense" && m.type !== "debt_payment") continue;
+    const month = m.date.slice(0, 7);
+    // 1. Asignación explícita (si sigue valiendo).
+    if (m.budgetId != null) {
+      const assigned = byId.get(m.budgetId);
+      if (assigned && assigned.categoryId === m.categoryId && assigned.month === month && (assigned.subcategory == null || m.subcategory === assigned.subcategory)) {
+        spent.set(assigned.id, Math.round(((spent.get(assigned.id) ?? 0) + m.amount) * 100) / 100);
+        continue;
+      }
+      // Asignación vieja: cae en las reglas de reclamo.
+    }
+    // 2. Reclamo del presupuesto de subcategoría (sin asignar, en ventana).
+    if (m.subcategory != null) {
+      const sub = budgets.find(b => b.categoryId === m.categoryId && b.month === month && b.subcategory != null && b.subcategory === m.subcategory);
+      if (sub) {
+        const cutoff = budgetCutoffOf(sub);
+        const at = capturedAtMs(m);
+        if (cutoff == null || (at != null && at >= cutoff)) {
+          spent.set(sub.id, Math.round(((spent.get(sub.id) ?? 0) + m.amount) * 100) / 100);
+          continue;
+        }
+      }
+    }
+    // 3. Presupuesto general: lo no reclamado, dentro de su ventana.
+    const gen = budgets.find(b => b.categoryId === m.categoryId && b.month === month && b.subcategory == null);
+    if (gen) {
+      const cutoff = budgetCutoffOf(gen);
+      const at = capturedAtMs(m);
+      if (cutoff == null || (at != null && at >= cutoff)) {
+        spent.set(gen.id, Math.round(((spent.get(gen.id) ?? 0) + m.amount) * 100) / 100);
+      }
+    }
+  }
+  return spent;
 }
 // Versiones vigentes de los documentos legales y del apartado «Versión de
 // prueba». La aceptación de un usuario vale solo si coincide con las
@@ -343,14 +427,21 @@ async function checkMovementAlerts(ctx: Ctx, args: { householdId: number; moveme
       const catName = cat[0]?.name ?? "la categoría";
       const budgets = await db.select().from(schema.budgets).where(eq(schema.budgets.householdId, args.householdId));
       const mine = budgets.filter(b => b.categoryId === args.categoryId && b.month === month);
+      // Un gasto cuenta como máximo en un presupuesto (2026-11-24): el
+      // gastado de cada presupuesto se calcula con la misma regla que el
+      // tablero (reclamo por subcategoría y asignación explícita), para
+      // que el aviso de 80% o de excedido no se dispare por un gasto que
+      // pertenece al otro presupuesto. El «antes» excluye el gasto nuevo.
+      const mvBudgetIds = await readMovementBudgetIds(db, args.householdId);
+      const activeB = active.map(m => ({ ...m, budgetId: mvBudgetIds.get(m.id) ?? null }));
+      const extrasC = await readBudgetExtras(db, args.householdId);
+      const startsC = await readBudgetStartDates(db, args.householdId);
+      const calcBudgets: BudgetCalc[] = budgets.map(b => ({ id: b.id, categoryId: b.categoryId, month: b.month, ...(extrasC.get(b.id) ?? { subcategory: null, includePrior: true, createdAt: null }), startDate: startsC.get(b.id) ?? null }));
+      const spentAfter = computeBudgetSpents(activeB, calcBudgets);
+      const spentBefore = computeBudgetSpents(activeB.filter(m => m.id !== args.movementId), calcBudgets);
       for (const b of mine) {
-        // Un presupuesto es el límite de su categoría en el mes: cuentan
-        // todos los gastos de esa categoría (compartidos y privados),
-        // porque el gasto del día y otros gastos privados también se
-        // descuentan del presupuesto.
-        const spent = (excludeId: number | null) => active.filter(m => m.id !== excludeId && m.categoryId === b.categoryId && m.date.startsWith(b.month) && (m.type === "expense" || m.type === "debt_payment")).reduce((s, m) => s + m.amount, 0);
-        const after = spent(null);
-        const before = spent(args.movementId);
+        const after = spentAfter.get(b.id) ?? 0;
+        const before = spentBefore.get(b.id) ?? 0;
         // (c1) Presupuesto al 80%: solo al cruzar ese nivel, para no repetir.
         if (b.amount > 0) {
           const pctBefore = before / b.amount;
@@ -767,7 +858,17 @@ async function loadAdjustmentBase(ctx: Ctx, householdId: number, goalId: number)
   const cats = await db.select().from(schema.categories).where(eq(schema.categories.householdId, householdId));
   const catName = (id: number) => cats.find(c => c.id === id)?.name ?? "Sin categoría";
   const monthBudgets = budgets.filter(b => b.month === curYm);
-  const spentFor = (b: { categoryId: number; visibility: string }) => round2(active.filter(m => m.categoryId === b.categoryId && m.date.startsWith(curYm) && isExpense(m)).reduce((s, m) => s + m.amount, 0));
+  // El gastado de cada presupuesto usa la misma regla que el tablero
+  // (2026-11-24): un gasto cuenta como máximo en un presupuesto (reclamo
+  // por subcategoría y asignación explícita), para que el ajuste no
+  // recorte dos veces el mismo gasto ni lo cuente en dos presupuestos.
+  const mvBudgetIdsA = await readMovementBudgetIds(db, householdId);
+  const activeA = active.map(m => ({ ...m, budgetId: mvBudgetIdsA.get(m.id) ?? null }));
+  const extrasA = await readBudgetExtras(db, householdId);
+  const startsA = await readBudgetStartDates(db, householdId);
+  const calcBudgetsA: BudgetCalc[] = monthBudgets.map(b => ({ id: b.id, categoryId: b.categoryId, month: b.month, ...(extrasA.get(b.id) ?? { subcategory: null, includePrior: true, createdAt: null }), startDate: startsA.get(b.id) ?? null }));
+  const spentsA = computeBudgetSpents(activeA, calcBudgetsA);
+  const spentFor = (b: { id: number }) => spentsA.get(b.id) ?? 0;
   const overruns = monthBudgets.map(b => { const spent = spentFor(b); return { budgetId: b.id, categoryId: b.categoryId, name: catName(b.categoryId), budget: b.amount, spent, over: round2(spent - b.amount) }; }).filter(r => r.over > 0).sort((a, b) => b.over - a.over);
   const totalOver = round2(overruns.reduce((s, r) => s + r.over, 0));
   const slacks = monthBudgets.map(b => { const spent = spentFor(b); return { budgetId: b.id, categoryId: b.categoryId, name: catName(b.categoryId), budget: b.amount, spent, slack: round2(b.amount - spent) }; }).filter(s => s.slack > 0).sort((a, b) => b.slack - a.slack);
@@ -1159,7 +1260,7 @@ const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAd
 // Esquema de una fila de movimiento (lo comparten getOverview y
 // listMovements): un movimiento es siempre el mismo objeto, venga del
 // mes visible o de una página del historial.
-const movementRowSchema = z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), date: z.string(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() });
+const movementRowSchema = z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), budgetId: z.number().nullable(), date: z.string(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() });
 type MovementRow = z.infer<typeof movementRowSchema>;
 
 // Normalización de concepto: la MISMA que el cliente (smart.ts normText
@@ -1194,8 +1295,8 @@ async function signedUrls(ctx: Ctx, keys: (string | null | undefined)[]): Promis
 // resuelta (o null). `urls` debe venir de signedUrls sobre las mismas
 // filas, en el mismo orden. `mine` marca si el perfil del movimiento es
 // del usuario que consulta (lo usa el cliente para el filtro por perfil).
-function toMovementRows(rows: (typeof schema.movements.$inferSelect)[], urls: (string | null)[], reversedIds: Set<number>, myProfileIds: Set<number>): MovementRow[] {
-  return rows.map((m, i) => ({ id: m.id, type: m.type, amount: m.amount, concept: m.concept, accountId: m.accountId ?? null, toAccountId: m.toAccountId ?? null, categoryId: m.categoryId ?? null, subcategory: m.subcategory ?? null, date: m.date, visibility: m.visibility, profileId: m.profileId ?? null, receiptUrl: urls[i] ?? null, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId != null && myProfileIds.has(m.profileId) }));
+function toMovementRows(rows: (typeof schema.movements.$inferSelect)[], urls: (string | null)[], reversedIds: Set<number>, myProfileIds: Set<number>, budgetIds?: Map<number, number>): MovementRow[] {
+  return rows.map((m, i) => ({ id: m.id, type: m.type, amount: m.amount, concept: m.concept, accountId: m.accountId ?? null, toAccountId: m.toAccountId ?? null, categoryId: m.categoryId ?? null, subcategory: m.subcategory ?? null, budgetId: budgetIds?.get(m.id) ?? null, date: m.date, visibility: m.visibility, profileId: m.profileId ?? null, receiptUrl: urls[i] ?? null, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId != null && myProfileIds.has(m.profileId) }));
 }
 
 // ---- Vista de una tanda (la misma que getOverview arma por hogar) ----
@@ -1688,11 +1789,22 @@ export const Actions = {
       // La fecha de inicio (supabase/add-budget-start-date.sql) se lee en
       // su propia consulta tolerante: si falta esa columna, solo la fecha
       // queda sin valor y el corte vuelve a la creación.
+      // Un gasto cuenta como máximo en UN presupuesto (2026-11-24): el
+      // gastado se calcula en un solo pase para todos los presupuestos
+      // (computeBudgetSpents): el de subcategoría reclama los gastos
+      // asignados a él y los sin asignar dentro de su ventana; el general
+      // cuenta lo no reclamado, dentro de su propia ventana. La asignación
+      // (movements.budget_id) se lee tolerante: sin la columna, el mapa
+      // sale vacío y el conteo usa solo las ventanas.
       const budgetExtras = await readBudgetExtras(db, hid);
       const budgetStartDates = await readBudgetStartDates(db, hid);
+      const movementBudgetIds = await readMovementBudgetIds(db, hid);
+      const activeMovsB = activeMovs.map(m => ({ ...m, budgetId: movementBudgetIds.get(m.id) ?? null }));
+      const budgetsCalc: BudgetCalc[] = budgetsR.map(b => ({ id: b.id, categoryId: b.categoryId, month: b.month, ...(budgetExtras.get(b.id) ?? { subcategory: null, includePrior: true, createdAt: null }), startDate: budgetStartDates.get(b.id) ?? null }));
+      const spentsByBudget = computeBudgetSpents(activeMovsB, budgetsCalc);
       const budgets = budgetsR.map(b=>{
         const extra = { ...(budgetExtras.get(b.id) ?? { subcategory: null, includePrior: true, createdAt: null }), startDate: budgetStartDates.get(b.id) ?? null };
-        const useSpent = budgetSpent(activeMovs, b.categoryId, b.month, extra);
+        const useSpent = spentsByBudget.get(b.id) ?? 0;
         return { id: b.id, categoryId: b.categoryId, month: b.month, amount: b.amount, visibility: b.visibility, subcategory: extra.subcategory, includePriorExpenses: extra.includePrior, startDate: extra.startDate, spent: useSpent, remaining: Math.round((b.amount-useSpent)*100)/100, pct: b.amount>0? Math.round(useSpent/b.amount*100) : 0 };
       });
 
@@ -1755,7 +1867,7 @@ export const Actions = {
       const scopedTargets = visibleMovs.filter(m=>targetIds.has(m.id) && !scopedIds.has(m.id));
       const scopedAll = [...scopedRows, ...scopedTargets].sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id);
       const scopedUrls = await signedUrls(ctx, scopedAll.map(m=>m.receiptBlobKey));
-      const movementsOut = toMovementRows(scopedAll, scopedUrls, reversedIds, myProfileIds);
+      const movementsOut = toMovementRows(scopedAll, scopedUrls, reversedIds, myProfileIds, movementBudgetIds);
       const totalMovements = visibleMovs.length;
       const monthsWithMovements = [...new Set(visibleMovs.map(m=>m.date.slice(0,7)))].sort().reverse();
       const cashCandidates = accountsR.filter(a=>a.type==="cash" || a.name.trim().toLowerCase()==="efectivo");
@@ -1971,8 +2083,9 @@ export const Actions = {
         : [];
       const allRows = [...pageRows, ...linkedRows];
       const urls = await signedUrls(ctx, allRows.map(m => m.receiptBlobKey));
-      const rowsOut = toMovementRows(pageRows, urls.slice(0, pageRows.length), reversedIds, myProfileIds);
-      const linkedOut = toMovementRows(linkedRows, urls.slice(pageRows.length), reversedIds, myProfileIds);
+      const mvBudgetIdsList = await readMovementBudgetIds(db, hid);
+      const rowsOut = toMovementRows(pageRows, urls.slice(0, pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList);
+      const linkedOut = toMovementRows(linkedRows, urls.slice(pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList);
       return { rows: rowsOut, linked: linkedOut, nextCursor, total, incomeTotal, expenseTotal };
     },
   }),
@@ -2208,9 +2321,9 @@ export const Actions = {
 
   saveMovement: defineAction({
     description: "Creates or updates a movement (income, expense, transfer, debt payment).",
-    request: z.object({ id: z.number().optional(), householdId: z.number(), type: z.enum(["income","expense","transfer","debt_payment"]), amount: z.number().positive().max(100_000_000), concept: z.string().min(1).max(200), accountId: z.number().nullable().optional(), toAccountId: z.number().nullable().optional(), categoryId: z.number().nullable().optional(), subcategory: z.string().max(60).optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), visibility: vis, profileId: z.number().nullable().optional(), receipt: z.object({ dataBase64: z.string().max(16_000_000), mimeType: z.string() }).optional() }),
-    response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; let receiptBlobKey: string|null|undefined = undefined;
+    request: z.object({ id: z.number().optional(), householdId: z.number(), type: z.enum(["income","expense","transfer","debt_payment"]), amount: z.number().positive().max(100_000_000), concept: z.string().min(1).max(200), accountId: z.number().nullable().optional(), toAccountId: z.number().nullable().optional(), categoryId: z.number().nullable().optional(), subcategory: z.string().max(60).optional(), budgetId: z.number().nullable().optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), visibility: vis, profileId: z.number().nullable().optional(), receipt: z.object({ dataBase64: z.string().max(16_000_000), mimeType: z.string() }).optional() }),
+    response: z.object({ ok: z.literal(true), id: z.number().optional(), savedBudgetAssignment: z.boolean() }),
+    async handler(ctx,args): Promise<{ ok: true; id?: number; savedBudgetAssignment: boolean }>{ const db=ctx.db; let receiptBlobKey: string|null|undefined = undefined;
       if (args.receipt) { const okTypes=["image/jpeg","image/png","image/webp"]; if (!okTypes.includes(args.receipt.mimeType)) throw new Error("La foto del comprobante debe estar en formato JPG, PNG o WebP."); const key=`receipts/${args.householdId}/${Date.now()}-${Math.floor(Math.random()*1e9)}`; const bytes=Buffer.from(args.receipt.dataBase64,"base64"); await ctx.blobs.put(key, bytes, { contentType: args.receipt.mimeType }); receiptBlobKey=key; }
       // Permisos por hogar: toda referencia (cuenta, categoría, perfil) debe pertenecer al mismo
       // hogar del movimiento; una referencia de otro hogar se rechaza en el servidor.
@@ -2219,7 +2332,45 @@ export const Actions = {
       if (args.categoryId) { const r = await db.select().from(schema.categories).where(eq(schema.categories.id, args.categoryId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("La categoría indicada no pertenece a este hogar."); }
       if (args.profileId) { const r = await db.select().from(schema.profiles).where(eq(schema.profiles.id, args.profileId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("El perfil indicado no pertenece a este hogar."); }
       if (args.id) { const r = await db.select().from(schema.movements).where(eq(schema.movements.id, args.id)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("El movimiento indicado no pertenece a este hogar."); if (r[0].reversalOfId != null) throw new Error("Una reversión no puede editarse; forma parte del registro de auditoría."); }
-      const vals={householdId:args.householdId,type:args.type,amount:args.amount,concept:args.concept,accountId:args.accountId??null,toAccountId:args.toAccountId??null,categoryId:args.categoryId??null,subcategory:args.subcategory||null,date:args.date,visibility:args.visibility,profileId:args.profileId??null, ...(receiptBlobKey!==undefined?{receiptBlobKey}:{})}; if(args.id){ await db.update(schema.movements).set(vals).where(eq(schema.movements.id,args.id)); await logActivity(ctx, args.householdId, "Movimiento editado", `${args.concept} · $${args.amount}`); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.movements).values(vals).returning({id:schema.movements.id}); await logActivity(ctx, args.householdId, "Movimiento registrado", `${args.concept} · $${args.amount}`); if(r?.id) await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: r.id, type: args.type, amount: args.amount, categoryId: args.categoryId ?? null, visibility: args.visibility, date: args.date }); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+      // Asignación a un presupuesto (pregunta al meter el gasto): si el
+      // cliente eligió uno, debe existir, pertenecer al hogar y
+      // corresponder al gasto (misma categoría y mes; si lleva
+      // subcategoría, la misma). Se valida ANTES de guardar, para no
+      // dejar el movimiento creado con una asignación imposible. El
+      // cliente solo manda un presupuesto que coincide (la pregunta solo
+      // aparece cuando coinciden los dos); «Pagar del presupuesto» no
+      // manda budgetId si hoy ya no es el mes del presupuesto.
+      const isExpenseType = args.type === "expense" || args.type === "debt_payment";
+      if (isExpenseType && args.budgetId != null) {
+        const brow = (await db.select().from(schema.budgets).where(eq(schema.budgets.id, args.budgetId)).limit(1))[0];
+        if (!brow || brow.householdId !== args.householdId) throw new Error("El presupuesto indicado no pertenece a este hogar.");
+        const subB = (await readBudgetExtras(db, args.householdId)).get(args.budgetId)?.subcategory ?? null;
+        if (brow.categoryId !== args.categoryId || brow.month !== args.date.slice(0, 7) || (subB != null && subB !== (args.subcategory || null))) throw new Error("El presupuesto indicado no corresponde a este gasto.");
+      }
+      // Guarda la asignación (o la limpia, o la reevalúa) y dice si
+      // quedó guardada: sin la columna (falta correr
+      // supabase/add-movement-budget-assignment.sql) devuelve false y el
+      // cliente avisa, en vez de romper. Al editar sin elegir (el cliente
+      // no manda budgetId), la asignación guardada se conserva si sigue
+      // valiendo con los datos nuevos; si no, se limpia y el gasto cae en
+      // las reglas de reclamo. Al cambiar a un tipo que no es gasto, la
+      // asignación se limpia (un ingreso no pertenece a ningún
+      // presupuesto). La asignación se escribe ANTES de los avisos, para
+      // que el aviso de 80% o de excedido ya la tenga en cuenta.
+      const storeAssignment = async (movementId: number): Promise<boolean> => {
+        if (!isExpenseType) { if (args.id) await writeMovementBudgetId(db, movementId, null); return true; }
+        if (args.budgetId != null) return await writeMovementBudgetId(db, movementId, args.budgetId);
+        if (args.budgetId === null) { if (args.id) await writeMovementBudgetId(db, movementId, null); return true; }
+        if (!args.id) return true;
+        const stored = await readMovementBudgetId(db, movementId);
+        if (stored == null) return true;
+        const brow = (await db.select().from(schema.budgets).where(eq(schema.budgets.id, stored)).limit(1))[0];
+        const subB = brow ? (await readBudgetExtras(db, args.householdId)).get(stored)?.subcategory ?? null : null;
+        const stillValid = !!brow && brow.householdId === args.householdId && brow.categoryId === args.categoryId && brow.month === args.date.slice(0, 7) && (subB == null || subB === (args.subcategory || null));
+        if (!stillValid) await writeMovementBudgetId(db, movementId, null);
+        return true;
+      };
+      const vals={householdId:args.householdId,type:args.type,amount:args.amount,concept:args.concept,accountId:args.accountId??null,toAccountId:args.toAccountId??null,categoryId:args.categoryId??null,subcategory:args.subcategory||null,date:args.date,visibility:args.visibility,profileId:args.profileId??null, ...(receiptBlobKey!==undefined?{receiptBlobKey}:{})}; if(args.id){ await db.update(schema.movements).set(vals).where(eq(schema.movements.id,args.id)); const savedAssignment = await storeAssignment(args.id); await logActivity(ctx, args.householdId, "Movimiento editado", `${args.concept} · $${args.amount}`); ctx.invalidateQueries(); return {ok:true as const,id:args.id,savedBudgetAssignment:savedAssignment}; } const [r]=await db.insert(schema.movements).values(vals).returning({id:schema.movements.id}); const savedAssignment = r?.id ? await storeAssignment(r.id) : true; await logActivity(ctx, args.householdId, "Movimiento registrado", `${args.concept} · $${args.amount}`); if(r?.id) await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: r.id, type: args.type, amount: args.amount, categoryId: args.categoryId ?? null, visibility: args.visibility, date: args.date }); ctx.invalidateQueries(); return {ok:true as const,id:r?.id,savedBudgetAssignment:savedAssignment}; },
   }),
   deleteMovement: defineAction({ description: "Deletes a movement.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const rows=await db.select().from(schema.movements).where(eq(schema.movements.id,args.id)); const row=rows[0]; if(row && row.reversalOfId!=null) throw new Error("Una reversión no puede eliminarse por separado; forma parte del registro de auditoría. Si elimina el movimiento original, su reversión se elimina junto con él."); await db.delete(schema.movements).where(eq(schema.movements.reversalOfId,args.id)); await db.delete(schema.movements).where(eq(schema.movements.id,args.id)); if(row) await logActivity(ctx, row.householdId, "Movimiento eliminado", `${row.concept} · $${row.amount}`); ctx.invalidateQueries(); return {ok:true}; } }),
 

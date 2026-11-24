@@ -1,0 +1,24 @@
+-- Asignación de un gasto a un presupuesto (pregunta al meter el gasto,
+-- 2026-11-24): un gasto cuenta como máximo en UN presupuesto. Cuando un
+-- gasto coincide a la vez con el presupuesto general de su categoría y
+-- con el de su subcategoría, la app pregunta «¿Gasto corriente o aplica
+-- al presupuesto de [Subcategoría]?» y la elección se guarda en
+-- movements.budget_id (el id del presupuesto elegido: el general para
+-- «Gasto corriente», el de la subcategoría para «Aplica al presupuesto
+-- de [X]»). «Pagar del presupuesto» asigna directo a ese presupuesto,
+-- sin preguntar.
+--
+-- Sin esta columna, la app sigue funcionando: el gasto se guarda y se
+-- cuenta por las reglas de reclamo (el presupuesto de subcategoría
+-- reclama los gastos sin asignar dentro de su ventana; el general cuenta
+-- lo no reclamado), y la app avisa que la asignación se guardará cuando
+-- se ejecute este SQL. Nunca en silencio.
+--
+-- Sin clave foránea a propósito: si el presupuesto se borra, la
+-- asignación queda vieja y el gasto cae en las reglas de reclamo (el
+-- conteo ignora las asignaciones a presupuestos que ya no coinciden en
+-- categoría, subcategoría o mes).
+--
+-- Idempotente: se puede correr más de una vez sin error.
+ALTER TABLE movements ADD COLUMN IF NOT EXISTS budget_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_movements_budget_id ON movements (budget_id);
