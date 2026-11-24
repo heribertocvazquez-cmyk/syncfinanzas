@@ -1,15 +1,14 @@
 // Menú rápido (aprobado por Heriberto 2026-11-24, «Si adelante»):
-// barra fija abajo, una sola fila — hamburguesa (abre el mismo cajón que
-// el botón del encabezado) + los atajos fijados con las estrellas del
-// cajón (2026-11-24: mantener presionado un botón del menú muestra su
-// estrellita; tocarla la fija o la quita, sin pop-up ni aviso). Sin nada
-// guardado, los atajos son los 3 de hoy: Nuevo, Metas y
-// Presupuestos (localStorage «sf-menu-rapido», por dispositivo; ver
-// lib/quickBar). Como máximo 4 atajos; la hamburguesa siempre va primera
-// y no se quita. Cada atajo usa el mismo icono que su fila del cajón.
-// Variante B, solo intuitiva: SIN símbolo «i», SIN leyenda, SIN texto de
-// descripción. La barra se oculta mientras el cajón está abierto (el
-// cajón es z-50 y el encabezado es el control para cerrarlo); el
+// barra fija abajo, una sola fila — hamburguesa (abre el cajón) + los
+// atajos fijados con las estrellas del cajón (2026-11-24: mantener
+// presionado un botón del menú muestra su estrellita; tocarla la fija o
+// la quita, sin pop-up ni aviso). Sin nada guardado, los atajos son los 3
+// de hoy: Nuevo, Metas y Presupuestos (localStorage «sf-menu-rapido», por
+// dispositivo; ver lib/quickBar). Como máximo 4 atajos; la hamburguesa
+// siempre va primera y no se quita. Cada atajo usa el mismo icono que su
+// fila del cajón. Variante B, solo intuitiva: SIN símbolo «i», SIN leyenda,
+// SIN texto de descripción. La barra se oculta mientras el cajón está
+// abierto (el cajón se cierra con su × o tocando fuera de él); el
 // contenido de la app lleva relleno inferior (main: 80 px + área segura)
 // para que el scroll no se dañe.
 //
@@ -17,9 +16,12 @@
 // la barra mide QUICK_BAR_HEIGHT_PX de alto y flota a
 // QUICK_BAR_BOTTOM_PX del borde inferior de la pantalla, más el área
 // segura (safe-area-inset-bottom): nunca va pegada al borde. Cada botón
-// mide 44 px de alto (mínimo táctil): icono de 20 px + letra de 10 px +
+// mide 44 px de alto (mínimo táctil): icono de 20 px + letra de 9 px +
 // relleno vertical. App.tsx usa estas constantes para que la estrella de
 // Mike quede siempre POR ENCIMA de la barra (ver FAB_BOTTOM_RESERVE_PX).
+// La columna de la hamburguesa es fija de 48 px (no lleva texto, no
+// necesita una columna entera) y las letras son de 9 px: así
+// «Presupuestos» cabe completo con los 4 atajos fijados.
 import type { Tab } from "../App";
 import { TAB_ICONS } from "./DrawerMenu";
 import { DEFAULT_QUICK_SHORTCUTS, type QuickShortcutId } from "../lib/quickBar";
@@ -52,15 +54,13 @@ export function QuickBar(p: {
   // Sin atajos pasados (pintar la barra sola en las pruebas), los 3 de hoy.
   const shortcuts = p.shortcuts ?? DEFAULT_QUICK_SHORTCUTS;
   const tabLabel = p.tabLabel ?? ((t: Tab) => t);
-  // Una columna por botón: hamburguesa + un atajo fijado cada uno.
-  const cols = 1 + shortcuts.length;
   return (
     <nav
       aria-label="Menú rápido"
       className="fixed inset-x-3 z-40 mx-auto max-w-xl"
       style={{ bottom: `calc(${QUICK_BAR_BOTTOM_PX}px + env(safe-area-inset-bottom, 0px))` }}
     >
-      <div className="grid items-stretch gap-1 rounded-full border-2 border-[var(--accent)] bg-[var(--surface)] px-1.5 py-1 shadow-2xl" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      <div className="grid items-stretch gap-1 rounded-full border-2 border-[var(--accent)] bg-[var(--surface)] px-1.5 py-1 shadow-2xl" style={{ gridTemplateColumns: `48px repeat(${shortcuts.length}, minmax(0, 1fr))` }}>
         <button
           type="button"
           aria-label={p.menuOpen ? "Cerrar menú" : "Abrir menú"}
@@ -75,7 +75,7 @@ export function QuickBar(p: {
         {shortcuts.map((id) => id === "nuevo-gasto" ? (
           <button key={id} type="button" aria-label="Nuevo" onClick={p.onNewExpense} className={tabBtn(false)}>
             <IconPlus />
-            <span className="text-[10px] font-bold leading-none truncate max-w-full">Nuevo</span>
+            <span className="text-[9px] font-bold leading-none truncate max-w-full">Nuevo</span>
           </button>
         ) : (
           <button
@@ -87,7 +87,7 @@ export function QuickBar(p: {
             className={tabBtn(p.currentTab === id)}
           >
             {TAB_ICONS[id]}
-            <span className="text-[10px] font-bold leading-none truncate max-w-full">{tabLabel(id)}</span>
+            <span className="text-[9px] font-bold leading-none truncate max-w-full">{tabLabel(id)}</span>
           </button>
         ))}
       </div>

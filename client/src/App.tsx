@@ -2299,11 +2299,6 @@ export function App(){
       <header className={`sticky top-0 ${menuOpen?"z-40":"z-20"} bg-[var(--bg)]/95 backdrop-blur border-b border-[var(--border)] pt-safe`}>
         <div className="max-w-5xl mx-auto px-2 sm:px-3 py-2">
           <div className="flex items-center gap-2 sm:gap-3">
-            <button type="button" aria-label={menuOpen?"Cerrar menú de módulos":"Abrir menú de módulos"} aria-expanded={menuOpen} aria-controls="menu-modulos" onClick={()=>setMenuOpen(o=>!o)} className="shrink-0 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[var(--surface)] border border-[var(--border)] flex flex-col items-center justify-center gap-[5px]">
-              <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"translate-y-[7.5px] rotate-45":""}`} />
-              <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-opacity ${menuOpen?"opacity-0":""}`} />
-              <span aria-hidden="true" className={`block h-[2.5px] w-5 rounded bg-[var(--text)] transition-transform ${menuOpen?"-translate-y-[7.5px] -rotate-45":""}`} />
-            </button>
             <div className="min-w-0 flex-1">
               <p className="font-display font-extrabold leading-tight flex flex-wrap items-center gap-x-2 gap-y-1 text-[16px] sm:text-xl"><span className="min-w-0 truncate">{hh.name}</span><span className="shrink-0 text-[11px] bg-[var(--accent)] text-[var(--accent-text)] rounded-full px-2 py-0.5 whitespace-nowrap">{hh.mode==="personal"?"MODO PERSONAL":"MODO FAMILIAR"}</span></p>
             </div>
@@ -3713,7 +3708,7 @@ export function App(){
         </div>
       )}
       {/* Menú rápido: fijo abajo en todas las pestañas; se oculta mientras
-          el cajón está abierto (el encabezado es el control para cerrarlo). */}
+          el cajón está abierto (el cajón se cierra con su × o tocando fuera de él). */}
       {!menuOpen && (
         <QuickBar
           currentTab={effTab}
