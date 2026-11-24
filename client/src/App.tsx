@@ -42,7 +42,7 @@ import { FeedbackReviewList } from "./components/FeedbackReview";
 import type { FeedbackState } from "./lib/feedback";
 import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview } from "./components/TandaDetail";
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
-import { QuickBar } from "./components/QuickBar";
+import { QuickBar, QUICK_BAR_BOTTOM_PX, QUICK_BAR_HEIGHT_PX } from "./components/QuickBar";
 import { DRAWER_GROUPS, orderDrawerTabs } from "./lib/drawerOrder";
 import { HELP_FAQS, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { applyMovementChange, type MovementChange, type SavedMovement } from "./lib/optimisticOverview";
@@ -163,15 +163,43 @@ function detectStandalone(): boolean {
 // Posición de la estrella de Mike. Se guarda en el dispositivo
 // (localStorage "sf-help-fab-pos") como coordenadas en píxeles desde la
 // esquina superior izquierda de la ventana; null = posición por defecto
-// (abajo a la derecha). Siempre se limita a la ventana visible, para que
-// la estrella nunca quede fuera de la pantalla ni bajo la barra del
-// sistema (se reserva el área segura inferior en la posición por defecto).
+// (abajo a la derecha, POR ENCIMA de la barra del menú rápido).
+// Siempre se limita a la ventana visible, para que la estrella nunca
+// quede fuera de la pantalla ni bajo la barra del sistema ni bajo la
+// barra del menú rápido: su borde inferior queda por encima del borde
+// superior de la barra, con un margen de 8 px (FAB_ABOVE_BAR_GAP_PX).
+// Si la posición guardada la dejaría debajo de la barra (por ejemplo,
+// guardada antes de que existiera la barra), al cargar se sube sola
+// por encima: loadFabPos aplica el mismo límite.
 const FAB_POS_KEY = "sf-help-fab-pos";
 const FAB_SIZE = 48;
+const FAB_ABOVE_BAR_GAP_PX = 8;
+// Reserva inferior de la estrella: margen inferior de la barra +
+// alto de la barra + margen entre la barra y la estrella.
+const FAB_BOTTOM_RESERVE_PX = QUICK_BAR_BOTTOM_PX + QUICK_BAR_HEIGHT_PX + FAB_ABOVE_BAR_GAP_PX; // 72
+// Área segura inferior del dispositivo (la muesca o barra del sistema):
+// se lee del navegador con una sonda (env() solo existe en CSS) y se
+// suma a la reserva; sin área segura vale 0. Se guarda en caché y se
+// vuelve a medir al girar o cambiar el tamaño de la ventana.
+let cachedSafeAreaBottom: number | null = null;
+function safeAreaBottomPx(): number {
+  if (cachedSafeAreaBottom !== null) return cachedSafeAreaBottom;
+  let v = 0;
+  try {
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;left:0;bottom:0;padding-bottom:env(safe-area-inset-bottom, 0px);visibility:hidden;pointer-events:none;";
+    document.body.appendChild(probe);
+    const n = parseFloat(window.getComputedStyle(probe).paddingBottom || "");
+    document.body.removeChild(probe);
+    if (isFinite(n) && n > 0) v = n;
+  } catch { v = 0; }
+  cachedSafeAreaBottom = v;
+  return v;
+}
 function clampFabPos(x: number, y: number): { x: number; y: number } {
   const vw = typeof window !== "undefined" && window.innerWidth ? window.innerWidth : 390;
   const vh = typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 844;
-  return { x: Math.max(8, Math.min(x, vw - FAB_SIZE - 8)), y: Math.max(8, Math.min(y, vh - FAB_SIZE - 8)) };
+  return { x: Math.max(8, Math.min(x, vw - FAB_SIZE - 8)), y: Math.max(8, Math.min(y, vh - FAB_SIZE - FAB_BOTTOM_RESERVE_PX - safeAreaBottomPx())) };
 }
 function loadFabPos(): { x: number; y: number } | null {
   try {
@@ -297,9 +325,10 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
     setOpen(true);
   };
   // Si la ventana cambia de tamaño (giro del celular), la posición guardada
-  // se limita de nuevo a la ventana visible.
+  // se limita de nuevo a la ventana visible (el área segura puede cambiar
+  // al girar, por eso se vuelve a medir).
   useEffect(() => {
-    const onResize = () => setFabPos(cur => (cur ? clampFabPos(cur.x, cur.y) : cur));
+    const onResize = () => { cachedSafeAreaBottom = null; setFabPos(cur => (cur ? clampFabPos(cur.x, cur.y) : cur)); };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
@@ -310,7 +339,7 @@ export function HelpAssistant({ onGo, open: controlledOpen, onOpenChange, dynami
   return (
     <>
       {!open && !hidden && (
-        <div className="fixed z-40 w-12 h-12" style={fabPos ? { left: fabPos.x, top: fabPos.y } : { right: 16, bottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
+        <div className="fixed z-50 w-12 h-12" style={fabPos ? { left: fabPos.x, top: fabPos.y } : { right: 16, bottom: `calc(${FAB_BOTTOM_RESERVE_PX}px + env(safe-area-inset-bottom, 0px))` }}>
           <button ref={fabRef} type="button" data-help-fab aria-label={hasIdea ? "Abrir a Mike: tengo una idea para usted" : "Abrir a Mike"} onPointerDown={onFabPointerDown} onPointerMove={onFabPointerMove} onPointerUp={onFabPointerUp} onPointerCancel={onFabPointerCancel} onClick={onFabClick} className="help-fab-static relative w-12 h-12 rounded-full bg-[var(--fab)] text-[var(--fab-text)] shadow-xl flex items-center justify-center shrink-0">
             <svg aria-hidden="true" viewBox="0 0 24 24" className="w-6 h-6 pointer-events-none" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
             {hasIdea && (
@@ -2311,7 +2340,7 @@ export function App(){
         )}
       </header>
 
-      <main className="max-w-5xl mx-auto px-3 pb-28 pt-4">
+      <main className="max-w-5xl mx-auto px-3 pb-20 pt-4">
         {renderTokenInviteBanner()}
         {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-4 sm:p-5 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
         {firstGuideOpen && (
