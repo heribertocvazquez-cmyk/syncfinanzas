@@ -12,6 +12,8 @@
 // datos no se tocan: viven en Supabase y la recarga solo cambia el código
 // de la aplicación.
 const SW_VERSION = "b5b6e75";
+// Redespliegue 2026-11-24: Vercel no tomó el commit de versión bedcf0f;
+// este cambio mínimo fuerza un despliegue nuevo.
 const CACHE = `syncfinanzas-${SW_VERSION}`;
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
