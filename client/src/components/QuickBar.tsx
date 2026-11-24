@@ -22,7 +22,7 @@
 // Mike quede siempre POR ENCIMA de la barra (ver FAB_BOTTOM_RESERVE_PX).
 import type { Tab } from "../App";
 import { TAB_ICONS } from "./DrawerMenu";
-import type { QuickShortcutId } from "../lib/quickBar";
+import { DEFAULT_QUICK_SHORTCUTS, type QuickShortcutId } from "../lib/quickBar";
 
 // Alto real de la barra: botón 44 px (py-1.5 + icono 20 + hueco 2 +
 // letra 10) + relleno vertical del contenedor 8 px (py-1).
@@ -39,8 +39,8 @@ function IconPlus() {
 export function QuickBar(p: {
   currentTab: Tab;
   menuOpen: boolean;
-  shortcuts: QuickShortcutId[];
-  tabLabel: (t: Tab) => string;
+  shortcuts?: QuickShortcutId[];
+  tabLabel?: (t: Tab) => string;
   onToggleMenu: () => void;
   onNewExpense: () => void;
   onGoTab: (t: Tab) => void;
@@ -49,8 +49,11 @@ export function QuickBar(p: {
     `min-w-0 flex flex-col items-center justify-center gap-0.5 rounded-full py-1.5 ${
       active ? "bg-[var(--surface2)] text-[var(--accent)]" : "text-[var(--text)]"
     }`;
+  // Sin atajos pasados (pintar la barra sola en las pruebas), los 3 de hoy.
+  const shortcuts = p.shortcuts ?? DEFAULT_QUICK_SHORTCUTS;
+  const tabLabel = p.tabLabel ?? ((t: Tab) => t);
   // Una columna por botón: hamburguesa + un atajo fijado cada uno.
-  const cols = 1 + p.shortcuts.length;
+  const cols = 1 + shortcuts.length;
   return (
     <nav
       aria-label="Menú rápido"
@@ -69,7 +72,7 @@ export function QuickBar(p: {
           <span aria-hidden="true" className={`block h-[2px] w-4 rounded bg-[var(--accent-text)] transition-opacity ${p.menuOpen ? "opacity-0" : ""}`} />
           <span aria-hidden="true" className={`block h-[2px] w-4 rounded bg-[var(--accent-text)] transition-transform ${p.menuOpen ? "-translate-y-[6px] -rotate-45" : ""}`} />
         </button>
-        {p.shortcuts.map((id) => id === "nuevo-gasto" ? (
+        {shortcuts.map((id) => id === "nuevo-gasto" ? (
           <button key={id} type="button" aria-label="Nuevo gasto" onClick={p.onNewExpense} className={tabBtn(false)}>
             <IconPlus />
             <span className="text-[10px] font-bold leading-none truncate max-w-full">Nuevo gasto</span>
@@ -78,13 +81,13 @@ export function QuickBar(p: {
           <button
             key={id}
             type="button"
-            aria-label={`Ir a ${p.tabLabel(id)}`}
+            aria-label={`Ir a ${tabLabel(id)}`}
             aria-current={p.currentTab === id ? "page" : undefined}
             onClick={() => p.onGoTab(id)}
             className={tabBtn(p.currentTab === id)}
           >
             {TAB_ICONS[id]}
-            <span className="text-[10px] font-bold leading-none truncate max-w-full">{p.tabLabel(id)}</span>
+            <span className="text-[10px] font-bold leading-none truncate max-w-full">{tabLabel(id)}</span>
           </button>
         ))}
       </div>

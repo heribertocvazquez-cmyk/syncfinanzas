@@ -163,10 +163,12 @@ export function DrawerMenu(p: {
   onFeedback?: () => void;
   // Atajos del menú rápido (estrellas, 2026-11-24): los atajos fijados y
   // el cambio al tocar una estrella; la fila «Nuevo gasto» abre el
-  // formulario de gasto desde el cajón.
-  pinned: QuickShortcutId[];
-  onTogglePin: (id: QuickShortcutId) => void;
-  onNewExpense: () => void;
+  // formulario de gasto desde el cajón. Opcionales con valores por
+  // defecto (sin atajos fijados, sin efecto al tocar la estrella) para
+  // que el cajón también se pueda pintar solo en las pruebas.
+  pinned?: QuickShortcutId[];
+  onTogglePin?: (id: QuickShortcutId) => void;
+  onNewExpense?: () => void;
 }) {
   const [textoGrandeLocal, setTextoGrandeLocal] = useState<boolean>(() => readTextoGrande());
   const textoGrandeActivo = p.textoGrande ?? textoGrandeLocal;
@@ -211,9 +213,9 @@ export function DrawerMenu(p: {
   };
   const navRowProps = (id: QuickShortcutId, label: string, ariaLabel: string, icon: ReactNode, current: boolean, onNavigate: () => void) => ({
     id, label, ariaLabel, icon, current,
-    pinned: p.pinned.includes(id),
+    pinned: (p.pinned ?? []).includes(id),
     revealed: revealedId === id,
-    onNavigate, onTogglePin: p.onTogglePin,
+    onNavigate, onTogglePin: p.onTogglePin ?? (() => {}),
     onPressStart: startPress, onPressMove: movePress, onPressEnd: endPress,
     onPressCancel: cancelPress, guardLongPressClick,
   });
@@ -278,7 +280,7 @@ export function DrawerMenu(p: {
                 ? tabIcon(<><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></>)
                 : rowIcon(t.id);
               const current = "action" in t ? false : p.currentTab === t.id;
-              const navigate = "action" in t ? () => { p.onNewExpense(); } : () => { p.onNavigate(t.id); };
+              const navigate = "action" in t ? () => { p.onNewExpense?.(); } : () => { p.onNavigate(t.id); };
               return (
                 <NavRow key={id} {...navRowProps(id, t.label, "action" in t ? t.label : `Ir a ${t.label}`, icon, current, navigate)} />
               );
