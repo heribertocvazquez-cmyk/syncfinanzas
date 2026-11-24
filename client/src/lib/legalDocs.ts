@@ -15,7 +15,7 @@
 // en la misma fila de aceptación.
 
 export const LEGAL_DOC_VERSION = "v1-2026-11-16";
-export const LEGAL_NOTICE_VERSION = "v1-2026-11-23";
+export const LEGAL_NOTICE_VERSION = "v2-2026-11-24";
 export const LEGAL_DOC_BADGE = "Borrador 2026-11-16 — pendiente de revisión de un abogado";
 
 export interface LegalDoc {
@@ -203,19 +203,22 @@ Si cambia, se avisará dentro de la app antes de que aplique, y la versión vige
   },
 ];
 
-// Apartado informativo «Versión de prueba» (2026-11-23): va en la misma
-// pantalla de aceptación, junto a los 3 borradores, y en los documentos
-// de Configuración. NO es un cuarto documento legal para aceptar por
-// separado: la aceptación cubre los 3 documentos y este apartado queda
-// registrado como parte de la versión aceptada (notice_version).
-// Redacción: no se promete que «nada quedará guardado» (la app sí guarda
-// movimientos y hogar en el servidor para funcionar); lo que se promete
-// es que nadie fuera de su hogar lo ve y que se borra al terminar la
-// prueba o cuando lo pidan.
+// Apartado informativo «Versión de prueba» (2026-11-23; v2 2026-11-24,
+// aprobada por Heriberto): va en la misma pantalla de aceptación, junto a
+// los 3 borradores, y en los documentos de Configuración. NO es un cuarto
+// documento legal para aceptar por separado: la aceptación cubre los 3
+// documentos y este apartado queda registrado como parte de la versión
+// aceptada (notice_version). La v2 agrega UNA línea: durante la prueba se
+// analizarán qué botones son los más usados (analítica de uso: solo el
+// módulo y el botón, sin importes ni contenido; ver usageLog.ts y
+// supabase/add-usage-events.sql). Al subir la versión, la puerta vuelve a
+// aparecer para todos en su siguiente entrada, incluida la de Heriberto.
 export const LEGAL_TEST_NOTICE = {
   title: "Versión de prueba",
   badge: "Información para testers",
   body: `La app está en fase de pruebas; las actualizaciones son frecuentes y pueden cambiar pantallas y funciones.
 
-Sobre su información: sus datos solo los ve su hogar; no se comparten con terceros ni con otros hogares; no se usan para otra cosa que hacer funcionar la app; y al terminar el piloto o cuando lo pidan, se borran.`,
+Sobre su información: sus datos solo los ve su hogar; no se comparten con terceros ni con otros hogares; no se usan para otra cosa que hacer funcionar la app; y al terminar el piloto o cuando lo pidan, se borran.
+
+Durante el tiempo de prueba se analizarán qué botones son los más usados.`,
 };

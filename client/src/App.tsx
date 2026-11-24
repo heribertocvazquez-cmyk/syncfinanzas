@@ -44,6 +44,7 @@ import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview }
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
 import { QuickBar, QUICK_BAR_BOTTOM_PX, QUICK_BAR_HEIGHT_PX } from "./components/QuickBar";
 import { DRAWER_GROUPS, orderDrawerTabs } from "./lib/drawerOrder";
+import { logUsageEvent, usageActionLabel, usageModuleLabel } from "./lib/usageLog";
 import { readQuickShortcuts, toggleQuickShortcut, writeQuickShortcuts, type QuickShortcutId } from "./lib/quickBar";
 import { HELP_FAQS, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
 import { applyMovementChange, type MovementChange, type SavedMovement } from "./lib/optimisticOverview";
@@ -504,6 +505,8 @@ export function App(){
   const [updatesOpen,setUpdatesOpen]=useState(false);
   const [devFeedbackOpen,setDevFeedbackOpen]=useState(false);
   const [devUsersOpen,setDevUsersOpen]=useState(false);
+  const [devUsageOpen,setDevUsageOpen]=useState(false);
+  const [usageDetailUser,setUsageDetailUser]=useState<string|null>(null);
   const checkUpdatesManually=async()=>{
     setUpdateChecking(true); setUpdateCheckMsg(null);
     const r=await checkForAppUpdate();
@@ -582,6 +585,16 @@ export function App(){
   // Registro de usuarios de la app: total y lista de quienes han entrado.
   // Solo lo ve el dueño de la app; el servidor vuelve a verificar el correo.
   const appUsersQuery=useQuery({queryKey:["appUsers"],queryFn:()=>api.listAppUsers({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
+  // Analítica de uso de la prueba: qué módulos y botones usan los testers.
+  // Solo la ve el dueño de la app; el servidor vuelve a verificar el correo.
+  // Si falta correr supabase/add-usage-events.sql, tableMissing:true.
+  const usageQuery=useQuery({queryKey:["usageAnalytics"],queryFn:()=>api.listUsage({householdId:data!.household!.id}),enabled:!!data?.household && isAppOwner});
+  // Primera vista de la sesión: la analítica también cuenta el módulo en
+  // el que se abre la app (goTab solo registra los cambios de módulo).
+  // Va aquí, junto a los demás hooks: después de un retorno temprano
+  // React contaría distinto número de hooks entre renders.
+  const initialUsageLoggedRef=useRef(false);
+  useEffect(()=>{ if(data?.household && !initialUsageLoggedRef.current){ initialUsageLoggedRef.current=true; logUsageEvent(data.household.id, tab, "ver_modulo"); } },[data?.household?.id]);
   // Arqueos de efectivo: historial de recuentos guardados. Solo los
   // consulta el administrador del hogar; el servidor vuelve a verificar
   // el rol. Si la tabla aún no existe, la lista sale vacía.
@@ -960,7 +973,7 @@ export function App(){
     visibility: mvVis,
     profileId: mvProfile ? Number(mvProfile) : (me ? me.id : null),
   });
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,budgetId:(mvType==="expense"||mvType==="debt_payment")?mvBudget:undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:(r)=>{const previous=editingMv!=null?data?.movements.find(m=>m.id===editingMv)??null:null;const saved=savedMovementFromForm(r?.id ?? editingMv ?? 0);projectMovementChange(previous?{kind:"edit",movement:saved,previous}:{kind:"create",movement:saved});refreshAfterMovementSave();resetMvForm();setMvAssignPendingSql(r?.savedBudgetAssignment===false);if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}}});
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,budgetId:(mvType==="expense"||mvType==="debt_payment")?mvBudget:undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:(r)=>{const previous=editingMv!=null?data?.movements.find(m=>m.id===editingMv)??null:null;const saved=savedMovementFromForm(r?.id ?? editingMv ?? 0);projectMovementChange(previous?{kind:"edit",movement:saved,previous}:{kind:"create",movement:saved});refreshAfterMovementSave();resetMvForm();setMvAssignPendingSql(r?.savedBudgetAssignment===false);if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}logUsageEvent(data!.household!.id,"movimientos","guardar_movimiento");}});
   const [confirmDeleteMvId,setConfirmDeleteMvId]=useState<number|null>(null);
   const [confirmDeleteProfId,setConfirmDeleteProfId]=useState<number|null>(null);
   const [confirmDelInvId,setConfirmDelInvId]=useState<number|null>(null);
@@ -970,7 +983,7 @@ export function App(){
 
   // account form
   const [accFormName,setAccFormName]=useState(""); const [accType,setAccType]=useState<"bank"|"cash"|"credit"|"investment"|"loan">("bank"); const [accVis,setAccVis]=useState<"private"|"shared">("shared"); const [accInit,setAccInit]=useState("0"); const [editingAcc,setEditingAcc]=useState<number|null>(null); const [showAccPreview,setShowAccPreview]=useState(false);
-  const saveAcc=useMutation({mutationFn:async()=>await api.saveAccount({id:editingAcc??undefined,householdId:data!.household!.id,name:accFormName,type:accType,visibility:accVis,initialBalance:Number(accInit)||0}),onSuccess:()=>{inv();setAccFormName("");setEditingAcc(null);setShowAccPreview(false);}});
+  const saveAcc=useMutation({mutationFn:async()=>await api.saveAccount({id:editingAcc??undefined,householdId:data!.household!.id,name:accFormName,type:accType,visibility:accVis,initialBalance:Number(accInit)||0}),onSuccess:()=>{inv();setAccFormName("");setEditingAcc(null);setShowAccPreview(false);logUsageEvent(data!.household!.id,"cuentas","guardar_cuenta");}});
   const delAcc=useMutation({mutationFn:async(id:number)=>await api.deleteAccount({id}),onSuccess:inv});
 
   // Arqueo de cuentas (auditoría): lo contado en físico por cada cuenta y
@@ -987,7 +1000,7 @@ export function App(){
   // (saved:false cuando falta correr su SQL).
   const [budSub,setBudSub]=useState(""); const [budIncludePrior,setBudIncludePrior]=useState(false); const [budPendingSql,setBudPendingSql]=useState(false);
   const [budStartDate,setBudStartDate]=useState(todayISO()); const [budStartDatePendingSql,setBudStartDatePendingSql]=useState(false);
-  const saveBud=useMutation({mutationFn:async()=>await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis,subcategory:budSub||undefined,includePriorExpenses:budIncludePrior,startDate:(!budIncludePrior && budStartDate!==todayISO())?budStartDate:undefined}),onSuccess:(r)=>{inv();setBudAmount("");setBudSub("");setBudIncludePrior(false);setBudStartDate(todayISO());setBudPendingSql(r?.saved===false);setBudStartDatePendingSql(r?.savedStartDate===false);}});
+  const saveBud=useMutation({mutationFn:async()=>await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis,subcategory:budSub||undefined,includePriorExpenses:budIncludePrior,startDate:(!budIncludePrior && budStartDate!==todayISO())?budStartDate:undefined}),onSuccess:(r)=>{inv();setBudAmount("");setBudSub("");setBudIncludePrior(false);setBudStartDate(todayISO());setBudPendingSql(r?.saved===false);setBudStartDatePendingSql(r?.savedStartDate===false);logUsageEvent(data!.household!.id,"presupuestos","guardar_presupuesto");}});
   const delBud=useMutation({mutationFn:async(id:number)=>await api.deleteBudget({id}),onSuccess:inv});
 
   // category
@@ -1018,10 +1031,10 @@ export function App(){
   const fundFrequency=(id:number):FundFrequency=>fundFreq[id] ?? readFundFrequency(id);
   const chooseFundFrequency=(id:number,freq:FundFrequency)=>{ writeFundFrequency(id,freq); setFundFreq(prev=>({...prev,[id]:freq})); };
   const closeFundDetail=()=>{ setFundDetailId(null); setQuickFundId(null); setQuickFundAmt(""); setQuickFundAcc(""); setQuickFundAccError(""); };
-  const saveFund=useMutation({mutationFn:async()=>await api.saveFund({householdId:data!.household!.id,name:fundName,targetAmount:fundTarget?Number(fundTarget):null,targetDate:fundDate||undefined,visibility:"shared",importance:Number(fundImportance)||3}),onSuccess:(r)=>{inv();setFundDatePendingSql(r.savedDate===false);setFundImpPendingSql(r.savedImportance===false);setFundName("");setFundTarget("");setFundDate("");setFundImportance("3");}});
-  const updateFund=useMutation({mutationFn:async(v:{id:number;targetAmount:number|null;targetDate:string})=>await api.saveFund({id:v.id,householdId:data!.household!.id,name:data!.funds.find(f=>f.id===v.id)?.name ?? "",targetAmount:v.targetAmount,targetDate:v.targetDate,visibility:"shared"}),onSuccess:(r)=>{inv();setFundEditDatePendingSql(r.savedDate===false);setFundEditId(null);}});
+  const saveFund=useMutation({mutationFn:async()=>await api.saveFund({householdId:data!.household!.id,name:fundName,targetAmount:fundTarget?Number(fundTarget):null,targetDate:fundDate||undefined,visibility:"shared",importance:Number(fundImportance)||3}),onSuccess:(r)=>{inv();setFundDatePendingSql(r.savedDate===false);setFundImpPendingSql(r.savedImportance===false);setFundName("");setFundTarget("");setFundDate("");setFundImportance("3");logUsageEvent(data!.household!.id,"fondos","guardar_fondo");}});
+  const updateFund=useMutation({mutationFn:async(v:{id:number;targetAmount:number|null;targetDate:string})=>await api.saveFund({id:v.id,householdId:data!.household!.id,name:data!.funds.find(f=>f.id===v.id)?.name ?? "",targetAmount:v.targetAmount,targetDate:v.targetDate,visibility:"shared"}),onSuccess:(r)=>{inv();setFundEditDatePendingSql(r.savedDate===false);setFundEditId(null);logUsageEvent(data!.household!.id,"fondos","guardar_fondo");}});
   const setFundImp=useMutation({mutationFn:async(v:{id:number;importance:number})=>await api.setFundImportance(v)});
-  const fundMove=useMutation({mutationFn:async(v:{fundId:number;type:"contribution"|"withdrawal";amount:number;accountId:number})=>await api.addFundMovement({householdId:data!.household!.id,fundId:v.fundId,type:v.type,amount:v.amount,date:todayISO(),accountId:v.accountId}),onSuccess:(_,v)=>{inv();setFundAmt(a=>({...a,[v.fundId]:""}));setFundAcc(a=>({...a,[v.fundId]:""}));setFundAccError(a=>({...a,[v.fundId]:""}));}});
+  const fundMove=useMutation({mutationFn:async(v:{fundId:number;type:"contribution"|"withdrawal";amount:number;accountId:number})=>await api.addFundMovement({householdId:data!.household!.id,fundId:v.fundId,type:v.type,amount:v.amount,date:todayISO(),accountId:v.accountId}),onSuccess:(_,v)=>{inv();setFundAmt(a=>({...a,[v.fundId]:""}));setFundAcc(a=>({...a,[v.fundId]:""}));setFundAccError(a=>({...a,[v.fundId]:""}));logUsageEvent(data!.household!.id,"fondos",v.type==="withdrawal"?"retirar_meta":"aportar_meta");}});
   const delFund=useMutation({mutationFn:async(id:number)=>await api.deleteFund({id}),onSuccess:()=>{inv();setConfirmDelFundId(null);}});
 
   // goal
@@ -1062,11 +1075,11 @@ export function App(){
   const [planWizardOpen,setPlanWizardOpen]=useState(false);
   const [showAllHomeMovs,setShowAllHomeMovs]=useState(false);
   // Toda meta nace con su plan: una sola acción crea meta + fondo + plan.
-  const saveGoalWithPlan=useMutation({mutationFn:async()=>await api.saveGoalWithPlan({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared",monthlyAmount:goalMonthly?Number(goalMonthly):undefined,months:Number(goalMonths)||0,dueDay:Number(goalDueDay)||data!.household!.cutoffDay,initialAccountId:goalInitialAcc?Number(goalInitialAcc):null,importance:Number(goalImportance)||3}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setGoalSaved("0");setGoalDate("");setGoalMonthly("");setGoalMonths("");setGoalDueDay("");setGoalInitialAcc("");setGoalImportance("3");setGoalFormError("");},onError:(e:Error)=>{setGoalFormError(e.message);}});
-  const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving(v),onSuccess:(_,v)=>{inv();setGoalAdd(a=>({...a,[v.id]:""}));setGoalAddAcc(a=>({...a,[v.id]:""}));setGoalAddAccError(a=>({...a,[v.id]:""}));}});
-  const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;subcategory?:string;budgetId?:number;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,subcategory:v.subcategory,budgetId:v.budgetId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:(r,v)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,toAccountId:null,categoryId:v.categoryId,subcategory:v.subcategory ?? null,budgetId:v.budgetId ?? null,date:todayISO(),visibility:v.visibility,profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();if(r?.savedBudgetAssignment===false){setPayBudAssignPendingSql(true);}else{setPayBudAssignPendingSql(false);setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");}}});
-  const contributeGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving(v),onSuccess:()=>{inv();setQuickGoal(null);setQuickGoalAmt("");setQuickGoalAcc("");setQuickGoalAccError("");}});
-  const withdrawGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving({id:v.id,amount:-v.amount,accountId:v.accountId}),onSuccess:()=>{inv();setWithdrawGoalId(null);setWithdrawGoalAmt("");setWithdrawGoalAcc("");setWithdrawGoalAccError("");}});
+  const saveGoalWithPlan=useMutation({mutationFn:async()=>await api.saveGoalWithPlan({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared",monthlyAmount:goalMonthly?Number(goalMonthly):undefined,months:Number(goalMonths)||0,dueDay:Number(goalDueDay)||data!.household!.cutoffDay,initialAccountId:goalInitialAcc?Number(goalInitialAcc):null,importance:Number(goalImportance)||3}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setGoalSaved("0");setGoalDate("");setGoalMonthly("");setGoalMonths("");setGoalDueDay("");setGoalInitialAcc("");setGoalImportance("3");setGoalFormError("");logUsageEvent(data!.household!.id,"metas","guardar_meta");},onError:(e:Error)=>{setGoalFormError(e.message);}});
+  const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving(v),onSuccess:(_,v)=>{inv();setGoalAdd(a=>({...a,[v.id]:""}));setGoalAddAcc(a=>({...a,[v.id]:""}));setGoalAddAccError(a=>({...a,[v.id]:""}));logUsageEvent(data!.household!.id,"metas","aportar_meta");}});
+  const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;subcategory?:string;budgetId?:number;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,subcategory:v.subcategory,budgetId:v.budgetId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:(r,v)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,toAccountId:null,categoryId:v.categoryId,subcategory:v.subcategory ?? null,budgetId:v.budgetId ?? null,date:todayISO(),visibility:v.visibility,profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();if(r?.savedBudgetAssignment===false){setPayBudAssignPendingSql(true);}else{setPayBudAssignPendingSql(false);setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");logUsageEvent(data!.household!.id,"presupuestos","guardar_movimiento");}}});
+  const contributeGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving(v),onSuccess:()=>{inv();setQuickGoal(null);setQuickGoalAmt("");setQuickGoalAcc("");setQuickGoalAccError("");logUsageEvent(data!.household!.id,"metas","aportar_meta");}});
+  const withdrawGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving({id:v.id,amount:-v.amount,accountId:v.accountId}),onSuccess:()=>{inv();setWithdrawGoalId(null);setWithdrawGoalAmt("");setWithdrawGoalAcc("");setWithdrawGoalAccError("");logUsageEvent(data!.household!.id,"metas","retirar_meta");}});
   const updatePat=useMutation({mutationFn:async(v:{id:number;name:string;kind:string;category:string;value:number;owner:string|null})=>await api.savePatrimony({id:v.id,householdId:data!.household!.id,name:v.name,kind:v.kind as "asset"|"liability",category:v.category,value:v.value,owner:v.owner??undefined}),onSuccess:()=>{inv();setQuickPat(null);setQuickPatVal("");}});
   const delGoal=useMutation({mutationFn:async(id:number)=>await api.deleteGoal({id}),onSuccess:()=>{inv();setConfirmDelGoalId(null);}});
   // Importancia 1–5 (G): el servidor dice si se guardó (saved:false
@@ -1121,7 +1134,7 @@ export function App(){
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persAccountError,setPersAccountError]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:(r)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,toAccountId:null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,subcategory:null,budgetId:null,date:todayISO(),visibility:"private",profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();resetPersForm();}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:(r)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,toAccountId:null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,subcategory:null,budgetId:null,date:todayISO(),visibility:"private",profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();resetPersForm();logUsageEvent(data!.household!.id,"personal","guardar_movimiento");}});
   // Mike dinámico: preguntas con cifras reales del mes que se está viendo,
   // calculadas en el dispositivo con los datos ya cargados (sin llamadas nuevas
   // ni servicios externos). Las respuestas usan solo los movimientos que el
@@ -1763,7 +1776,9 @@ export function App(){
   // La primera pantalla es siempre Inicio: al abrir la app, al entrar después
   // de iniciar sesión y al reabrirla, se ven saldo, gráficas, movimientos y las
   // tarjetas principales, sin abrir el menú ni ir a otra pestaña.
-  const s=data.summary; const hh=data.household; const effTab:Tab = tab; const goTab=(x:Tab)=>{setTab(x); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
+  const s=data.summary; const hh=data.household; const effTab:Tab = tab; const goTab=(x:Tab)=>{setTab(x); logUsageEvent(data?.household?.id, x, "ver_modulo"); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
+  // Primera vista de la sesión: la analítica también cuenta el módulo en
+  // el que se abre la app (goTab solo registra los cambios de módulo).
   const openTandaDetail=(id:number)=>{ setTandaDetailId(id); goTab("tandas"); };
   // Módulo Desarrollador: solo aparece en el menú para el dueño de la app.
   const drawerGroups: {title:string; tabs:Tab[]}[] = isAppOwner ? [...DRAWER_GROUPS, {title:"Desarrollador", tabs:["desarrollador"]}] : DRAWER_GROUPS;
@@ -3500,6 +3515,52 @@ export function App(){
                       </div>
                     ))}
                   </div>
+                </>}
+            </CollapsibleCard>
+            <CollapsibleCard
+              open={devUsageOpen}
+              onToggle={()=>setDevUsageOpen(v=>!v)}
+              toggleLabel="la analítica de uso"
+              title={<span><span className="font-display font-bold text-lg">Analítica de uso</span><span className="block text-xs text-[var(--dim)] mt-0.5">Qué módulos y botones usan los testers durante la prueba.</span></span>}
+            >
+                <p className="text-xs text-[var(--dim)] mt-2">Solo la ve el dueño de la app. Solo se registran el módulo y el botón; no se guardan importes, conceptos, cuentas ni comprobantes.</p>
+                {usageQuery.isPending ? <p className="text-sm text-[var(--dim)] mt-2">Cargando analítica…</p>
+                : usageQuery.error ? <p className="text-sm text-[var(--red)] mt-2">No se pudo cargar la analítica.</p>
+                : !usageQuery.data || usageQuery.data.tableMissing ? <p className="text-sm text-[var(--dim)] mt-2">Aún sin datos: falta correr supabase/add-usage-events.sql en casa. La app sigue funcionando igual.</p>
+                : usageQuery.data.totals.length===0 ? <p className="text-sm text-[var(--dim)] mt-2">Sin eventos todavía. Cuando un tester entre a un módulo o guarde algo, aparecerá aquí.</p>
+                : <>
+                  <p className="text-sm font-bold mt-3">Botones más usados (todos)</p>
+                  <div className="mt-1">
+                    {usageQuery.data.totals.filter(t=>t.action!=="ver_modulo").map(t=>(
+                      <div key={t.action} className="flex items-center gap-2 py-1 text-sm">
+                        <span className="min-w-0 flex-1">{usageActionLabel(t.action)}</span>
+                        <span className="shrink-0 h-2 rounded-full" style={{width: Math.max(8, Math.round(120*t.count/usageQuery.data!.totals.filter(x=>x.action!=="ver_modulo").reduce((m,x)=>Math.max(m,x.count),1))), backgroundColor:"#00C2B5"}} />
+                        <b className="shrink-0" style={{color:"#00C2B5"}}>{t.count}</b>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-sm font-bold mt-4">Por usuario</p>
+                  <div className="divide-y divide-[var(--border)] mt-1">
+                    {usageQuery.data.users.map(u=>{
+                      const au=appUsersQuery.data?.users.find(x=>x.id===u.userId);
+                      const open=usageDetailUser===u.userId;
+                      const evs=usageQuery.data!.events.filter(e=>e.userId===u.userId).slice(0,20);
+                      return (
+                      <div key={u.userId} className="py-2.5 text-sm">
+                        <div className="flex justify-between gap-2"><b>{au?.name || au?.email || "Usuario"}</b><span className="text-xs text-[var(--dim)] shrink-0">{u.total} evento{u.total===1?"":"s"}</span></div>
+                        {au?.email && <p className="text-xs text-[var(--dim)]">{au.email}</p>}
+                        <p className="text-xs text-[var(--dim)]">Módulos: {u.modules.map(m=>`${usageModuleLabel(m.module)} ${m.count}`).join(" · ") || "—"}</p>
+                        <p className="text-xs text-[var(--dim)]">Botones: {u.actions.filter(a=>a.action!=="ver_modulo").map(a=>`${usageActionLabel(a.action)} ${a.count}`).join(" · ") || "—"}</p>
+                        <button type="button" className="text-xs font-bold mt-1" style={{color:"#00C2B5"}} aria-label={open?`Cerrar el detalle de ${au?.name || "este usuario"}`:`Ver el detalle de ${au?.name || "este usuario"}`} onClick={()=>setUsageDetailUser(open?null:u.userId)}>{open?"Cerrar detalle":"Ver detalle"}</button>
+                        {open && <div className="mt-1">
+                          {evs.length===0 ? <p className="text-xs text-[var(--dim)]">Sin eventos.</p> : evs.map((e,i)=>(
+                            <p key={i} className="text-xs py-0.5"><span className="text-[var(--dim)]">{fmtDate(e.createdAt.slice(0,10))} {e.createdAt.slice(11,16)}</span> · {usageModuleLabel(e.module)} · {usageActionLabel(e.action)}</p>
+                          ))}
+                        </div>}
+                      </div>);
+                    })}
+                  </div>
+                  <p className="text-xs text-[var(--dim)] mt-3">Se borra al terminar el piloto.</p>
                 </>}
             </CollapsibleCard>
           </section>

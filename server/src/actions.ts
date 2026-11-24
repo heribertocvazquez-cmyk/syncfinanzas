@@ -314,6 +314,13 @@ function computeBudgetSpents(movs: { categoryId: number | null; subcategory: str
   }
   return spent;
 }
+// Analítica de uso de la prueba (2026-11-24): módulos y acciones que
+// logUsage acepta. Cualquier otro valor se rechaza: la lista es el límite
+// que protege a los testers (solo módulo y botón, nunca importes ni
+// contenido). Debe mantenerse igual que USAGE_MODULES/USAGE_ACTIONS en
+// client/src/lib/usageLog.ts.
+const USAGE_MODULES: string[] = ["inicio", "personal", "tandas", "movimientos", "cuentas", "categorias", "presupuestos", "fondos", "aportaciones", "metas", "acuerdos", "patrimonio", "perfiles", "hogar", "seguridad", "guia", "desarrollador", "legales"];
+const USAGE_ACTIONS: string[] = ["ver_modulo", "guardar_movimiento", "guardar_cuenta", "guardar_presupuesto", "guardar_meta", "guardar_fondo", "aportar_meta", "retirar_meta"];
 // Versiones vigentes de los documentos legales y del apartado «Versión de
 // prueba». La aceptación de un usuario vale solo si coincide con las
 // cuatro: si cambia la versión de algún documento (o del apartado), la
@@ -325,7 +332,7 @@ export const LEGAL_DOC_VERSIONS = {
   privacy: "v1-2026-11-16",
   terms: "v1-2026-11-16",
   refunds: "v1-2026-11-16",
-  notice: "v1-2026-11-23",
+  notice: "v2-2026-11-24",
 } as const;
 type LegalAcceptanceRow = { acceptedAt: string; privacyVersion: string; termsVersion: string; refundsVersion: string; noticeVersion: string };
 // Aceptación legal (tabla legal_acceptances,
@@ -4320,6 +4327,80 @@ export const Actions = {
         lastSignInAt: u.last_sign_in_at ?? null,
       })).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
       return { total: users.length, users };
+    },
+  }),
+  // Analítica de uso de la prueba (2026-11-24, aprobada por Heriberto):
+  // solo se registran el módulo (pantalla) y el botón (nombre de la
+  // acción), con fecha y hora. NUNCA importes, conceptos, cuentas, fotos
+  // ni ningún contenido de lo que el usuario guarda: estas dos listas son
+  // el límite que el servidor impone, no solo una promesa. La tabla
+  // usage_events vive en supabase/add-usage-events.sql (RLS denegación
+  // total; solo el servidor con service_role). Sin la tabla, logUsage
+  // devuelve saved:false en silencio: la analítica nunca interrumpe el
+  // uso de la app. listUsage solo la ve el dueño de la app.
+  logUsage: defineAction({
+    description: "Registra un evento de uso de la prueba: solo el módulo y el botón (nombre de la acción). Nunca importes ni contenido.",
+    request: z.object({ householdId: z.number(), module: z.string().max(40), action: z.string().max(40) }),
+    response: z.object({ ok: z.boolean(), saved: z.boolean() }),
+    async handler(ctx, args) {
+      if (!USAGE_MODULES.includes(args.module) || !USAGE_ACTIONS.includes(args.action)) throw new Error("Módulo o acción no permitidos en la analítica de uso.");
+      try {
+        await ctx.db.execute(sql`INSERT INTO usage_events (household_id, user_id, module, action) VALUES (${args.householdId}, ${ctx.user.id}, ${args.module}, ${args.action})`);
+        return { ok: true, saved: true };
+      } catch { return { ok: true, saved: false }; }
+    },
+  }),
+  listUsage: defineAction({
+    description: "Analítica de uso de la prueba para el dueño: botones más usados de todos, por usuario (módulos y botones con conteos) y el detalle de cada acción.",
+    request: z.object({ householdId: z.number().optional() }),
+    response: z.object({
+      tableMissing: z.boolean(),
+      totals: z.array(z.object({ action: z.string(), count: z.number() })),
+      users: z.array(z.object({ userId: z.string(), householdId: z.number(), total: z.number(), lastAt: z.string().nullable(), modules: z.array(z.object({ module: z.string(), count: z.number() })), actions: z.array(z.object({ action: z.string(), count: z.number() })) })),
+      events: z.array(z.object({ userId: z.string(), householdId: z.number(), module: z.string(), action: z.string(), createdAt: z.string() })),
+    }),
+    async handler(ctx) {
+      if (!isAppOwner(ctx)) throw new Error("Solo el dueño de la app puede revisar la analítica de uso.");
+      try {
+        const rowsOf = (res: unknown): Record<string, unknown>[] => {
+          const r = res as { rows?: Record<string, unknown>[] } | Record<string, unknown>[];
+          return Array.isArray(r) ? r : (r.rows ?? []);
+        };
+        const agg = rowsOf(await ctx.db.execute(sql`SELECT user_id, household_id, module, action, COUNT(*) AS n FROM usage_events GROUP BY user_id, household_id, module, action`));
+        const recent = rowsOf(await ctx.db.execute(sql`SELECT user_id, household_id, module, action, created_at FROM usage_events ORDER BY created_at DESC LIMIT 200`));
+        const byAction = new Map<string, number>();
+        const byUser = new Map<string, { userId: string; householdId: number; total: number; lastAt: string | null; modules: Map<string, number>; actions: Map<string, number> }>();
+        for (const row of agg) {
+          const userId = String(row.user_id);
+          const householdId = Number(row.household_id);
+          const module = String(row.module);
+          const action = String(row.action);
+          const n = Number(row.n);
+          byAction.set(action, (byAction.get(action) ?? 0) + n);
+          let u = byUser.get(userId);
+          if (!u) { u = { userId, householdId, total: 0, lastAt: null, modules: new Map(), actions: new Map() }; byUser.set(userId, u); }
+          u.total += n;
+          u.modules.set(module, (u.modules.get(module) ?? 0) + n);
+          u.actions.set(action, (u.actions.get(action) ?? 0) + n);
+        }
+        const events = recent.map((row) => ({ userId: String(row.user_id), householdId: Number(row.household_id), module: String(row.module), action: String(row.action), createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at) }));
+        for (const u of byUser.values()) {
+          const last = events.find((e) => e.userId === u.userId);
+          u.lastAt = last ? last.createdAt : null;
+        }
+        const sorted = (m: Map<string, number>, key: string): { [k: string]: string | number }[] =>
+          [...m.entries()].sort((a, b) => b[1] - a[1]).map(([v, count]) => ({ [key]: v, count }));
+        return {
+          tableMissing: false,
+          totals: sorted(byAction, "action") as { action: string; count: number }[],
+          users: [...byUser.values()].sort((a, b) => b.total - a.total).map((u) => ({
+            userId: u.userId, householdId: u.householdId, total: u.total, lastAt: u.lastAt,
+            modules: sorted(u.modules, "module") as { module: string; count: number }[],
+            actions: sorted(u.actions, "action") as { action: string; count: number }[],
+          })),
+          events,
+        };
+      } catch { return { tableMissing: true, totals: [], users: [], events: [] }; }
     },
   }),
   // Arqueo de cuentas (auditoría): recuento de lo que dice la app contra
