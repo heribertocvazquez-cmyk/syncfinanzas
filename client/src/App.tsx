@@ -44,6 +44,7 @@ import type { TandaDetailDeps, TandaInviteSend as InviteSend, TandaProofReview }
 import { DrawerMenu, type DrawerMenuSection } from "./components/DrawerMenu";
 import { DRAWER_GROUPS, orderDrawerTabs } from "./lib/drawerOrder";
 import { HELP_FAQS, dynamicHelpFaqs, findHelpAnswer, frequentQuestions, loadHelpLearning, loadNudgeShown, markNudgeShown, matchSavingsWizard, pickHelpNudge, pickOpeningMessage, predictHelp, recordHelpLearning, recordHelpQuestion, reviewMovement, wizardMotive, wizardResultText, wizardStep, type HelpFaq, type HelpMsg, type HelpNudge, type OverviewData, type WizardState } from "./lib/helpDynamic";
+import { applyMovementChange, type MovementChange, type SavedMovement } from "./lib/optimisticOverview";
 import { api, fetchSession, signOut } from "./api";
 import { PdfViewer } from "./components/PdfViewer";
 import guiaResumenPdf from "./assets/guia-resumen-registro.pdf";
@@ -891,13 +892,46 @@ export function App(){
     if(target==="mv"){ if(mvCat==="" || appliedRuleMv){ setMvCat(String(r.categoryId)); setAppliedRuleMv({keyword:r.keyword,categoryName:cat.name}); } }
     else { if(persCat==="" || appliedRulePers){ setPersCat(String(r.categoryId)); setAppliedRulePers({keyword:r.keyword,categoryName:cat.name}); } }
   };
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,budgetId:(mvType==="expense"||mvType==="debt_payment")?mvBudget:undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:(r)=>{inv();resetMvForm();setMvAssignPendingSql(r?.savedBudgetAssignment===false);if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}}});
+  // Totales al instante al guardar un movimiento: en cuanto el servidor
+  // confirma el guardado, la vista en caché se proyecta con el movimiento
+  // guardado (los totales de Inicio y Presupuestos ya muestran el valor
+  // nuevo) y luego se invalida para que el refetch concilie. Si el
+  // guardado falla, onSuccess no corre y los totales quedan como estaban.
+  // El refetch en vuelo de un guardado anterior se cancela antes de
+  // invalidar, para que sus datos viejos no pisen la proyección.
+  const overviewKey = ["overview", viewMonth, activeHouseholdId] as const;
+  const projectMovementChange = (change: MovementChange) => {
+    qc.setQueryData(overviewKey, (old: OverviewData | undefined) =>
+      old ? applyMovementChange(old, change, { today: todayISO(), myEmail }) : old,
+    );
+  };
+  const refreshAfterMovementSave = () => {
+    void (async () => {
+      await qc.cancelQueries({ queryKey: ["overview"] });
+      inv();
+    })();
+  };
+  const savedMovementFromForm = (id: number): SavedMovement => ({
+    id,
+    type: mvType,
+    amount: Number(mvAmount),
+    concept: mvConcept,
+    accountId: mvAccount ? Number(mvAccount) : null,
+    toAccountId: mvToAccount ? Number(mvToAccount) : null,
+    categoryId: mvCat && mvCat !== "__new__" ? Number(mvCat) : null,
+    subcategory: mvSub || null,
+    budgetId: (mvType === "expense" || mvType === "debt_payment") ? (mvBudget ?? null) : null,
+    date: mvDate,
+    visibility: mvVis,
+    profileId: mvProfile ? Number(mvProfile) : (me ? me.id : null),
+  });
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,budgetId:(mvType==="expense"||mvType==="debt_payment")?mvBudget:undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:(r)=>{const previous=editingMv!=null?data?.movements.find(m=>m.id===editingMv)??null:null;const saved=savedMovementFromForm(r?.id ?? editingMv ?? 0);projectMovementChange(previous?{kind:"edit",movement:saved,previous}:{kind:"create",movement:saved});refreshAfterMovementSave();resetMvForm();setMvAssignPendingSql(r?.savedBudgetAssignment===false);if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}}});
   const [confirmDeleteMvId,setConfirmDeleteMvId]=useState<number|null>(null);
   const [confirmDeleteProfId,setConfirmDeleteProfId]=useState<number|null>(null);
   const [confirmDelInvId,setConfirmDelInvId]=useState<number|null>(null);
-  const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:()=>{inv();setConfirmDeleteMvId(null);}});
+  const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:(_r,id)=>{const previous=data?.movements.find(m=>m.id===id)??null;if(previous) projectMovementChange({kind:"delete",previous});refreshAfterMovementSave();setConfirmDeleteMvId(null);}});
   const [confirmReverseId,setConfirmReverseId]=useState<number|null>(null);
-  const revMv=useMutation({mutationFn:async(id:number)=>await api.reverseMovement({id}),onSuccess:()=>{inv();setConfirmReverseId(null);}});
+  const revMv=useMutation({mutationFn:async(id:number)=>await api.reverseMovement({id}),onSuccess:(r,id)=>{const previous=data?.movements.find(m=>m.id===id)??null;if(previous) projectMovementChange({kind:"reverse",previous,reversalId:r?.reversalId ?? null});refreshAfterMovementSave();setConfirmReverseId(null);}});
 
   // account form
   const [accFormName,setAccFormName]=useState(""); const [accType,setAccType]=useState<"bank"|"cash"|"credit"|"investment"|"loan">("bank"); const [accVis,setAccVis]=useState<"private"|"shared">("shared"); const [accInit,setAccInit]=useState("0"); const [editingAcc,setEditingAcc]=useState<number|null>(null);
@@ -995,7 +1029,7 @@ export function App(){
   // Toda meta nace con su plan: una sola acción crea meta + fondo + plan.
   const saveGoalWithPlan=useMutation({mutationFn:async()=>await api.saveGoalWithPlan({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared",monthlyAmount:goalMonthly?Number(goalMonthly):undefined,months:Number(goalMonths)||0,dueDay:Number(goalDueDay)||data!.household!.cutoffDay,initialAccountId:goalInitialAcc?Number(goalInitialAcc):null,importance:Number(goalImportance)||3}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setGoalSaved("0");setGoalDate("");setGoalMonthly("");setGoalMonths("");setGoalDueDay("");setGoalInitialAcc("");setGoalImportance("3");setGoalFormError("");},onError:(e:Error)=>{setGoalFormError(e.message);}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving(v),onSuccess:(_,v)=>{inv();setGoalAdd(a=>({...a,[v.id]:""}));setGoalAddAcc(a=>({...a,[v.id]:""}));setGoalAddAccError(a=>({...a,[v.id]:""}));}});
-  const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;subcategory?:string;budgetId?:number;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,subcategory:v.subcategory,budgetId:v.budgetId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:(r)=>{inv();if(r?.savedBudgetAssignment===false){setPayBudAssignPendingSql(true);}else{setPayBudAssignPendingSql(false);setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");}}});
+  const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;subcategory?:string;budgetId?:number;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,subcategory:v.subcategory,budgetId:v.budgetId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:(r,v)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,toAccountId:null,categoryId:v.categoryId,subcategory:v.subcategory ?? null,budgetId:v.budgetId ?? null,date:todayISO(),visibility:v.visibility,profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();if(r?.savedBudgetAssignment===false){setPayBudAssignPendingSql(true);}else{setPayBudAssignPendingSql(false);setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");}}});
   const contributeGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving(v),onSuccess:()=>{inv();setQuickGoal(null);setQuickGoalAmt("");setQuickGoalAcc("");setQuickGoalAccError("");}});
   const withdrawGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving({id:v.id,amount:-v.amount,accountId:v.accountId}),onSuccess:()=>{inv();setWithdrawGoalId(null);setWithdrawGoalAmt("");setWithdrawGoalAcc("");setWithdrawGoalAccError("");}});
   const updatePat=useMutation({mutationFn:async(v:{id:number;name:string;kind:string;category:string;value:number;owner:string|null})=>await api.savePatrimony({id:v.id,householdId:data!.household!.id,name:v.name,kind:v.kind as "asset"|"liability",category:v.category,value:v.value,owner:v.owner??undefined}),onSuccess:()=>{inv();setQuickPat(null);setQuickPatVal("");}});
@@ -1052,7 +1086,7 @@ export function App(){
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persAccountError,setPersAccountError]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:()=>{inv();resetPersForm();}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:(r)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,toAccountId:null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,subcategory:null,budgetId:null,date:todayISO(),visibility:"private",profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();resetPersForm();}});
   // Mike dinámico: preguntas con cifras reales del mes que se está viendo,
   // calculadas en el dispositivo con los datos ya cargados (sin llamadas nuevas
   // ni servicios externos). Las respuestas usan solo los movimientos que el
