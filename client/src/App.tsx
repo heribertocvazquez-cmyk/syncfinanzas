@@ -1789,8 +1789,10 @@ export function App(){
     ...drawerGroups.map((g) => {
       const tabs = orderDrawerTabs(g.title, g.tabs, tabLabel).map((tid) => ({ id: tid, label: tabLabel(tid) }));
       // «Nuevo gasto» abre el formulario desde el cajón y lleva su propia
-      // estrella, para fijarlo o quitarlo como los demás atajos.
-      const rows = g.title === "Mi dinero" ? [{ action: "nuevo-gasto" as const, label: "Nuevo gasto" }, ...tabs] : tabs;
+      // estrella, para fijarlo o quitarlo como los demás atajos. Va AL
+      // FINAL de Mi dinero (corrección de Heriberto 2026-11-24 ~12:06),
+      // después de Movimientos.
+      const rows = g.title === "Mi dinero" ? [...tabs, { action: "nuevo-gasto" as const, label: "Nuevo gasto" }] : tabs;
       return { title: g.title, tabs: rows };
     }),
     { title: "Configuración", tabs: [], config: true },
