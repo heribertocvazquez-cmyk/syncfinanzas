@@ -171,20 +171,40 @@ async function saveBudgetSnooze(db: Ctx["db"], householdId: number, categoryId: 
 // Campos nuevos de budgets (supabase/add-budget-subcategory.sql):
 // subcategory (NULL = toda la categoría), include_prior_expenses
 // (FALSE = nace «como nuevo»: solo cuentan los gastos registrados desde
-// su creación) y created_at (corte del «como nuevo»). NO van en el
+// su creación) y created_at (corte del «como nuevo»). La fecha de inicio
+// elegida (supabase/add-budget-start-date.sql) vive aparte: start_date
+// (NULL = sin fecha elegida, el corte es created_at). NO van en el
 // esquema de Drizzle — se leen y escriben solo con SQL directo en
 // try/catch, con listas de columnas explícitas: si el SQL aún no se
 // corrió, la lectura dice «comportamiento viejo» y la escritura devuelve
 // false (el cliente avisa), en vez de romper — mismo patrón que las
 // posposiciones de presupuesto y la importancia de metas.
-type BudgetExtra = { subcategory: string | null; includePrior: boolean; createdAt: number | null };
+// La fecha de inicio se lee en su propia consulta: si solo se corrió el
+// primer SQL y falta el segundo, la lectura de start_date falla sola y
+// no arrastra la de subcategoría y previos.
+type BudgetExtra = { subcategory: string | null; includePrior: boolean; createdAt: number | null; startDate: string | null };
+function toDateStr(v: string | Date | null): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return /^\d{4}-\d{2}-\d{2}$/.test(v.slice(0, 10)) ? v.slice(0, 10) : null;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  return null;
+}
 async function readBudgetExtras(db: Ctx["db"], householdId: number): Promise<Map<number, BudgetExtra>> {
   const out = new Map<number, BudgetExtra>();
   try {
     const res = (await db.execute(sql`SELECT id, subcategory, include_prior_expenses, created_at FROM budgets WHERE household_id = ${householdId}`)) as unknown as { rows?: { id: number; subcategory: string | null; include_prior_expenses: boolean | null; created_at: string | Date | null }[] } | { id: number; subcategory: string | null; include_prior_expenses: boolean | null; created_at: string | Date | null }[];
     const rows = Array.isArray(res) ? res : (res.rows ?? []);
-    for (const row of rows) out.set(row.id, { subcategory: row.subcategory ?? null, includePrior: row.include_prior_expenses ?? true, createdAt: row.created_at == null ? null : (row.created_at instanceof Date ? row.created_at.getTime() : new Date(String(row.created_at)).getTime()) });
+    for (const row of rows) out.set(row.id, { subcategory: row.subcategory ?? null, includePrior: row.include_prior_expenses ?? true, createdAt: row.created_at == null ? null : (row.created_at instanceof Date ? row.created_at.getTime() : new Date(String(row.created_at)).getTime()), startDate: null });
   } catch { /* columnas aún no creadas: comportamiento viejo */ }
+  return out;
+}
+async function readBudgetStartDates(db: Ctx["db"], householdId: number): Promise<Map<number, string | null>> {
+  const out = new Map<number, string | null>();
+  try {
+    const res = (await db.execute(sql`SELECT id, start_date FROM budgets WHERE household_id = ${householdId}`)) as unknown as { rows?: { id: number; start_date: string | Date | null }[] } | { id: number; start_date: string | Date | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    for (const row of rows) { const d = toDateStr(row.start_date); if (d != null) out.set(row.id, d); }
+  } catch { /* columna aún no creada: sin fecha elegida */ }
   return out;
 }
 async function writeBudgetExtra(db: Ctx["db"], budgetId: number, subcategory: string | null, includePrior: boolean): Promise<boolean> {
@@ -193,13 +213,20 @@ async function writeBudgetExtra(db: Ctx["db"], budgetId: number, subcategory: st
     return true;
   } catch { return false; }
 }
+async function writeBudgetStartDate(db: Ctx["db"], budgetId: number, startDate: string | null): Promise<boolean> {
+  try {
+    await db.execute(sql`UPDATE budgets SET start_date = ${startDate} WHERE id = ${budgetId}`);
+    return true;
+  } catch { return false; }
+}
 // Gastado de un presupuesto: gastos (y pagos de deuda) del mes de la
 // categoría; si es de una subcategoría, solo los de esa subcategoría; si
-// nació «como nuevo», solo los capturados desde su creación (la fecha de
-// captura, no la fecha del gasto: un gasto fechado el mismo día pero
-// capturado antes no se cuenta).
+// nació «como nuevo», solo los capturados desde su fecha de inicio: si el
+// usuario eligió una, desde el inicio de ese día (00:00 UTC); si no, desde
+// su creación (la fecha de captura, no la fecha del gasto: un gasto fechado
+// el mismo día pero capturado antes no se cuenta).
 function budgetSpent(movs: { categoryId: number | null; subcategory: string | null; date: string; type: string; amount: number; createdAt: Date | string | number | null }[], categoryId: number, month: string, extra: BudgetExtra): number {
-  const cutoff = extra.includePrior ? null : extra.createdAt;
+  const cutoff = extra.includePrior ? null : (extra.startDate != null ? new Date(`${extra.startDate}T00:00:00Z`).getTime() : extra.createdAt);
   const total = movs.filter((m) => m.categoryId === categoryId && m.date.startsWith(month) && (m.type === "expense" || m.type === "debt_payment") && (extra.subcategory == null || m.subcategory === extra.subcategory) && (cutoff == null || (m.createdAt != null && (m.createdAt instanceof Date ? m.createdAt.getTime() : new Date(String(m.createdAt)).getTime()) >= cutoff))).reduce((s, m) => s + m.amount, 0);
   return Math.round(total * 100) / 100;
 }
@@ -1383,7 +1410,7 @@ export const Actions = {
       defaultCashAccountId: z.number().nullable(),
       categoryMonthlyTotals: z.array(z.object({ month: z.string(), categoryId: z.number().nullable(), total: z.number() })),
       frequentMovements: z.array(z.object({ type: z.string(), amount: z.number(), key: z.string(), concept: z.string(), count: z.number(), last: z.string() })),
-      budgets: z.array(z.object({ id: z.number(), categoryId: z.number(), month: z.string(), amount: z.number(), visibility: z.string(), subcategory: z.string().nullable(), includePriorExpenses: z.boolean(), spent: z.number(), remaining: z.number(), pct: z.number() })),
+      budgets: z.array(z.object({ id: z.number(), categoryId: z.number(), month: z.string(), amount: z.number(), visibility: z.string(), subcategory: z.string().nullable(), includePriorExpenses: z.boolean(), startDate: z.string().nullable(), spent: z.number(), remaining: z.number(), pct: z.number() })),
       funds: z.array(z.object({ id: z.number(), name: z.string(), targetAmount: z.number().nullable(), targetDate: z.string().nullable(), importance: z.number(), visibility: z.string(), balance: z.number(), createdAt: z.string() })),
       fundMovements: z.array(z.object({ id: z.number(), fundId: z.number(), type: z.string(), amount: z.number(), date: z.string(), note: z.string().nullable(), accountId: z.number().nullable() })),
       accountSummaries: z.array(z.object({ accountId: z.number(), initialBalance: z.number(), income: z.number(), expense: z.number(), transfersIn: z.number(), transfersOut: z.number(), setAsides: z.array(z.object({ fundId: z.number(), name: z.string(), amount: z.number() })), balance: z.number() })),
@@ -1658,11 +1685,15 @@ export const Actions = {
       // Subcategoría y «como nuevo» (supabase/add-budget-subcategory.sql):
       // se leen aparte, tolerantes; sin las columnas, todos los
       // presupuestos quedan como hoy (toda la categoría, mes completo).
+      // La fecha de inicio (supabase/add-budget-start-date.sql) se lee en
+      // su propia consulta tolerante: si falta esa columna, solo la fecha
+      // queda sin valor y el corte vuelve a la creación.
       const budgetExtras = await readBudgetExtras(db, hid);
+      const budgetStartDates = await readBudgetStartDates(db, hid);
       const budgets = budgetsR.map(b=>{
-        const extra = budgetExtras.get(b.id) ?? { subcategory: null, includePrior: true, createdAt: null };
+        const extra = { ...(budgetExtras.get(b.id) ?? { subcategory: null, includePrior: true, createdAt: null }), startDate: budgetStartDates.get(b.id) ?? null };
         const useSpent = budgetSpent(activeMovs, b.categoryId, b.month, extra);
-        return { id: b.id, categoryId: b.categoryId, month: b.month, amount: b.amount, visibility: b.visibility, subcategory: extra.subcategory, includePriorExpenses: extra.includePrior, spent: useSpent, remaining: Math.round((b.amount-useSpent)*100)/100, pct: b.amount>0? Math.round(useSpent/b.amount*100) : 0 };
+        return { id: b.id, categoryId: b.categoryId, month: b.month, amount: b.amount, visibility: b.visibility, subcategory: extra.subcategory, includePriorExpenses: extra.includePrior, startDate: extra.startDate, spent: useSpent, remaining: Math.round((b.amount-useSpent)*100)/100, pct: b.amount>0? Math.round(useSpent/b.amount*100) : 0 };
       });
 
       const adults = memberProfilesR.filter(p=>p.kind==="adult");
@@ -2222,15 +2253,25 @@ export const Actions = {
   }),
 
   saveBudget: defineAction({
-    description: "Creates or updates a monthly budget. Optional subcategory (null = whole category) and includePriorExpenses (false = starts fresh: only expenses captured from its creation count). Returns saved:false when those new fields were requested but the SQL file hasn't been run yet.",
-    request: z.object({ id: z.number().optional(), householdId: z.number(), categoryId: z.number(), month: z.string().regex(/^\d{4}-\d{2}$/), amount: z.number().min(0), visibility: vis, subcategory: z.string().max(60).optional(), includePriorExpenses: z.boolean().optional() }),
-    response: z.object({ ok: z.literal(true), id: z.number().optional(), saved: z.boolean() }),
-    async handler(ctx,args): Promise<{ ok: true; id?: number; saved: boolean }>{ const db=ctx.db; const sub = args.subcategory?.trim() ? args.subcategory.trim() : null; const includePrior = args.includePriorExpenses ?? true; const wantsNew = sub != null || !includePrior;
+    description: "Creates or updates a monthly budget. Optional subcategory (null = whole category) and includePriorExpenses (false = starts fresh: only expenses captured from its creation count, or from the chosen startDate). Returns saved:false when those new fields were requested but the SQL file hasn't been run yet, and savedStartDate:false when a chosen start date couldn't be stored yet.",
+    request: z.object({ id: z.number().optional(), householdId: z.number(), categoryId: z.number(), month: z.string().regex(/^\d{4}-\d{2}$/), amount: z.number().min(0), visibility: vis, subcategory: z.string().max(60).optional(), includePriorExpenses: z.boolean().optional(), startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
+    response: z.object({ ok: z.literal(true), id: z.number().optional(), saved: z.boolean(), savedStartDate: z.boolean() }),
+    async handler(ctx,args): Promise<{ ok: true; id?: number; saved: boolean; savedStartDate: boolean }>{ const db=ctx.db; const sub = args.subcategory?.trim() ? args.subcategory.trim() : null; const includePrior = args.includePriorExpenses ?? true; const wantsNew = sub != null || !includePrior;
+      // Fecha de inicio elegida (supabase/add-budget-start-date.sql): solo
+      // vale cuando «como nuevo» y es distinta de hoy (UTC): hoy es el
+      // defecto y equivale a la fecha de creación (corte = created_at).
+      // Con «sí, incluirlos» la fecha no aplica y se ignora.
+      const todayUtc = new Date().toISOString().slice(0, 10);
+      const customStart = !includePrior && args.startDate && args.startDate !== todayUtc ? args.startDate : null;
       // Guarda los campos nuevos (SQL directo, tolerante): solo se intenta
       // cuando el usuario pidió algo nuevo; si las columnas no existen,
-      // devuelve false y el cliente avisa (nunca en silencio).
-      const storeExtra = async (id:number)=>{ if(!wantsNew) return true; return writeBudgetExtra(db,id,sub,includePrior); };
-      if(args.id){ await requireRowHousehold(db, schema.budgets, args.id, args.householdId, "El presupuesto indicado"); await db.update(schema.budgets).set({categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,args.id)); const saved = await storeExtra(args.id); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:args.id,saved}; }
+      // devuelve false y el cliente avisa (nunca en silencio). La fecha
+      // de inicio tiene su propio aviso (savedStartDate), separado del
+      // de subcategoría y previos: los dos SQL pueden correrse en días
+      // distintos. Al volver a «sí, incluirlos», la fecha previa se
+      // limpia (si la columna existe) para no dejar un dato viejo.
+      const storeExtra = async (id:number, isNew:boolean)=>{ let saved = true; let savedStart = true; if(wantsNew) saved = await writeBudgetExtra(db,id,sub,includePrior); if(customStart != null) savedStart = await writeBudgetStartDate(db,id,customStart); else if(includePrior && !isNew){ await writeBudgetStartDate(db,id,null); } return { saved, savedStart }; };
+      if(args.id){ await requireRowHousehold(db, schema.budgets, args.id, args.householdId, "El presupuesto indicado"); await db.update(schema.budgets).set({categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,args.id)); const r = await storeExtra(args.id,false); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:args.id,saved:r.saved,savedStartDate:r.savedStart}; }
       // Un solo presupuesto por categoría y mes — o por subcategoría y mes
       // cuando lleva subcategoría: si ya existe, se actualiza su monto en
       // lugar de crear una segunda tarjeta con el mismo gasto. La búsqueda
@@ -2239,8 +2280,8 @@ export const Actions = {
       // (categoría+mes) y lo nuevo se avisa con saved:false.
       let existingId: number | null = null; let extrasReadable = false;
       try { const res = (await db.execute(sql`SELECT id, subcategory FROM budgets WHERE household_id = ${args.householdId} AND category_id = ${args.categoryId} AND month = ${args.month}`)) as unknown as { rows?: { id: number; subcategory: string | null }[] } | { id: number; subcategory: string | null }[]; const rows = Array.isArray(res) ? res : (res.rows ?? []); extrasReadable = true; existingId = rows.find((r) => (r.subcategory ?? null) === sub)?.id ?? null; } catch { /* columnas aún no creadas */ }
-      if(extrasReadable){ if(existingId){ await db.update(schema.budgets).set({amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,existingId)); const saved = await storeExtra(existingId); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:existingId,saved}; } const [r]=await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).returning({id:schema.budgets.id}); const saved = r?.id ? await storeExtra(r.id) : false; await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:r?.id,saved}; }
-      const existing = await db.select().from(schema.budgets).where(and(eq(schema.budgets.householdId,args.householdId),eq(schema.budgets.categoryId,args.categoryId),eq(schema.budgets.month,args.month))).limit(1); if(existing[0]){ await db.update(schema.budgets).set({amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,existing[0].id)); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:existing[0].id,saved:!wantsNew}; } const [r]=await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).returning({id:schema.budgets.id}); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:r?.id,saved:!wantsNew}; },
+      if(extrasReadable){ if(existingId){ await db.update(schema.budgets).set({amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,existingId)); const r = await storeExtra(existingId,false); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:existingId,saved:r.saved,savedStartDate:r.savedStart}; } const [r]=await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).returning({id:schema.budgets.id}); const r2 = r?.id ? await storeExtra(r.id,true) : { saved: false, savedStart: false }; await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:r?.id,saved:r2.saved,savedStartDate:r2.savedStart}; }
+      const existing = await db.select().from(schema.budgets).where(and(eq(schema.budgets.householdId,args.householdId),eq(schema.budgets.categoryId,args.categoryId),eq(schema.budgets.month,args.month))).limit(1); if(existing[0]){ await db.update(schema.budgets).set({amount:args.amount,visibility:args.visibility}).where(eq(schema.budgets.id,existing[0].id)); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:existing[0].id,saved:!wantsNew,savedStartDate:customStart==null}; } const [r]=await db.insert(schema.budgets).values({householdId:args.householdId,categoryId:args.categoryId,month:args.month,amount:args.amount,visibility:args.visibility}).returning({id:schema.budgets.id}); await resolveBudgetSuggestion(ctx,args.householdId,args.categoryId,args.month); ctx.invalidateQueries(); return {ok:true as const,id:r?.id,saved:!wantsNew,savedStartDate:customStart==null}; },
   }),
   deleteBudget: defineAction({ description: "Deletes a budget.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.budgets).where(eq(schema.budgets.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
   // Posponer el aviso de sugerencia de presupuesto («No por ahora»):

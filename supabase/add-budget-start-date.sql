@@ -1,0 +1,23 @@
+-- SyncFinanzas — Fecha de inicio en presupuestos «como nuevo».
+-- Cómo aplicarlo: en Supabase, abra SQL Editor > New query, pegue TODO este
+-- archivo y pulse Run. Puede ejecutarse dos veces sin duplicar nada.
+-- Debe ejecutarse ANTES de que la fecha de inicio elegida se pueda
+-- guardar: sin esta columna la app sigue funcionando (el presupuesto
+-- «como nuevo» corta en su fecha de creación, como hoy), pero si el
+-- usuario elige una fecha distinta de hoy, la app avisa visiblemente
+-- que esa fecha se guardará cuando se ejecute este SQL.
+--
+-- Qué agrega a la tabla budgets (una fila por categoría —o subcategoría—
+-- y mes):
+--   start_date: fecha (día) a partir de la cual el presupuesto «como
+--     nuevo» empieza a contar los gastos. NULL = sin fecha elegida: el
+--     corte es la fecha de creación del presupuesto (created_at),
+--     exactamente como hoy.
+-- Los presupuestos viejos quedan con start_date NULL: se comportan
+-- exactamente como hoy.
+--
+-- Seguridad: es una columna de una tabla que ya existe; no cambia el RLS
+-- ni los permisos. Solo el servidor (Vercel Functions) con service_role
+-- accede a la base; todo pasa por /api/actions.
+
+ALTER TABLE budgets ADD COLUMN IF NOT EXISTS start_date DATE;
