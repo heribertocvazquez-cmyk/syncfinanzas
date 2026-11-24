@@ -128,7 +128,7 @@ function NavRow(p: {
         <span className="flex-1 truncate">{p.label}</span>
         {p.current && <span className="text-[11px] font-semibold opacity-80 shrink-0">Actual</span>}
       </button>
-      {p.revealed && (
+      {(p.revealed || p.pinned) && (
         <button
           type="button"
           aria-label={starLabel}
@@ -163,9 +163,12 @@ export function DrawerMenu(p: {
   onFeedback?: () => void;
   // Atajos del menú rápido (estrellas, 2026-11-24): los atajos fijados y
   // el cambio al tocar una estrella; la fila «Nuevo gasto» abre el
-  // formulario de gasto desde el cajón. Opcionales con valores por
-  // defecto (sin atajos fijados, sin efecto al tocar la estrella) para
-  // que el cajón también se pueda pintar solo en las pruebas.
+  // formulario de gasto desde el cajón. La estrella de una fila fijada
+  // se muestra siempre (dorada), para que se vea cuáles están en el
+  // acceso rápido; la de una fila no fijada sale solo al mantenerla
+  // presionada ~500 ms. Opcionales con valores por defecto (sin atajos
+  // fijados, sin efecto al tocar la estrella) para que el cajón también
+  // se pueda pintar solo en las pruebas.
   pinned?: QuickShortcutId[];
   onTogglePin?: (id: QuickShortcutId) => void;
   onNewExpense?: () => void;
