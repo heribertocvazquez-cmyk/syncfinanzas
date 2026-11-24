@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, TesterFeedbackForm } from "./App";
 import { AuthGate } from "./components/AuthGate";
+import { LegalGate } from "./components/LegalGate";
 import "./theme.css";
 import appIcon192 from "./assets/app-icon-192.png";
 import { registerAppServiceWorker } from "./serviceWorkerUpdate";
@@ -117,7 +118,9 @@ createRoot(rootEl).render(
       <div>
         {isFeedbackForm ? <TesterFeedbackForm /> : (
           <AuthGate>
-            <App />
+            <LegalGate>
+              <App />
+            </LegalGate>
           </AuthGate>
         )}
       </div>

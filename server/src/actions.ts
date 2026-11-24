@@ -168,6 +168,42 @@ async function saveBudgetSnooze(db: Ctx["db"], householdId: number, categoryId: 
     return true;
   } catch { return false; }
 }
+// Versiones vigentes de los documentos legales y del apartado «Versión de
+// prueba». La aceptación de un usuario vale solo si coincide con las
+// cuatro: si cambia la versión de algún documento (o del apartado), la
+// aceptación vieja ya no vale y la puerta vuelve a aparecer. El apartado
+// «Versión de prueba» es informativo, no un cuarto documento para aceptar
+// por separado: su versión queda registrada junto a las de los 3
+// documentos, en la misma fila de aceptación.
+export const LEGAL_DOC_VERSIONS = {
+  privacy: "v1-2026-11-16",
+  terms: "v1-2026-11-16",
+  refunds: "v1-2026-11-16",
+  notice: "v1-2026-11-23",
+} as const;
+type LegalAcceptanceRow = { acceptedAt: string; privacyVersion: string; termsVersion: string; refundsVersion: string; noticeVersion: string };
+// Aceptación legal (tabla legal_acceptances,
+// supabase/add-legal-acceptances.sql): una fila por usuario. Acceso por SQL
+// directo (lección Drizzle): la tabla NO está en el esquema de Drizzle; si
+// el SQL aún no se ha corrido, la lectura dice no aceptado (con
+// tableMissing) y la escritura devuelve false, en vez de romper — mismo
+// patrón que las posposiciones de presupuesto.
+async function getLegalAcceptanceRow(db: Ctx["db"], userId: string): Promise<{ row: LegalAcceptanceRow | null; tableMissing: boolean }> {
+  try {
+    const res = (await db.execute(sql`SELECT accepted_at, privacy_version, terms_version, refunds_version, notice_version FROM legal_acceptances WHERE user_id = ${userId} LIMIT 1`)) as unknown as { rows?: { accepted_at: string | Date; privacy_version: string; terms_version: string; refunds_version: string; notice_version: string }[] } | { accepted_at: string | Date; privacy_version: string; terms_version: string; refunds_version: string; notice_version: string }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    const r = rows[0];
+    if (!r) return { row: null, tableMissing: false };
+    const at = r.accepted_at instanceof Date ? r.accepted_at.toISOString() : String(r.accepted_at);
+    return { row: { acceptedAt: at, privacyVersion: r.privacy_version, termsVersion: r.terms_version, refundsVersion: r.refunds_version, noticeVersion: r.notice_version }, tableMissing: false };
+  } catch { return { row: null, tableMissing: true }; }
+}
+async function saveLegalAcceptance(db: Ctx["db"], userId: string): Promise<boolean> {
+  try {
+    await db.execute(sql`INSERT INTO legal_acceptances (user_id, privacy_version, terms_version, refunds_version, notice_version) VALUES (${userId}, ${LEGAL_DOC_VERSIONS.privacy}, ${LEGAL_DOC_VERSIONS.terms}, ${LEGAL_DOC_VERSIONS.refunds}, ${LEGAL_DOC_VERSIONS.notice}) ON CONFLICT (user_id) DO UPDATE SET accepted_at = now(), privacy_version = EXCLUDED.privacy_version, terms_version = EXCLUDED.terms_version, refunds_version = EXCLUDED.refunds_version, notice_version = EXCLUDED.notice_version`);
+    return true;
+  } catch { return false; }
+}
 // Resuelve el aviso `presupuesto_sugerido` de una categoría+mes: se marca
 // leído solo cuando se crea el presupuesto de esa categoría+mes
 // (saveBudget) o se guarda la posposición (snoozeBudgetSuggestion). Es la
@@ -2186,6 +2222,34 @@ export const Actions = {
     async handler(ctx, args) {
       const map = await listBudgetSnoozeMap(ctx.db, args.householdId, args.month);
       return { snoozes: [...map.entries()].map(([categoryId, nextThreshold]) => ({ categoryId, nextThreshold })) };
+    },
+  }),
+
+  // Aceptación de los documentos legales (puerta al iniciar, 2026-11-23):
+  // ¿el usuario aceptó las versiones VIGENTES del aviso de privacidad, los
+  // términos y condiciones, la política de reembolsos y el apartado
+  // «Versión de prueba»? Sin aceptación vigente no se entra al tablero.
+  // Sin la tabla (falta correr supabase/add-legal-acceptances.sql), la
+  // lectura dice no aceptado y la escritura devuelve saved:false (el
+  // cliente lo avisa), en vez de romper. No exigen hogar: el despachador
+  // las deja pasar solo con estar autenticado.
+  getLegalAcceptance: defineAction({
+    description: "Whether the signed-in user accepted the current versions of the legal documents (privacy notice, terms, refunds policy) and the trial notice. False if the SQL file hasn't been run yet.",
+    request: z.object({}),
+    response: z.object({ accepted: z.boolean(), acceptedAt: z.string().nullable(), versions: z.object({ privacy: z.string(), terms: z.string(), refunds: z.string(), notice: z.string() }), tableMissing: z.boolean() }),
+    async handler(ctx) {
+      const { row, tableMissing } = await getLegalAcceptanceRow(ctx.db, ctx.user.id);
+      const accepted = !!row && row.privacyVersion === LEGAL_DOC_VERSIONS.privacy && row.termsVersion === LEGAL_DOC_VERSIONS.terms && row.refundsVersion === LEGAL_DOC_VERSIONS.refunds && row.noticeVersion === LEGAL_DOC_VERSIONS.notice;
+      return { accepted, acceptedAt: row?.acceptedAt ?? null, versions: { ...LEGAL_DOC_VERSIONS }, tableMissing };
+    },
+  }),
+  acceptLegalDocuments: defineAction({
+    description: "Records the signed-in user's acceptance of the current legal document versions. Returns saved:false if the SQL file hasn't been run yet.",
+    request: z.object({}),
+    response: z.object({ ok: z.literal(true), saved: z.boolean() }),
+    async handler(ctx) {
+      const saved = await saveLegalAcceptance(ctx.db, ctx.user.id);
+      return { ok: true as const, saved };
     },
   }),
 

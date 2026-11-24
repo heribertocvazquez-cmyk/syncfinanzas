@@ -25,6 +25,7 @@ import { IncExpDetailModal } from "./components/IncExpDetailModal";
 import { PlanFinancieroWizard } from "./components/PlanFinancieroWizard";
 import { HomeMovementsCard } from "./components/HomeMovementsCard";
 import { CollapsibleCard } from "./components/CollapsibleCard";
+import { LegalDocumentsView } from "./components/LegalDocs";
 import { money, money2, fmtDate, todayISO } from "./lib/format";
 import { Label, inputCls, btnPrimary, btnGold, btnGhost, Empty } from "./lib/uiShared";
 import { OcrDetail } from "./components/OcrDetail";
@@ -54,11 +55,11 @@ import { APP_VERSION } from "./version";
 import { APP_UPDATE_EVENT, APP_UPDATE_GONE_EVENT, UPDATE_APPLY_TIMEOUT_MS, applyAppUpdate, checkForAppUpdate, isUpdateAvailable } from "./serviceWorkerUpdate";
 import { clearDeferredInstallPrompt, consumeDeferredInstallPrompt } from "./installPrompt";
 
-export type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"seguridad"|"guia"|"desarrollador";
+export type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"seguridad"|"guia"|"desarrollador"|"legales";
 const TABS: {id:Tab;label:string}[] = [
   {id:"inicio",label:"Inicio"},{id:"personal",label:"Personal"},{id:"movimientos",label:"Movimientos"},{id:"cuentas",label:"Cuentas"},{id:"presupuestos",label:"Presupuestos"},
   {id:"fondos",label:"Fondos"},{id:"aportaciones",label:"Aportaciones"},{id:"metas",label:"Metas"},{id:"acuerdos",label:"Acuerdos"},{id:"tandas",label:"Tandas"},
-  {id:"patrimonio",label:"Patrimonio"},{id:"categorias",label:"Categorías"},{id:"perfiles",label:"Perfiles"},{id:"hogar",label:"Hogar"},{id:"seguridad",label:"Seguridad"},{id:"guia",label:"Guía de uso"},{id:"desarrollador",label:"Desarrollador"},
+  {id:"patrimonio",label:"Patrimonio"},{id:"categorias",label:"Categorías"},{id:"perfiles",label:"Perfiles"},{id:"hogar",label:"Hogar"},{id:"seguridad",label:"Seguridad"},{id:"guia",label:"Guía de uso"},{id:"desarrollador",label:"Desarrollador"},{id:"legales",label:"Documentos legales"},
 ];
 // Los módulos se agrupan por función: varios se desprenden de otros (Aportaciones se calcula
 // desde Movimientos; Fondos son apartados dentro de Cuentas; Presupuestos vigilan Categorías).
@@ -67,7 +68,7 @@ const MODULE_GROUPS: {title:string; tabs:Tab[]}[] = [
   {title:"Planificación", tabs:["presupuestos","fondos","aportaciones","metas"]},
   {title:"Decisiones y patrimonio", tabs:["acuerdos","patrimonio"]},
   {title:"Tandas", tabs:["tandas"]},
-  {title:"Configuración y ayuda", tabs:["categorias","perfiles","hogar","seguridad","guia"]},
+  {title:"Configuración y ayuda", tabs:["categorias","perfiles","hogar","seguridad","guia","legales"]},
 ];
 // Guía en PDF de cada segmento: se abre dentro de la aplicación, en la pestaña Guía de uso.
 const GUIDE_PDF_BY_GROUP: Record<string,string> = {
@@ -386,7 +387,7 @@ export function App(){
   const [openDrawerGroups, setOpenDrawerGroups] = useState<Record<string, boolean>>({});
   const [configOpen, setConfigOpen] = useState(false);
   const [vistaOpen, setVistaOpen] = useState(false);
-  useEffect(()=>{ if(menuOpen){ setOpenDrawerGroups({}); setConfigOpen(tab==="guia" || tab==="seguridad"); setVistaOpen(false); } },[menuOpen]);
+  useEffect(()=>{ if(menuOpen){ setOpenDrawerGroups({}); setConfigOpen(tab==="guia" || tab==="seguridad" || tab==="legales"); setVistaOpen(false); } },[menuOpen]);
   // Instalación en el celular: se captura el evento del navegador y se detecta si ya está instalada.
   const [installPrompt,setInstallPrompt]=useState<BeforeInstallPromptEvent|null>(null); const [appInstalled,setAppInstalled]=useState<boolean>(()=>detectStandalone()); const [installDismissed,setInstallDismissed]=useState<boolean>(()=>{ try{ return localStorage.getItem("sf-install-dismissed")==="1"; }catch{ return false; } });
   const [installStepsOpen,setInstallStepsOpen]=useState(() => shouldAutoShowInstallGuide(detectStandalone()));
@@ -553,6 +554,9 @@ export function App(){
   // ve solo sus propios avisos. Si la tabla aún no existe, la lista sale
   // vacía y nada se rompe.
   const notifQuery=useQuery({queryKey:["notifications"],queryFn:()=>api.listNotifications({householdId:data!.household!.id}),enabled:!!data?.household});
+  // Aceptación de los documentos legales (la puerta ya la pidió al entrar;
+  // aquí solo se muestra la fecha de aceptación en Documentos legales).
+  const legalQuery=useQuery({queryKey:["legalAcceptance"],queryFn:()=>api.getLegalAcceptance({})});
   const unreadCount=notifQuery.data?.unreadCount??0;
   // Avisos que se pintan en la campanilla: las opiniones de testers ya
   // revisadas no se listan, ni los avisos «Nuevo participante en la
@@ -3143,7 +3147,7 @@ export function App(){
                       <button type="button" aria-label={`Leer la guía en PDF del segmento ${g.title}`} className={btnGhost+" shrink-0"} onClick={()=>setGuidePdf({title:g.title,src:GUIDE_PDF_BY_GROUP[g.title]||""})}>Guía en PDF</button>
                     </div>
                     <div className="divide-y divide-[var(--border)]">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático y arqueo de cuentas.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", seguridad:"Seguridad de su información y bloqueo con PIN.", guia:"Instalación y guías." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático y arqueo de cuentas.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", seguridad:"Seguridad de su información y bloqueo con PIN.", guia:"Instalación y guías.", legales:"Aviso de privacidad, términos, reembolsos y versión de prueba." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
                     </div>
                   </div>
                 ))}
@@ -3351,6 +3355,15 @@ export function App(){
                   </div>
                 </>}
             </CollapsibleCard>
+          </section>
+        )}
+        {effTab==="legales" && (
+          <section className="max-w-2xl space-y-4 md:space-y-6">
+            <div>
+              <h2 className="font-display font-bold text-lg">Documentos legales</h2>
+              <p className="text-sm text-[var(--dim)]">Aviso de privacidad, términos y condiciones, política de reembolsos y versión de prueba. Son borradores pendientes de revisión de un abogado.</p>
+            </div>
+            <LegalDocumentsView acceptedAt={legalQuery.data?.acceptedAt ?? null} />
           </section>
         )}
       </main>

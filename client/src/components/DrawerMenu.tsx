@@ -58,6 +58,7 @@ const TAB_ICONS: Record<Tab, ReactNode> = {
   guia: tabIcon(<><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></>),
   seguridad: tabIcon(<><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></>),
   desarrollador: tabIcon(<><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></>),
+  legales: tabIcon(<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>),
 };
 
 /** Icono de la fila de un módulo. */
@@ -108,6 +109,9 @@ export function DrawerMenu(p: {
               </li>
               <li>
                 <button type="button" aria-label="Ir a Seguridad" aria-current={p.currentTab==="seguridad"?"page":undefined} onClick={()=>{p.onNavigate("seguridad");}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${p.currentTab==="seguridad"?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{TAB_ICONS.seguridad}<span className="flex-1">Seguridad</span>{p.currentTab==="seguridad" && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
+              </li>
+              <li>
+                <button type="button" aria-label="Ir a Documentos legales" aria-current={p.currentTab==="legales"?"page":undefined} onClick={()=>{p.onNavigate("legales");}} className={`w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold ${p.currentTab==="legales"?"bg-[var(--accent)] text-[var(--accent-text)]":"text-[var(--text)]"}`}>{TAB_ICONS.legales}<span className="flex-1">Documentos legales</span>{p.currentTab==="legales" && <span className="text-[11px] font-semibold opacity-80">Actual</span>}</button>
               </li>
               <li>
                 {/* Enviar comentarios: abre el formulario de dudas y mejoras

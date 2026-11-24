@@ -225,6 +225,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } else if (actionName === "createGeneralInvitation") {
       // Invitación general (cuenta personal): no pertenece a ningún hogar;
       // solo exige estar autenticado.
+    } else if (actionName === "getLegalAcceptance" || actionName === "acceptLegalDocuments") {
+      // Aceptación legal por usuario: no pertenece a ningún hogar; solo
+      // exige estar autenticado. La propia acción lee/escribe por user.id.
     } else if (actionName === "resendInvitation") {
       const kind = rawArgs.kind as string | undefined;
       const invitationId = rawArgs.invitationId as number | undefined;
