@@ -7,15 +7,20 @@
 import { useState } from "react";
 const btnPrimary = "rounded-full bg-[var(--accent)] text-[var(--accent-text)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
 const btnGhost = "rounded-full border border-[var(--border)] bg-[var(--surface)] font-bold px-5 py-2.5 text-sm disabled:opacity-50";
+const btnDanger = "rounded-full bg-[var(--red)] text-white font-bold px-5 py-2.5 text-sm disabled:opacity-50";
 
 export function JoinRequestRow(p: {
   inv: { id: number; email: string; invitedName: string | null; status: string };
   isAdmin: boolean;
   busy: boolean;
+  householdName?: string;
   onRespond: (id: number, accept: boolean) => void;
   onDelete: (id: number) => void;
 }) {
   const [confirmDel, setConfirmDel] = useState(false);
+  const [preview, setPreview] = useState<"approve" | "reject" | null>(null);
+  const displayName = p.inv.invitedName || p.inv.email;
+  const firstName = (p.inv.invitedName || p.inv.email.split("@")[0] || "La persona").trim().split(/\s+/)[0] || "La persona";
   return (
     <div className="py-2.5 text-sm">
       <div className="flex justify-between gap-2 flex-wrap">
@@ -36,12 +41,13 @@ export function JoinRequestRow(p: {
       </div>
       {p.inv.status === "pending" &&
         (p.isAdmin ? (
+          <>
           <div className="flex gap-2 flex-wrap mt-2 items-center">
             <button
               type="button"
               aria-label={`Aprobar solicitud de ${p.inv.email}`}
               className={btnPrimary}
-              onClick={() => p.onRespond(p.inv.id, true)}
+              onClick={() => setPreview("approve")}
               disabled={p.busy}
             >
               Aprobar
@@ -50,7 +56,7 @@ export function JoinRequestRow(p: {
               type="button"
               aria-label={`Rechazar solicitud de ${p.inv.email}`}
               className={btnGhost}
-              onClick={() => p.onRespond(p.inv.id, false)}
+              onClick={() => setPreview("reject")}
               disabled={p.busy}
             >
               Rechazar
@@ -59,6 +65,36 @@ export function JoinRequestRow(p: {
               Borrar
             </button>
           </div>
+          {preview && (
+            <div aria-label={preview === "approve" ? `Revisión de la aprobación de la solicitud de ${p.inv.email}` : `Revisión del rechazo de la solicitud de ${p.inv.email}`} className="mt-2 border border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
+              <p className="font-bold text-sm">{preview === "approve" ? "Revise antes de aprobar" : "Revise antes de rechazar"}</p>
+              <div className="mt-2 space-y-1 text-sm">
+                <p className="flex justify-between gap-2"><span>Solicitud de</span><b>{displayName}</b></p>
+                {p.inv.invitedName && <p className="text-xs text-[var(--dim)]">{p.inv.email}</p>}
+                {p.householdName && <p className="flex justify-between gap-2"><span>Hogar</span><b>{p.householdName}</b></p>}
+                <p className="flex justify-between gap-2"><span>Estado</span><b>Pendiente</b></p>
+              </div>
+              <p className="font-bold text-sm mt-3">{preview === "approve" ? "Qué pasa si aprueba:" : "Qué pasa si rechaza:"}</p>
+              {preview === "approve" ? (
+                <>
+                  <p className="text-sm mt-1">{firstName} entra al hogar como integrante.</p>
+                  <p className="text-sm mt-1">Podrá ver los movimientos compartidos y registrar los suyos.</p>
+                  <p className="text-sm mt-1">El hogar recibe el aviso «Nuevo integrante en el hogar».</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm mt-1">La solicitud queda como Rechazada.</p>
+                  <p className="text-sm mt-1">{firstName} no entra al hogar.</p>
+                  <p className="text-sm mt-1">No se le avisa; puede volver a solicitar entrar.</p>
+                </>
+              )}
+              <div className="flex gap-2 mt-3">
+                <button type="button" aria-label={preview === "approve" ? `Confirmar la aprobación de la solicitud de ${p.inv.email}` : `Confirmar el rechazo de la solicitud de ${p.inv.email}`} className={preview === "approve" ? btnPrimary : btnDanger} disabled={p.busy} onClick={() => { p.onRespond(p.inv.id, preview === "approve"); setPreview(null); }}>{preview === "approve" ? "Aprobar" : "Rechazar"}</button>
+                <button type="button" aria-label={preview === "approve" ? `Cancelar la aprobación de la solicitud de ${p.inv.email}` : `Cancelar el rechazo de la solicitud de ${p.inv.email}`} className={btnGhost} onClick={() => setPreview(null)}>Cancelar</button>
+              </div>
+            </div>
+          )}
+          </>
         ) : (
           <p className="text-sm text-[var(--dim)] mt-2">Pendiente de aprobación por el administrador del hogar.</p>
         ))}

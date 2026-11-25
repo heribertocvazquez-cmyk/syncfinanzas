@@ -3124,7 +3124,7 @@ export function App(){
                 <div className="divide-y divide-[var(--border)] mt-2">
                   {data.invitations.map(iv=>(
                     iv.requested ? (
-                      <JoinRequestRow key={iv.id} inv={iv} isAdmin={isAdmin} busy={respondJoinReq.isPending} onRespond={(id,accept)=>respondJoinReq.mutate({id,accept})} onDelete={(id)=>delInv.mutate(id)} />
+                      <JoinRequestRow key={iv.id} inv={iv} isAdmin={isAdmin} busy={respondJoinReq.isPending} householdName={hh.name} onRespond={(id,accept)=>respondJoinReq.mutate({id,accept})} onDelete={(id)=>delInv.mutate(id)} />
                     ) : (
                     <div key={iv.id} className="py-2.5 text-sm">
                       <div className="flex justify-between gap-2 flex-wrap"><span><b>{iv.email}</b>{iv.invitedName?` · ${iv.invitedName}`:""}</span><span className={`text-xs font-bold rounded-full px-2 py-0.5 ${iv.status==="accepted"?"bg-green-100 text-green-800":iv.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{iv.status==="accepted"?"Aceptada":iv.status==="rejected"?"Rechazada":"Pendiente"}</span></div>
