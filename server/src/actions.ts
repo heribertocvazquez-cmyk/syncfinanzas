@@ -39,6 +39,27 @@ async function requireRowHousehold(db: Ctx["db"], table: any, id: number, househ
   const rows = await db.select({ householdId: table.householdId }).from(table).where(eq(table.id, id)).limit(1);
   if (!rows[0] || rows[0].householdId !== householdId) throw new Error(`${label} no pertenece a este hogar.`);
 }
+// M-02 (hardening idea #22): la lectura privada ya se respeta
+// (canSeeMovement: el admin ve todo; un integrante ve solo los
+// Compartidos y los suyos), pero la escritura no. Un integrante que
+// adivinara el id de un movimiento privado ajeno podía editarlo (y
+// volverlo compartido: bypass completo de la privacidad), borrarlo o
+// reversarlo. La escritura exige lo mismo que la lectura: admin, o
+// movimiento compartido, o propio. Devuelve la fila para seguir con
+// las comprobaciones propias de cada acción (reversión, etc.).
+async function requireMovementVisibleRow(ctx: Ctx, db: Ctx["db"], row: typeof schema.movements.$inferSelect | undefined, householdId: number | null): Promise<typeof schema.movements.$inferSelect> {
+  if (!row || (householdId != null && row.householdId !== householdId)) throw new Error("El movimiento indicado no pertenece a este hogar.");
+  if (ctx.userRole === "admin") return row;
+  if (row.visibility === "shared") return row;
+  const hid = householdId ?? row.householdId;
+  const profs = await db.select({ id: schema.profiles.id }).from(schema.profiles).where(and(eq(schema.profiles.householdId, hid), eq(schema.profiles.userId, ctx.user.id)));
+  if (row.profileId != null && profs.some((p) => p.id === row.profileId)) return row;
+  throw new Error("Este movimiento es privado y no le pertenece.");
+}
+async function requireMovementVisible(ctx: Ctx, db: Ctx["db"], movementId: number, householdId: number | null): Promise<typeof schema.movements.$inferSelect> {
+  const rows = await db.select().from(schema.movements).where(eq(schema.movements.id, movementId)).limit(1);
+  return requireMovementVisibleRow(ctx, db, rows[0], householdId);
+}
 
 // ---- Avisos dentro de la app (campanita + insignia del icono) ----
 // Un aviso por integrante del hogar (user_id destinatario). Nunca bloquea
@@ -2338,7 +2359,7 @@ export const Actions = {
       if (args.toAccountId) { const r = await db.select().from(schema.accounts).where(eq(schema.accounts.id, args.toAccountId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("La cuenta destino no pertenece a este hogar."); }
       if (args.categoryId) { const r = await db.select().from(schema.categories).where(eq(schema.categories.id, args.categoryId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("La categoría indicada no pertenece a este hogar."); }
       if (args.profileId) { const r = await db.select().from(schema.profiles).where(eq(schema.profiles.id, args.profileId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("El perfil indicado no pertenece a este hogar."); }
-      if (args.id) { const r = await db.select().from(schema.movements).where(eq(schema.movements.id, args.id)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("El movimiento indicado no pertenece a este hogar."); if (r[0].reversalOfId != null) throw new Error("Una reversión no puede editarse; forma parte del registro de auditoría."); }
+      if (args.id) { const r = await requireMovementVisible(ctx, db, args.id, args.householdId); if (r.reversalOfId != null) throw new Error("Una reversión no puede editarse; forma parte del registro de auditoría."); }
       // Asignación a un presupuesto (pregunta al meter el gasto): si el
       // cliente eligió uno, debe existir, pertenecer al hogar y
       // corresponder al gasto (misma categoría y mes; si lleva
@@ -2379,7 +2400,7 @@ export const Actions = {
       };
       const vals={householdId:args.householdId,type:args.type,amount:args.amount,concept:args.concept,accountId:args.accountId??null,toAccountId:args.toAccountId??null,categoryId:args.categoryId??null,subcategory:args.subcategory||null,date:args.date,visibility:args.visibility,profileId:args.profileId??null, ...(receiptBlobKey!==undefined?{receiptBlobKey}:{})}; if(args.id){ await db.update(schema.movements).set(vals).where(eq(schema.movements.id,args.id)); const savedAssignment = await storeAssignment(args.id); await logActivity(ctx, args.householdId, "Movimiento editado", `${args.concept} · $${args.amount}`); ctx.invalidateQueries(); return {ok:true as const,id:args.id,savedBudgetAssignment:savedAssignment}; } const [r]=await db.insert(schema.movements).values(vals).returning({id:schema.movements.id}); const savedAssignment = r?.id ? await storeAssignment(r.id) : true; await logActivity(ctx, args.householdId, "Movimiento registrado", `${args.concept} · $${args.amount}`); if(r?.id) await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: r.id, type: args.type, amount: args.amount, categoryId: args.categoryId ?? null, visibility: args.visibility, date: args.date }); ctx.invalidateQueries(); return {ok:true as const,id:r?.id,savedBudgetAssignment:savedAssignment}; },
   }),
-  deleteMovement: defineAction({ description: "Deletes a movement.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const rows=await db.select().from(schema.movements).where(eq(schema.movements.id,args.id)); const row=rows[0]; if(row && row.reversalOfId!=null) throw new Error("Una reversión no puede eliminarse por separado; forma parte del registro de auditoría. Si elimina el movimiento original, su reversión se elimina junto con él."); await db.delete(schema.movements).where(eq(schema.movements.reversalOfId,args.id)); await db.delete(schema.movements).where(eq(schema.movements.id,args.id)); if(row) await logActivity(ctx, row.householdId, "Movimiento eliminado", `${row.concept} · $${row.amount}`); ctx.invalidateQueries(); return {ok:true}; } }),
+  deleteMovement: defineAction({ description: "Deletes a movement.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const rows=await db.select().from(schema.movements).where(eq(schema.movements.id,args.id)); const row=rows[0]; if(row) await requireMovementVisibleRow(ctx, db, row, ctx.householdId); if(row && row.reversalOfId!=null) throw new Error("Una reversión no puede eliminarse por separado; forma parte del registro de auditoría. Si elimina el movimiento original, su reversión se elimina junto con él."); await db.delete(schema.movements).where(eq(schema.movements.reversalOfId,args.id)); await db.delete(schema.movements).where(eq(schema.movements.id,args.id)); if(row) await logActivity(ctx, row.householdId, "Movimiento eliminado", `${row.concept} · $${row.amount}`); ctx.invalidateQueries(); return {ok:true}; } }),
 
   reverseMovement: defineAction({
     description: "Reverses a movement (income, expense, transfer or debt payment) by creating a linked counter-movement of the opposite effect on today's date. The original and its reversal both remain visible, marked, and neither counts toward balances, totals, budgets or charts. A movement can be reversed only once, and a reversal cannot itself be reversed.",
@@ -2391,6 +2412,7 @@ export const Actions = {
       const rows = await db.select().from(schema.movements).where(eq(schema.movements.id, args.id));
       const orig = rows[0];
       if (!orig) throw new Error("Movimiento no encontrado.");
+      await requireMovementVisibleRow(ctx, db, orig, ctx.householdId);
       if (orig.reversalOfId != null) throw new Error("Este movimiento es la reversión de otro registro y no puede reversarse a su vez.");
       const existing = await db.select().from(schema.movements).where(eq(schema.movements.reversalOfId, args.id));
       if (existing[0]) throw new Error("Este movimiento ya fue reversado; la reversión quedó registrada y no es posible reversarlo dos veces.");
