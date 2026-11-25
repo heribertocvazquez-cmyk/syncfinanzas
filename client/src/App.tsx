@@ -1111,8 +1111,8 @@ export function App(){
   const rejectAdj=useMutation({mutationFn:async(id:number)=>await api.rejectSpendingAdjustment({id}),onSuccess:()=>{inv();},onError:(e:Error)=>{setAdjError(e.message);}});
 
   // agreement
-  const [agTitle,setAgTitle]=useState(""); const [agDesc,setAgDesc]=useState(""); const [voteProfile,setVoteProfile]=useState("");
-  const saveAg=useMutation({mutationFn:async()=>await api.saveAgreement({householdId:data!.household!.id,title:agTitle,description:agDesc}),onSuccess:()=>{inv();setAgTitle("");setAgDesc("");}});
+  const [agTitle,setAgTitle]=useState(""); const [agDesc,setAgDesc]=useState(""); const [showAgPreview,setShowAgPreview]=useState(false); const [voteProfile,setVoteProfile]=useState("");
+  const saveAg=useMutation({mutationFn:async()=>await api.saveAgreement({householdId:data!.household!.id,title:agTitle,description:agDesc}),onSuccess:()=>{inv();setAgTitle("");setAgDesc("");setShowAgPreview(false);}});
   const [rejectAgreementPreviewId,setRejectAgreementPreviewId]=useState<number|null>(null);
   const voteAg=useMutation({mutationFn:async(v:{agreementId:number;vote:"approve"|"reject"})=>await api.voteAgreement({agreementId:v.agreementId,profileId:Number(voteProfile),vote:v.vote,householdId:data!.household!.id}),onSuccess:()=>{inv();setRejectAgreementPreviewId(null);}});
   const delAg=useMutation({mutationFn:async(id:number)=>await api.deleteAgreement({id}),onSuccess:inv});
@@ -2886,11 +2886,12 @@ export function App(){
         {effTab==="acuerdos" && (
           <section className="grid md:grid-cols-[320px_1fr] gap-4 md:gap-6 items-start">
             <div className="space-y-2">
-              <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();saveAg.mutate();}}>
+              <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault();setShowAgPreview(true);}}>
                 <h2 className="font-display font-bold text-lg">Nueva propuesta</h2>
                 <div><Label htmlFor="ag-title">Título del acuerdo</Label><input id="ag-title" aria-label="Título del acuerdo" required className={inputCls} value={agTitle} onChange={e=>setAgTitle(e.target.value)} placeholder="Ej. Toda deuda nueva requiere aviso previo" /></div>
                 <div><Label htmlFor="ag-desc">Descripción</Label><textarea id="ag-desc" aria-label="Descripción del acuerdo" className={inputCls} rows={3} value={agDesc} onChange={e=>setAgDesc(e.target.value)} /></div>
-                <button className={btnPrimary+" w-full"}>Proponer acuerdo</button>
+                {!showAgPreview && <button className={btnPrimary+" w-full"}>Proponer acuerdo</button>}
+              {showAgPreview && <div aria-label="Revisión de la propuesta del acuerdo" className="mt-3 border border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="font-bold text-sm">Revise antes de proponer</p><div className="mt-2 space-y-1 text-sm"><p className="flex justify-between gap-2"><span>Título</span><b>{agTitle}</b></p>{agDesc && <p className="text-xs text-[var(--dim)]">{agDesc}</p>}<p className="flex justify-between gap-2"><span>Regla del hogar</span><b>{(data.household?.approvalRule||"unanimous")==="unanimous"?"Unánime":"Mayoría"}</b></p></div><p className="font-bold text-sm mt-3">Qué pasa al proponer:</p><p className="text-sm mt-1">El acuerdo queda como Propuesta, pendiente de votación.</p>{(data.household?.approvalRule||"unanimous")==="unanimous"?<p className="text-sm mt-1">Se aprueba solo si todos los adultos votan Sí; un solo No lo rechaza.</p>:<p className="text-sm mt-1">Se aprueba con {Math.floor(data.profiles.filter(p=>p.kind==="adult").length/2)+1} votos Sí de {data.profiles.filter(p=>p.kind==="adult").length} adultos; con {Math.floor(data.profiles.filter(p=>p.kind==="adult").length/2)+1} votos No se rechaza.</p>}<p className="text-sm mt-1">Cada integrante adulto puede votar Sí o No.</p><div className="flex gap-2 mt-3"><button type="button" aria-label="Confirmar la propuesta del acuerdo" className={btnPrimary} disabled={saveAg.isPending} onClick={()=>saveAg.mutate()}>{saveAg.isPending?"Proponiendo…":"Proponer acuerdo"}</button><button type="button" aria-label="Corregir la propuesta del acuerdo" className={btnGhost} onClick={()=>setShowAgPreview(false)}>Corregir</button></div></div>}
               </form>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <Label htmlFor="vote-profile">Voto como</Label>
