@@ -19,11 +19,30 @@ export function supabaseAdmin(): SupabaseClient {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
-/** Verifica el token JWT del encabezado Authorization y devuelve el usuario.
+/** Tiempo máximo para verificar o renovar la sesión con Auth (M-07):
+ *  sin límite, una llamada a Auth colgada cuelga la petición entera.
+ *  La versión instalada de @supabase/auth-js no acepta AbortSignal en
+ *  getUser/refreshSession, así que el límite es una carrera de promesas:
+ *  si Auth no responde en 5 s, la petición falla con un mensaje formal
+ *  en vez de quedarse colgada. */
+const AUTH_TIMEOUT_MS = 5_000;
+
+function withAuthTimeout<T>(promise: Promise<T>, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Tiempo de espera agotado al ${what}. Inténtelo de nuevo.`)),
+      AUTH_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** Verifica el token JWT de la cookie de sesión y devuelve el usuario.
  *  Devuelve null si no hay token o no es válido. */
 export async function getUserFromToken(token: string | null) {
   if (!token) return null;
-  const { data, error } = await supabaseAnon().auth.getUser(token);
+  const { data, error } = await withAuthTimeout(supabaseAnon().auth.getUser(token), "verificar su sesión");
   if (error || !data.user || !data.user.email) return null;
   return { id: data.user.id, email: data.user.email };
 }
@@ -83,7 +102,10 @@ export async function resolveSessionUser(req: CookieRequest, res: CookieResponse
   }
   const refresh = cookies[REFRESH_COOKIE];
   if (refresh) {
-    const { data, error } = await supabaseAnon().auth.refreshSession({ refresh_token: refresh });
+    const { data, error } = await withAuthTimeout(
+      supabaseAnon().auth.refreshSession({ refresh_token: refresh }),
+      "renovar su sesión",
+    );
     if (!error && data.session && data.user?.email) {
       setSessionCookies(res, data.session.access_token, data.session.refresh_token);
       return { id: data.user.id, email: data.user.email };
