@@ -350,7 +350,7 @@ export type MovementDraft = { type: "income" | "expense" | "transfer" | "debt_pa
 // ventana de un presupuesto «como nuevo» (sin fecha elegida, el corte es
 // la creación, siempre pasada). Si no aplica a ninguno, devuelve null.
 type DraftBudget = OverviewData["budgets"][number];
-function applicableBudget(ov: OverviewData, d: MovementDraft): DraftBudget | null {
+export function applicableBudget(ov: OverviewData, d: MovementDraft): DraftBudget | null {
   const month = d.date.slice(0, 7);
   if (d.categoryId == null) return null;
   if (d.budgetId != null) {
