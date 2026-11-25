@@ -7,7 +7,7 @@
 // Si la persona ya tiene sesión, muestra la aplicación. También gestiona
 // el restablecimiento de contraseña (enlace por correo) y el cierre de sesión.
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { supabase } from "../supabase";
+import { supabase, initialRecoverySignal } from "../supabase";
 import { fetchSession } from "../api";
 import { WelcomeVidaFinanciera } from "./WelcomeVidaFinanciera";
 
@@ -60,8 +60,11 @@ export async function fetchInvitePreview(token: string): Promise<InvitePreview |
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<boolean | null>(null);
+  // La recuperación se decide con la señal capturada al cargar el módulo
+  // (ver supabase.ts): leer el hash aquí llegaba tarde en el teléfono,
+  // porque la librería ya lo había borrado al leer el enlace.
   const [mode, setMode] = useState<Mode>(() =>
-    window.location.hash.includes("type=recovery") ? "recovery" : "login",
+    initialRecoverySignal ? "recovery" : "login",
   );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -111,6 +114,34 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setEmail(p.email);
       if (p.kind !== "general") setMode("signup");
     });
+  }, []);
+
+  // Red 2: la sesión de recuperación que la librería ya estableció. Si el
+  // evento PASSWORD_RECOVERY llega después del montaje (la lectura del
+  // enlace termina tras la red), se cambia a recuperación aunque el hash
+  // ya no esté en la URL.
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") setMode("recovery");
+    });
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Red 3: si la sesión ya estaba establecida al montar (la librería
+  // terminó de leer el enlace antes del montaje), se entra en
+  // recuperación. Con persistSession: false el cliente solo tiene sesión
+  // si la acaba de leer de la URL, y el único flujo que pone una sesión
+  // en la URL es la recuperación.
+  useEffect(() => {
+    let alive = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (alive && data.session) setMode("recovery");
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   if (session === null) {

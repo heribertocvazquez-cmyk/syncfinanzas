@@ -20,6 +20,23 @@ if (!url || !anonKey) {
   throw new Error("Faltan VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY. Configure las variables de entorno en Vercel (ver README).");
 }
 
+// Señal de recuperación capturada ANTES de crear el cliente. La pantalla
+// «Elija una contraseña nueva» solo aparecía si el hash de la URL traía
+// «type=recovery» cuando AuthGate montaba, pero la librería de Supabase
+// borra ese hash al leerlo (`window.location.hash = ''` en
+// `_getSessionFromURL`) y en un teléfono lento el montaje llega después
+// de esa lectura: el enlace por correo abría el inicio de sesión normal
+// (verificado por Heriberto en su teléfono 2026-11-24). Se lee el hash
+// aquí, en la evaluación del módulo, antes de que el cliente exista, y
+// AuthGate decide con este valor en vez de leer el hash al montar.
+export const initialRecoverySignal: boolean = (() => {
+  try {
+    return window.location.hash.includes("type=recovery");
+  } catch {
+    return false;
+  }
+})();
+
 export const supabase = createClient(url, anonKey, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: true },
 });
