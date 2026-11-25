@@ -1626,7 +1626,12 @@ export const Actions = {
       const fundMovsR = await db.select().from(schema.fundMovements).where(eq(schema.fundMovements.householdId, hid)).orderBy(desc(schema.fundMovements.date));
       const goalsR = await db.select().from(schema.goals).where(eq(schema.goals.householdId, hid));
       const agR = await db.select().from(schema.agreements).where(eq(schema.agreements.householdId, hid)).orderBy(desc(schema.agreements.id));
-      const votesR = await db.select().from(schema.agreementVotes);
+      // B-02: los votos se leen solo para los acuerdos de ESTE hogar
+      // (antes se leía toda la tabla y se filtraba en memoria).
+      const agIds = agR.map((a) => a.id);
+      const votesR = agIds.length > 0
+        ? await db.select().from(schema.agreementVotes).where(inArray(schema.agreementVotes.agreementId, agIds))
+        : [];
       const patrR = await db.select().from(schema.patrimonyItems).where(eq(schema.patrimonyItems.householdId, hid));
       const tandasR = await db.select().from(schema.tandas).where(eq(schema.tandas.householdId, hid)).orderBy(desc(schema.tandas.id));
       const tandaPartsR = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.householdId, hid));
