@@ -1,6 +1,7 @@
 // Despachador de acciones de SyncFinanzas (Vercel Function, Node).
-// El cliente llama POST /api/actions con { action, args } y el token de
-// Supabase Auth en Authorization: Bearer <token>.
+// El cliente llama POST /api/actions con { action, args } y la sesión
+// viaja en la cookie httpOnly + Secure + SameSite=Lax que emite el
+// servidor al entrar. El encabezado Bearer ya no se acepta (M-05).
 // Responsabilidades (checklist de seguridad, CubePath Labs):
 //  1. Autenticación: el token JWT se verifica con Supabase Auth. Sin token
 //     válido no se ejecuta ninguna acción.
@@ -23,7 +24,7 @@ import * as schema from "../server/src/schema.js";
 import { buildCtx } from "../server/src/space-shim.js";
 import { resolveAppUrl } from "../server/src/appUrl.js";
 import { errorResponse } from "../server/src/error-response.js";
-import { getUserFromToken, resolveSessionUser } from "../server/src/supabase.js";
+import { resolveSessionUser } from "../server/src/supabase.js";
 
 type Role = "admin" | "member";
 
@@ -144,13 +145,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     // Sesión por cookie segura (punto 10): el token viaja en la cookie
     // httpOnly + Secure + SameSite=Lax que emite el servidor al entrar, y
-    // se renueva sola. El encabezado Bearer se sigue aceptando SOLO como
-    // puente para las PWA instaladas en la versión anterior, que aún
-    // guardan el token en localStorage: cuando actualicen, esa vía deja de
-    // usarse y se puede retirar.
-    const auth = req.headers.authorization ?? "";
-    const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-    const user = (await resolveSessionUser(req, res)) ?? (await getUserFromToken(bearer));
+    // se renueva sola. El encabezado Bearer ya NO se acepta (M-05):
+    // era el puente para las PWA instaladas en la versión anterior, que
+    // guardaban el token en localStorage; el cliente actual no lo usa y
+    // /api/auth ya no lo devuelve en el cuerpo.
+    const user = await resolveSessionUser(req, res);
     if (!user) return res.status(401).json({ error: "Sesión no válida. Inicie sesión de nuevo." });
 
     const body = (req.body ?? {}) as { action?: string; args?: Record<string, unknown> };
