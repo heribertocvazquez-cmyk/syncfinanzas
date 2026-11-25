@@ -21,7 +21,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Actions, isTandaOnlyMember } from "../server/src/actions.js";
 import { getDb } from "../server/src/db.js";
 import * as schema from "../server/src/schema.js";
-import { buildCtx } from "../server/src/space-shim.js";
+import { buildCtx, rateLimitDb } from "../server/src/space-shim.js";
 import { resolveAppUrl } from "../server/src/appUrl.js";
 import { errorResponse } from "../server/src/error-response.js";
 import { resolveSessionUser } from "../server/src/supabase.js";
@@ -157,6 +157,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const action = (Actions as Record<string, { request: { parse: (v: unknown) => unknown }; handler: (ctx: unknown, args: never) => Promise<unknown> }>)[actionName];
     if (!action) return res.status(400).json({ error: "Acción no conocida." });
     const rawArgs = body.args ?? {};
+
+    // Límite global por usuario (M-06): 120 peticiones/min en /api/actions,
+    // además de los límites por acción que ya existen. Persistente en
+    // Postgres (rate_limits), compartido entre instancias serverless.
+    try {
+      await rateLimitDb(`global:${user.id}`, 120, 60_000);
+    } catch (err) {
+      return errorResponse(res, 429, err, "API actions rate limit:");
+    }
 
     // URL pública de la aplicación: es la base de los enlaces de invitación
     // por correo (https://<app>.vercel.app/invite?token=...). Siempre
