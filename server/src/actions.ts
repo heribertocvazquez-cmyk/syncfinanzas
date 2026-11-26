@@ -2440,7 +2440,7 @@ export const Actions = {
   }),
   createHousehold: defineAction({
     description: "Creates the household and seeds default categories.",
-    request: z.object({ mode: z.enum(["personal","familiar"]).default("familiar"), name: z.string().min(1).max(120), currency: z.string().default("MXN"), cutoffDay: z.number().int().min(1).max(28).default(1), contributionRule: z.enum(["equal","proportional"]).default("equal"), approvalRule: z.enum(["unanimous","majority"]).default("unanimous"), approvalThreshold: z.number().min(0).max(100_000_000).default(1500), ownerName: z.string().min(1).max(80), ownerLastName: z.string().max(80).default(""), ownerIncome: z.number().min(0).max(100_000_000).default(0) }),
+    request: z.object({ mode: z.enum(["personal","familiar"]).default("familiar"), name: z.string().min(1).max(120), currency: z.enum(["MXN","USD","EUR"]).default("MXN"), cutoffDay: z.number().int().min(1).max(28).default(1), contributionRule: z.enum(["equal","proportional"]).default("equal"), approvalRule: z.enum(["unanimous","majority"]).default("unanimous"), approvalThreshold: z.number().min(0).max(100_000_000).default(1500), ownerName: z.string().min(1).max(80), ownerLastName: z.string().max(80).default(""), ownerIncome: z.number().min(0).max(100_000_000).default(0) }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
@@ -2461,7 +2461,7 @@ export const Actions = {
 
   updateHousehold: defineAction({
     description: "Updates household rules and settings.",
-    request: z.object({ id: z.number(), name: z.string().min(1), currency: z.string(), cutoffDay: z.number().int().min(1).max(28), contributionRule: z.enum(["equal","proportional"]), approvalRule: z.enum(["unanimous","majority"]), approvalThreshold: z.number().min(0), mode: z.enum(["personal","familiar"]).default("familiar") }),
+    request: z.object({ id: z.number(), name: z.string().min(1), currency: z.enum(["MXN","USD","EUR"]), cutoffDay: z.number().int().min(1).max(28), contributionRule: z.enum(["equal","proportional"]), approvalRule: z.enum(["unanimous","majority"]), approvalThreshold: z.number().min(0), mode: z.enum(["personal","familiar"]).default("familiar") }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;

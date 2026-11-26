@@ -1,15 +1,7 @@
 import { useEffect, useState } from "react";
 import type { IncExpDetailView } from "../lib/movementsList";
 import { accountTotalsLine, groupMovementsByMonthDay } from "../lib/movementsList";
-
-const money2 = (n: number) =>
-  n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
-const money = (n: number) =>
-  n.toLocaleString("es-MX", {
-    style: "currency",
-    currency: "MXN",
-    maximumFractionDigits: 0,
-  });
+import { money, money2 } from "../lib/format";
 function fmtDate(iso: string) {
   const [y = 2026, m = 1, d = 1] = iso.split("-").map(Number);
   return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString("es-MX", {

@@ -5,15 +5,7 @@ import {
   type AccountSummary,
 } from "../lib/accountSummary";
 import { fundPct } from "../lib/goalMonth";
-
-const money2 = (n: number) =>
-  n.toLocaleString("es-MX", { style: "currency", currency: "MXN" });
-const money = (n: number) =>
-  n.toLocaleString("es-MX", {
-    style: "currency",
-    currency: "MXN",
-    maximumFractionDigits: 0,
-  });
+import { money, money2 } from "../lib/format";
 
 const btnGhost =
   "rounded-full border border-[var(--border)] px-3 py-2 text-sm font-semibold";

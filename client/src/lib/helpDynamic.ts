@@ -19,7 +19,7 @@
 // Nada de esto sale del dispositivo ni se guarda en la base de datos.
 import type { Tab } from "../App";
 import type { api } from "../api";
-import { todayISO } from "./format";
+import { money, todayISO } from "./format";
 
 export type HelpOption = { label: string; send: string };
 export type HelpMsg = { from: "user" | "bot"; text: string; go?: Tab; goLabel?: string; options?: HelpOption[] };
@@ -31,7 +31,6 @@ export type HelpFaq = { keys: string[]; q: string; a: string; go?: Tab; goLabel?
 // ov.movements y nunca consultan nada más.
 export type OverviewData = Awaited<ReturnType<typeof api.getOverview>>;
 
-const money = (n: number) => n.toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
 function fmtMonth(ym: string | null): string { if (!ym) return ""; const [y = 2026, m = 1] = ym.split("-").map(Number); return new Date(y, (m || 1) - 1, 1).toLocaleDateString("es-MX", { month: "long", year: "numeric" }); }
 function fmtDate(iso: string): string { const [y = 2026, m = 1, d = 1] = iso.split("-").map(Number); return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }); }
 function prevMonths(ym: string, n: number): string[] {

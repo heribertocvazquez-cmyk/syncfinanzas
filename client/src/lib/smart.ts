@@ -145,7 +145,16 @@ function bareAmount(line: string): number | null {
   return Number.isFinite(v) && v > 0 && v < 1000000 ? v : null;
 }
 
-// Tabla de categorías sugeridas del lector propio (la del previo): palabras
+// Línea que es solo un importe CON el signo $ («$ 238», «$ 848.23 MXN»),
+// con o sin decimales. Sin el signo no vale: un folio, una cuenta o una
+// fecha no es un importe. Solo se usa en comprobantes de pago, donde el
+// importe va solo en su línea sin decimales.
+function dollarOnlyAmount(line: string): number | null {
+  const m = /^\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\s*(mxn|pesos)?\.?$/i.exec(line.trim());
+  if (!m) return null;
+  const v = Number(m[1]!.replace(/,/g, ""));
+  return Number.isFinite(v) && v > 0 && v < 1000000 ? v : null;
+}
 // de comercios y giros comunes en México → etiqueta sugerida. La etiqueta
 // es solo una sugerencia: la app siempre usa las categorías reales del
 // hogar y, si la etiqueta no está, ofrece crearla.
@@ -160,7 +169,10 @@ const TICKET_CATEGORY_LABELS: { keys: string[]; label: string }[] = [
 ];
 
 export function suggestTicketCategoryLabel(text: string): string | null {
-  const bag = text.toLowerCase();
+  // «mercado pago» es la billetera, no un mercado: sin quitar la frase,
+  // la palabra «mercado» dispararía «Súper y despensa» antes de llegar
+  // a CFE/Telmex.
+  const bag = text.toLowerCase().replace(/mercado\s*pago/g, " ");
   for (const c of TICKET_CATEGORY_LABELS) {
     for (const k of c.keys) if (bag.includes(k)) return c.label;
   }
@@ -263,6 +275,10 @@ export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
   // banco). Se detecta por las palabras de transferencia, pero la línea
   // de total de un ticket siempre gana.
   const isTransferDoc = /transfer|spei/.test(normText(text));
+  // Comprobante de pago (Mercado Pago Wallet): el importe va solo en su
+  // línea arriba («$ 238») sin decimales y sin línea de «total», y el
+  // servicio pagado (CFE, Telmex) es la línea que sigue al importe.
+  const isPaymentReceipt = /comprobante de pago/.test(normText(text));
   let total: number | null = null;
   // La línea de total es la que dice "total" sin ser "subtotal".
   const totalLines = lines.filter((l) => {
@@ -324,6 +340,17 @@ export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
         const b = bareAmount(l);
         if (b != null && b > best) best = b;
       }
+      if (best === 0 && isPaymentReceipt) {
+        // Comprobante de pago: el importe va solo en su línea arriba
+        // («$ 238») sin decimales. El signo $ es lo que lo distingue
+        // de los folios (números largos sin $ ni decimales, que siguen
+        // sin contar). Se toma la PRIMERA línea así, no la mayor: es
+        // el importe grande de arriba.
+        for (const l of lines) {
+          const v = dollarOnlyAmount(l);
+          if (v != null) { best = v; break; }
+        }
+      }
     }
     total = best > 0 ? best : null;
   }
@@ -369,15 +396,38 @@ export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
   const date = plausible ?? closest ?? null;
   const skip = ["total", "gracias", "ticket", "folio", "fecha", "hora", "caja", "vendedor", "cajero", "cambio", "efectivo", "tarjeta", "subtotal", "iva", "descuento", "articulo", "cantidad", "precio", "importe", "cliente", "domicilio"];
   let store: string | null = null;
-  for (const l of lines.slice(0, 6)) {
-    const n = normText(l);
-    if (l.length < 3 || l.length > 50) continue;
-    if (!/[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(l)) continue;
-    if (skip.some((w) => n.includes(w))) continue;
-    if (/\d{4,}/.test(l)) continue;
-    if (!isCleanStoreName(l)) continue;
-    store = l.replace(/[^\p{L}\p{N} &.'-]/gu, "").trim() || null;
-    if (store) break;
+  if (isPaymentReceipt) {
+    // Comprobante de pago: el comercio es el servicio pagado (CFE,
+    // Telmex), la línea limpia que sigue al importe, no el encabezado
+    // («mercado pago»). Solo se mira la línea que sigue al PRIMER
+    // importe; si no es un nombre usable, se cae al criterio general.
+    for (let i = 0; i + 1 < lines.length; i++) {
+      if (dollarOnlyAmount(lines[i]!) == null) continue;
+      const next = lines[i + 1]!;
+      const n = normText(next);
+      if (
+        next.length >= 3 && next.length <= 50 &&
+        /[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(next) &&
+        !skip.some((w) => n.includes(w)) &&
+        !/\d{4,}/.test(next) &&
+        isCleanStoreName(next)
+      ) {
+        store = next.replace(/[^\p{L}\p{N} &.'-]/gu, "").trim() || null;
+      }
+      break;
+    }
+  }
+  if (store == null) {
+    for (const l of lines.slice(0, 6)) {
+      const n = normText(l);
+      if (l.length < 3 || l.length > 50) continue;
+      if (!/[A-Za-zÁÉÍÓÚÑáéíóúñ]{3}/.test(l)) continue;
+      if (skip.some((w) => n.includes(w))) continue;
+      if (/\d{4,}/.test(l)) continue;
+      if (!isCleanStoreName(l)) continue;
+      store = l.replace(/[^\p{L}\p{N} &.'-]/gu, "").trim() || null;
+      if (store) break;
+    }
   }
   // En una transferencia, el concepto no es el encabezado del papel
   // ("COMPROBANTE DE TRANSFERENCIA") sino lo que dice la línea

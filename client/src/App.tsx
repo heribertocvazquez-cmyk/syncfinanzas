@@ -26,7 +26,9 @@ import { PlanFinancieroWizard } from "./components/PlanFinancieroWizard";
 import { HomeMovementsCard } from "./components/HomeMovementsCard";
 import { CollapsibleCard } from "./components/CollapsibleCard";
 import { LegalDocumentsView } from "./components/LegalDocs";
-import { money, money2, fmtDate, todayISO } from "./lib/format";
+import { money, money2, fmtDate, todayISO, getHouseholdCurrency, setHouseholdCurrency } from "./lib/format";
+import { currencyName, suggestCurrency, type HouseholdCurrency } from "./lib/currency";
+import { CurrencyPicker } from "./components/CurrencyPicker";
 import { Label, inputCls, btnPrimary, btnGold, btnGhost, btnDanger, Empty } from "./lib/uiShared";
 import { OcrDetail } from "./components/OcrDetail";
 import { LoadingSplash } from "./components/LoadingSplash";
@@ -808,10 +810,10 @@ export function App(){
   useEffect(()=>{ try{ const nav=navigator as Navigator & { setAppBadge?: (n?:number)=>Promise<void>; clearAppBadge?: ()=>Promise<void> }; if(bellCount>0) void nav.setAppBadge?.(bellCount); else void nav.clearAppBadge?.(); }catch{} },[bellCount]);
 
   // onboarding state
-  const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;email:string;householdName:string;invitedName:string|null;kind:"household"|"tanda";tandaId:number|null;tandaName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500");
+  const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;email:string;householdName:string;invitedName:string|null;kind:"household"|"tanda";tandaId:number|null;tandaName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500"); const [hhCurrencySuggestion]=useState(suggestCurrency); const [hhCurrency,setHhCurrency]=useState<HouseholdCurrency>(hhCurrencySuggestion.currency);
   const findInv=useMutation({mutationFn:async()=>await api.findInvitations({email:invEmail}),onSuccess:(r)=>{setInvFound(r.invitations);setInvSearched(true);}});
   const respondInv=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:joinFirst||undefined,lastName:joinLast||undefined}),onSuccess:(r)=>{ inv(); if(r.profileId) pickProfile(r.profileId); }});
-  const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero":hhName):hhName,currency:"MXN",cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:()=>{ inv(); setChartsSeen(false); try{ localStorage.setItem("sf-first-guide-pending","1"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
+  const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero":hhName):hhName,currency:hhCurrency,cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:()=>{ inv(); setChartsSeen(false); try{ localStorage.setItem("sf-first-guide-pending","1"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
   // Asistente de creación del espacio (paso a paso), secciones plegables de
   // registro y guía de primer uso tras crear el hogar.
   const [obStep,setObStep]=useState(0); const [obError,setObError]=useState("");
@@ -1258,8 +1260,8 @@ export function App(){
   const delProf=useMutation({mutationFn:async(id:number)=>await api.deleteProfile({id}),onSuccess:()=>{inv();setConfirmDeleteProfId(null);}});
 
   // household edit
-  const [editName,setEditName]=useState(""); const [editMode,setEditMode]=useState<"personal"|"familiar">("familiar"); const [editCutoff,setEditCutoff]=useState("1"); const [editContrib,setEditContrib]=useState<"equal"|"proportional">("equal"); const [editApproval,setEditApproval]=useState<"unanimous"|"majority">("unanimous"); const [editThreshold,setEditThreshold]=useState("1500");
-  const saveHh=useMutation({mutationFn:async()=>await api.updateHousehold({id:data!.household!.id,mode:editMode,name:editName||data!.household!.name,currency:"MXN",cutoffDay:Number(editCutoff)||1,contributionRule:editContrib,approvalRule:editApproval,approvalThreshold:Number(editThreshold)||0}),onSuccess:inv});
+  const [editName,setEditName]=useState(""); const [editMode,setEditMode]=useState<"personal"|"familiar">("familiar"); const [editCutoff,setEditCutoff]=useState("1"); const [editContrib,setEditContrib]=useState<"equal"|"proportional">("equal"); const [editApproval,setEditApproval]=useState<"unanimous"|"majority">("unanimous"); const [editThreshold,setEditThreshold]=useState("1500"); const [editCurrency,setEditCurrency]=useState<HouseholdCurrency|"">("");
+  const saveHh=useMutation({mutationFn:async()=>await api.updateHousehold({id:data!.household!.id,mode:editMode,name:editName||data!.household!.name,currency:editCurrency||(data!.household!.currency as HouseholdCurrency)||"MXN",cutoffDay:Number(editCutoff)||1,contributionRule:editContrib,approvalRule:editApproval,approvalThreshold:Number(editThreshold)||0}),onSuccess:inv});
   const demo=useMutation({mutationFn:async()=>await api.loadDemo({householdId:data!.household!.id}),onSuccess:inv});
   // Reinicio completo de la aplicación (botón dentro del menú desplegable de módulos)
   const [resetStep,setResetStep]=useState(0); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false);
@@ -1881,6 +1883,7 @@ export function App(){
                   <div><Label htmlFor="owner-last">Su apellido</Label><input id="owner-last" aria-label="Su apellido" className={inputCls} value={ownerLast} onChange={e=>setOwnerLast(e.target.value)} placeholder="Ej. Téllez" /></div>
                   <div><Label htmlFor="owner-income">{planMode==="personal"?"Su sueldo mensual ($)":"Su ingreso mensual ($)"}</Label><input id="owner-income" aria-label="Su ingreso neto mensual" type="number" min="0" className={inputCls} value={ownerIncome} onChange={e=>setOwnerIncome(e.target.value)} placeholder="0" /></div>
                 </div>
+                <div><Label htmlFor="moneda-hogar">Moneda del hogar</Label><CurrencyPicker value={hhCurrency} onChange={setHhCurrency} /><p className="text-xs text-[var(--dim)] mt-1">Todo el hogar queda en esta moneda. Podrá cambiarla después en Hogar.</p>{hhCurrencySuggestion.detected && <p className="text-xs text-[var(--dim)]">Sugerida por la región de su teléfono: {currencyName(hhCurrencySuggestion.currency)}.</p>}</div>
                 <p className="text-xs text-[var(--dim)]">Su nombre no se toma de su correo.</p>
                 {obError && <p className="text-sm text-[var(--red)]">{obError}</p>}
                 <div className="flex gap-2">
@@ -1920,7 +1923,7 @@ export function App(){
   // La primera pantalla es siempre Inicio: al abrir la app, al entrar después
   // de iniciar sesión y al reabrirla, se ven saldo, gráficas, movimientos y las
   // tarjetas principales, sin abrir el menú ni ir a otra pestaña.
-  const s=data.summary; const hh=data.household; const effTab:Tab = tab; const goTab=(x:Tab)=>{setTab(x); logUsageEvent(data?.household?.id, x, "ver_modulo"); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
+  const s=data.summary; const hh=data.household; setHouseholdCurrency(hh?.currency); const effTab:Tab = tab; const goTab=(x:Tab)=>{setTab(x); logUsageEvent(data?.household?.id, x, "ver_modulo"); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
   // Primera vista de la sesión: la analítica también cuenta el módulo en
   // el que se abre la app (goTab solo registra los cambios de módulo).
   const openTandaDetail=(id:number)=>{ setTandaDetailId(id); goTab("tandas"); };
@@ -2374,7 +2377,6 @@ export function App(){
     </>}
   </div>}
   <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} disabled={mvCat==="__new__"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
-  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} disabled={mvCat==="__new__"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
   </>}
   {mvStep===3 && <>
   <div><Label htmlFor="mv-concept">Concepto</Label><div className="flex gap-2"><input id="mv-concept" aria-label="Concepto del movimiento" required className={inputCls+" flex-1"} value={mvConcept} onChange={e=>{setMvConcept(e.target.value);applyRuleTo(e.target.value,"mv");}} placeholder="Ej. Súper semanal" />{(mvType==="expense"||mvType==="debt_payment") && <button type="button" aria-label={voiceBusyMv?"Escuchando…":"Dictar el gasto por voz"} title="Dictar por voz" className="shrink-0 w-11 rounded-xl border border-[var(--border)] bg-[var(--surface2)] flex items-center justify-center" disabled={voiceBusyMv} onClick={()=>startVoice("mv")}>{micIcon}</button>}</div>
@@ -2655,7 +2657,7 @@ export function App(){
                 «Resumen del mes», como antes hacía la banda. */}
             <button type="button" aria-label="Ver el resumen completo del mes" onClick={()=>setShowSummary(true)} className="relative block w-full overflow-hidden text-left bg-[var(--hero)] border border-[var(--border)] rounded-2xl p-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
               <span aria-hidden="true" className="absolute left-0 right-0 top-0 h-[3px] bg-[var(--gold)]" />
-              <span className="block text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]">Disponible · {fmtMonth(s.currentMonth).toUpperCase()}</span>
+              <span className="flex items-center justify-between gap-2 text-[11px] font-semibold tracking-wide uppercase text-[var(--gold-text)]"><span>Disponible · {fmtMonth(s.currentMonth).toUpperCase()}</span><span aria-label={`Moneda del hogar: ${getHouseholdCurrency()}`}>{getHouseholdCurrency()}</span></span>
               <span className="block font-display text-4xl font-extrabold leading-tight mt-1">{money2(s.availableFree)}</span>
               <span className="block text-sm text-[var(--dim)] mt-1">Total {money2(s.totalBalance)} − fondos apartados {money2(s.fundsReserved)}.</span>
               <span className="mt-4 grid grid-cols-3 gap-2 text-center">
@@ -3655,7 +3657,7 @@ export function App(){
                 <div><Label htmlFor="edit-contrib">Regla de aportación</Label><select id="edit-contrib" aria-label="Regla de aportación editable" className={inputCls} defaultValue={hh.contributionRule} onChange={e=>setEditContrib(e.target.value as "equal"|"proportional")}><option value="equal">Partes iguales</option><option value="proportional">Proporcional al ingreso</option></select></div>
                 <div><Label htmlFor="edit-approval">Regla de aprobación</Label><select id="edit-approval" aria-label="Regla de aprobación editable" className={inputCls} defaultValue={hh.approvalRule} onChange={e=>setEditApproval(e.target.value as "unanimous"|"majority")}><option value="unanimous">Unánime</option><option value="majority">Mayoría</option></select></div>
               </div>
-              <Help>Moneda: <b>MXN</b>.</Help>
+              <div><Label htmlFor="moneda-hogar">Moneda del hogar</Label><CurrencyPicker value={editCurrency||(hh.currency as HouseholdCurrency)||"MXN"} onChange={setEditCurrency} disabled={!isAdmin} /><p className="text-xs text-[var(--dim)] mt-1">Todo el hogar queda en esta moneda.</p><p className="text-xs text-[var(--dim)]">Si el hogar ya tiene movimientos, cambiar la moneda solo cambia el símbolo. Los importes guardados no se convierten.</p></div>
               {!isAdmin && <p className="text-sm text-[var(--red)]">Solo el administrador cambia las reglas.</p>}
               <button className={btnPrimary} disabled={saveHh.isPending || !isAdmin} onClick={()=>{ if(!editName) setEditName(hh.name); }}>{saveHh.isPending?"Guardando…":"Guardar reglas"}</button>
               {saveHh.isSuccess && <p className="text-sm text-[var(--green)]">Reglas guardadas.</p>}
@@ -4100,7 +4102,7 @@ export function App(){
           tabLabel={tabLabel}
           onToggleMenu={() => setMenuOpen((o) => !o)}
           onNewExpense={() => openNewMovement("expense")}
-          onGoTab={(t) => { goTab(t); setMenuOpen(false); }}
+          onGoTab={(t) => { goTab(t); setMenuOpen(false); if (t === "inicio") window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 60); }}
         />
       )}
     </div>
