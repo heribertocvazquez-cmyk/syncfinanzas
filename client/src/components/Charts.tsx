@@ -46,7 +46,7 @@ export function donutLabelColor(fill: string): string {
 }
 // Etiqueta de la dona: el símbolo del rubro y su % del gasto del mes en
 // UNA sola línea, al mismo nivel (el % a la derecha del símbolo, sin
-// texto extra). Solo segmentos ≥ minPct (en Inicio 10%). El grupo se
+// texto extra). Solo segmentos ≥ minPct (en Inicio 5%). El grupo se
 // centra al 62% del grosor del anillo: con el anillo más grueso
 // (innerRadius 58%) el grupo queda dentro del segmento sin tocar el
 // total del centro (el grupo mide ~29 px de ancho y su borde interior
@@ -56,7 +56,7 @@ export function renderDonutLabel(p: any, minPct = 0, colors: string[] = DONUT_CO
   const datum = (p.payload ?? {}) as Partial<CatSlice>;
   const name = datum.name ?? p.name ?? "";
   const pct = typeof datum.pct === "number" ? datum.pct : (typeof p.percent === "number" ? p.percent * 100 : 0);
-  // En Inicio las etiquetas solo van en segmentos grandes (≥10%).
+  // En Inicio las etiquetas solo van en segmentos grandes (≥5%).
   if (pct < minPct) return null;
   const RADIAN = Math.PI / 180;
   const inner = Number(p.innerRadius);

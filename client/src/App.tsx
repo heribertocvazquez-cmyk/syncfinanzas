@@ -2503,7 +2503,7 @@ export function App(){
             <div className="grid md:grid-cols-2 gap-4 md:gap-6 mt-4 md:mt-6">
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <h2 className="font-display font-bold text-lg">Gasto por categoría · <span className="whitespace-nowrap"><svg className="inline-block align-[-2px] text-[var(--dim)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> {fmtMonthShort(s.currentMonth)}</span></h2>
-                                <Suspense fallback={DonutFallback}><CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={10} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth,pct:d.pct})} /></Suspense>
+                                <Suspense fallback={DonutFallback}><CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={5} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth,pct:d.pct})} /></Suspense>
               </div>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                 <h2 className="font-display font-bold text-lg">Ingresos vs gastos · 3 meses atrás</h2>
@@ -3286,7 +3286,7 @@ export function App(){
               <div className="space-y-3">
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
                   <h2 className="font-display font-bold text-lg">Gasto por categoría · <span className="whitespace-nowrap"><svg className="inline-block align-[-2px] text-[var(--dim)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> {fmtMonthShort(s.currentMonth)}</span></h2>
-                                    <Suspense fallback={DonutFallback}><CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={10} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth,pct:d.pct})} /></Suspense>
+                                    <Suspense fallback={DonutFallback}><CategoryChart data={data.personal.byCategory} detailOpen={catDetail!==null} palette={DONUT_PALETTE_INICIO} large reserveLine minIconPct={5} onSelect={(d)=>setCatDetail({categoryId:d.categoryId,name:d.name,total:d.total,month:s.currentMonth,pct:d.pct})} /></Suspense>
                   <p className="text-sm mt-3 border-t border-[var(--border)] pt-2">Gastado en el mes: <b className="whitespace-nowrap">{money2(data.personal.monthSpent)}</b> · Restante: <b className="whitespace-nowrap">{money2(data.personal.remaining)}</b></p>
                 </div>
                 <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
