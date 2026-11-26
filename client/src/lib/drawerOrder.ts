@@ -12,13 +12,13 @@ import type { Tab } from "../App";
 // El orden se aplica al pintar (ver orderDrawerTabs). Hogar va en Mi
 // dinero; Guía de uso va en Configuración, junto a Vista.
 export const DRAWER_GROUPS: { title: string; tabs: Tab[] }[] = [
-  { title: "Mi dinero", tabs: ["inicio", "personal", "movimientos", "cuentas", "hogar"] },
+  { title: "Mi dinero", tabs: ["inicio", "personal", "movimientos", "cuentas", "hogar", "recurrentes"] },
   { title: "Planes y tandas", tabs: ["presupuestos", "metas", "fondos", "aportaciones", "tandas"] },
   { title: "Ajustes", tabs: ["patrimonio", "acuerdos", "categorias", "perfiles"] },
 ];
 
 /** Orden por importancia del grupo Mi dinero, decidido por Heriberto (2026-11-18). */
-export const MI_DINERO_ORDER: Tab[] = ["inicio", "personal", "hogar", "cuentas", "movimientos"];
+export const MI_DINERO_ORDER: Tab[] = ["inicio", "personal", "hogar", "cuentas", "movimientos", "recurrentes"];
 
 /**
  * Ordena los módulos de un grupo del cajón: Mi dinero va en el orden

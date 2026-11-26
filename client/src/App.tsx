@@ -59,16 +59,16 @@ import { APP_VERSION } from "./version";
 import { APP_UPDATE_EVENT, APP_UPDATE_GONE_EVENT, UPDATE_APPLY_TIMEOUT_MS, applyAppUpdate, checkForAppUpdate, isUpdateAvailable } from "./serviceWorkerUpdate";
 import { clearDeferredInstallPrompt, consumeDeferredInstallPrompt } from "./installPrompt";
 
-export type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"seguridad"|"guia"|"desarrollador"|"legales";
+export type Tab = "inicio"|"personal"|"tandas"|"movimientos"|"cuentas"|"categorias"|"presupuestos"|"fondos"|"aportaciones"|"metas"|"acuerdos"|"patrimonio"|"perfiles"|"hogar"|"seguridad"|"guia"|"desarrollador"|"legales"|"recurrentes";
 const TABS: {id:Tab;label:string}[] = [
-  {id:"inicio",label:"Inicio"},{id:"personal",label:"Personal"},{id:"movimientos",label:"Movimientos"},{id:"cuentas",label:"Cuentas"},{id:"presupuestos",label:"Presupuestos"},
+  {id:"inicio",label:"Inicio"},{id:"personal",label:"Personal"},{id:"movimientos",label:"Movimientos"},{id:"recurrentes",label:"Gastos recurrentes"},{id:"cuentas",label:"Cuentas"},{id:"presupuestos",label:"Presupuestos"},
   {id:"fondos",label:"Fondos"},{id:"aportaciones",label:"Aportaciones"},{id:"metas",label:"Metas"},{id:"acuerdos",label:"Acuerdos"},{id:"tandas",label:"Tandas"},
   {id:"patrimonio",label:"Patrimonio"},{id:"categorias",label:"Categorías"},{id:"perfiles",label:"Perfiles"},{id:"hogar",label:"Hogar"},{id:"seguridad",label:"Seguridad"},{id:"guia",label:"Guía de uso"},{id:"desarrollador",label:"Desarrollador"},{id:"legales",label:"Documentos legales"},
 ];
 // Los módulos se agrupan por función: varios se desprenden de otros (Aportaciones se calcula
 // desde Movimientos; Fondos son apartados dentro de Cuentas; Presupuestos vigilan Categorías).
 const MODULE_GROUPS: {title:string; tabs:Tab[]}[] = [
-  {title:"Resumen y registro diario", tabs:["inicio","personal","movimientos","cuentas"]},
+  {title:"Resumen y registro diario", tabs:["inicio","personal","movimientos","recurrentes","cuentas"]},
   {title:"Planificación", tabs:["presupuestos","fondos","aportaciones","metas"]},
   {title:"Decisiones y patrimonio", tabs:["acuerdos","patrimonio"]},
   {title:"Tandas", tabs:["tandas"]},
@@ -705,6 +705,35 @@ export function App(){
   const rules=rulesQuery.data?.rules ?? [];
   const saveRule=useMutation({mutationFn:async(v:{keyword:string;categoryId:number})=>await api.saveCategoryRule({householdId:data!.household!.id,...v}),onSuccess:()=>{ qc.invalidateQueries({queryKey:["categoryRules"]}); }});
   const delRule=useMutation({mutationFn:async(id:number)=>await api.deleteCategoryRule({id}),onSuccess:()=>{ qc.invalidateQueries({queryKey:["categoryRules"]}); }});
+  // Gastos recurrentes: reglas y avisos pendientes de confirmar. Si la
+  // tabla aún no existe (falta correr supabase/recurring-rules.sql), la
+  // lista sale vacía y el guardado avisa con el error del servidor.
+  const recRulesQuery=useQuery({queryKey:["recurringRules"],queryFn:()=>api.listRecurringRules({householdId:data!.household!.id}),enabled:!!data?.household});
+  const recRules=recRulesQuery.data?.rules ?? [];
+  const recPending=recRulesQuery.data?.pending ?? [];
+  const saveRecRule=useMutation({mutationFn:async(v:{id?:number;concept:string;amount:number;accountId:number;categoryId:number|null;frequency:"weekly"|"biweekly"|"monthly";dayOfMonth:number|null;weekday:number|null;startDate:string;endDate:string|null;visibility:"private"|"shared";lastPromptedDate?:string|null})=>await api.saveRecurringRule({householdId:data!.household!.id,...v}),onSuccess:()=>{ qc.invalidateQueries({queryKey:["recurringRules"]}); }});
+  const delRecRule=useMutation({mutationFn:async(id:number)=>await api.deleteRecurringRule({id,householdId:data!.household!.id}),onSuccess:()=>{ qc.invalidateQueries({queryKey:["recurringRules"]}); }});
+  const setRecActive=useMutation({mutationFn:async(v:{id:number;isActive:number})=>await api.setRecurringRuleActive({id:v.id,householdId:data!.household!.id,isActive:v.isActive}),onSuccess:()=>{ qc.invalidateQueries({queryKey:["recurringRules"]}); }});
+  const confirmRecOcc=useMutation({mutationFn:async(id:number)=>await api.confirmRecurringOccurrence({householdId:data!.household!.id,occurrenceId:id}),onSuccess:()=>{ qc.invalidateQueries({queryKey:["recurringRules"]}); qc.invalidateQueries({queryKey:["notifications"]}); qc.invalidateQueries({queryKey:["overview"]}); logUsageEvent(data!.household!.id,"movimientos","guardar_movimiento"); }});
+  const skipRecOcc=useMutation({mutationFn:async(id:number)=>await api.skipRecurringOccurrence({householdId:data!.household!.id,occurrenceId:id}),onSuccess:()=>{ qc.invalidateQueries({queryKey:["recurringRules"]}); qc.invalidateQueries({queryKey:["notifications"]}); }});
+  // Formulario de regla (nueva o edición) en Gastos recurrentes.
+  const [recFormOpen,setRecFormOpen]=useState(false);
+  const [recEditId,setRecEditId]=useState<number|null>(null);
+  const [recConcept,setRecConcept]=useState("");
+  const [recAmount,setRecAmount]=useState("");
+  const [recAccount,setRecAccount]=useState("");
+  const [recCat,setRecCat]=useState("");
+  const [recFreq,setRecFreq]=useState<"weekly"|"biweekly"|"monthly">("monthly");
+  const [recDay,setRecDay]=useState("1");
+  const [recWeekday,setRecWeekday]=useState("1");
+  const [recStart,setRecStart]=useState(todayISO());
+  const [recEnd,setRecEnd]=useState("");
+  const [recVis,setRecVis]=useState<"private"|"shared">("shared");
+  const [recDelId,setRecDelId]=useState<number|null>(null);
+  const recFreqLabel=(f:"weekly"|"biweekly"|"monthly")=>f==="weekly"?"Semanal":f==="biweekly"?"Quincenal":"Mensual";
+  const recWeekdayName=(w:number)=>["domingo","lunes","martes","miércoles","jueves","viernes","sábado"][w] ?? "";
+  const recWhenText=(r:{frequency:string;dayOfMonth:number|null;weekday:number|null;startDate:string})=>r.frequency==="weekly"?`Semanal · ${recWeekdayName(r.weekday ?? 1)}`:r.frequency==="biweekly"?`Quincenal · cada 14 días desde ${fmtDate(r.startDate)}`:`Mensual · día ${r.dayOfMonth ?? 1}`;
+  const openRecForm=(r?:{id:number;concept:string;amount:number;accountId:number;categoryId:number|null;frequency:"weekly"|"biweekly"|"monthly";dayOfMonth:number|null;weekday:number|null;startDate:string;endDate:string|null;visibility:"private"|"shared"})=>{ if(r){ setRecEditId(r.id); setRecConcept(r.concept); setRecAmount(String(r.amount)); setRecAccount(String(r.accountId)); setRecCat(r.categoryId!=null?String(r.categoryId):""); setRecFreq(r.frequency); setRecDay(String(r.dayOfMonth ?? 1)); setRecWeekday(String(r.weekday ?? 1)); setRecStart(r.startDate); setRecEnd(r.endDate ?? ""); setRecVis(r.visibility); } else { setRecEditId(null); setRecConcept(""); setRecAmount(""); setRecAccount(""); setRecCat(""); setRecFreq("monthly"); setRecDay(String(new Date().getDate())); setRecWeekday("1"); setRecStart(todayISO()); setRecEnd(""); setRecVis("shared"); } setRecFormOpen(true); };
   // Avisos periódicos de tarjetas (corte y pago): una revisión por día.
   const periodicCheckedRef=useRef(false);
   useEffect(()=>{
@@ -713,6 +742,16 @@ export function App(){
     let today="";
     try{ today=todayISO(); if(localStorage.getItem("sf-periodic-alerts-date")===today) return; }catch{ return; }
     void api.checkPeriodicAlerts({householdId:data.household.id}).then((r)=>{ try{ localStorage.setItem("sf-periodic-alerts-date",today); }catch{} if(r.created>0) qc.invalidateQueries({queryKey:["notifications"]}); }).catch(()=>{});
+  },[data?.household]);
+  // Gastos recurrentes: una revisión por día al abrir la app. Si vence
+  // una fecha, se crea el aviso en la campana (nunca se registra solo).
+  const recurringCheckedRef=useRef(false);
+  useEffect(()=>{
+    if(!data?.household || recurringCheckedRef.current) return;
+    recurringCheckedRef.current=true;
+    let today="";
+    try{ today=todayISO(); if(localStorage.getItem("sf-recurring-check-date")===today) return; }catch{ return; }
+    void api.checkDueRecurring({householdId:data.household.id}).then((r)=>{ try{ localStorage.setItem("sf-recurring-check-date",today); }catch{} if(r.created>0){ qc.invalidateQueries({queryKey:["notifications"]}); qc.invalidateQueries({queryKey:["recurringRules"]}); } }).catch(()=>{});
   },[data?.household]);
   // Sincroniza el formulario de «Hogar y ajustes» con el hogar activo:
   // los estados de edición nacen con valores fijos ("familiar", "1",
@@ -940,6 +979,15 @@ export function App(){
     if(target==="mv"){ if(mvCat==="" || appliedRuleMv){ setMvCat(String(r.categoryId)); setAppliedRuleMv({keyword:r.keyword,categoryName:cat.name}); } }
     else { if(persCat==="" || appliedRulePers){ setPersCat(String(r.categoryId)); setAppliedRulePers({keyword:r.keyword,categoryName:cat.name}); } }
   };
+  // «Repetir este gasto» (paso 2, solo gasto nuevo): al guardar se crea
+  // la regla con la fecha del gasto como inicio y como última avisada,
+  // para que hoy no vuelva a avisar. La regla se crea en el onSuccess
+  // de saveMv, con los datos del formulario.
+  const [mvRepeat,setMvRepeat]=useState(false);
+  const [mvRepeatFreq,setMvRepeatFreq]=useState<"weekly"|"biweekly"|"monthly">("monthly");
+  const [mvRepeatDay,setMvRepeatDay]=useState("");
+  const [mvRepeatWeekday,setMvRepeatWeekday]=useState("");
+  const [mvRepeatError,setMvRepeatError]=useState("");
   // Totales al instante al guardar un movimiento: en cuanto el servidor
   // confirma el guardado, la vista en caché se proyecta con el movimiento
   // guardado (los totales de Inicio y Presupuestos ya muestran el valor
@@ -973,7 +1021,7 @@ export function App(){
     visibility: mvVis,
     profileId: mvProfile ? Number(mvProfile) : (me ? me.id : null),
   });
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,budgetId:(mvType==="expense"||mvType==="debt_payment")?mvBudget:undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:(r)=>{const previous=editingMv!=null?data?.movements.find(m=>m.id===editingMv)??null:null;const saved=savedMovementFromForm(r?.id ?? editingMv ?? 0);projectMovementChange(previous?{kind:"edit",movement:saved,previous}:{kind:"create",movement:saved});refreshAfterMovementSave();resetMvForm();setMvAssignPendingSql(r?.savedBudgetAssignment===false);if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}logUsageEvent(data!.household!.id,"movimientos","guardar_movimiento");}});
+  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,budgetId:(mvType==="expense"||mvType==="debt_payment")?mvBudget:undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:(r)=>{const wasRepeat=mvRepeat && editingMv==null && mvType==="expense";const repData=wasRepeat?{concept:mvConcept,amount:Number(mvAmount),accountId:mvAccount?Number(mvAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,date:mvDate,visibility:mvVis,freq:mvRepeatFreq,day:mvRepeatFreq==="monthly"?Number(mvRepeatDay||mvDate.slice(8,10)):null,weekday:mvRepeatFreq==="weekly"?Number(mvRepeatWeekday):null}:null;const previous=editingMv!=null?data?.movements.find(m=>m.id===editingMv)??null:null;const saved=savedMovementFromForm(r?.id ?? editingMv ?? 0);projectMovementChange(previous?{kind:"edit",movement:saved,previous}:{kind:"create",movement:saved});refreshAfterMovementSave();resetMvForm();setMvAssignPendingSql(r?.savedBudgetAssignment===false);if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}logUsageEvent(data!.household!.id,"movimientos","guardar_movimiento");if(repData && repData.accountId){ void api.saveRecurringRule({householdId:data!.household!.id,concept:repData.concept,amount:repData.amount,accountId:repData.accountId,categoryId:repData.categoryId,frequency:repData.freq,dayOfMonth:repData.day,weekday:repData.weekday,startDate:repData.date,visibility:repData.visibility,lastPromptedDate:repData.date}).then(()=>{ qc.invalidateQueries({queryKey:["recurringRules"]}); }).catch((e)=>{ setMvRepeatError(`El gasto se guardó, pero no se pudo crear la regla: ${String(e)}`); }); }}});
   const [confirmDeleteMvId,setConfirmDeleteMvId]=useState<number|null>(null);
   const [confirmDeleteProfId,setConfirmDeleteProfId]=useState<number|null>(null);
   const [confirmDelInvId,setConfirmDelInvId]=useState<number|null>(null);
@@ -1457,7 +1505,7 @@ export function App(){
   // limpiaban algunos campos y la nota «Leído del comprobante» (con el
   // nombre leído) y la fecha leída se quedaban, así que el siguiente gasto
   // heredaba el anterior.
-  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvAccountError(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvBudget(null); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setOcrDateCheckMv(null); setOcrDateErrorMv(""); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); setNewCatName(""); };
+  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvAccountError(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvBudget(null); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setOcrDateCheckMv(null); setOcrDateErrorMv(""); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); setNewCatName(""); setMvRepeat(false); setMvRepeatFreq("monthly"); setMvRepeatDay(""); setMvRepeatWeekday(""); setMvRepeatError(""); };
   const resetPersForm=()=>{ setPersAmt(""); setPersConcept(""); setPersReceipt(null); setPersCat(""); setPersAccount(""); setPersAccountError(""); setAppliedRulePers(null); setPersStep(1); setPersMore(false); setOcrDetailPers(null); setOcrLabelPers(""); setOcrNewCatName(""); setOcrNoticePers(""); setOcrErrorPers(""); setOcrErrDetailPers(""); setOcrProgressPers(""); setOcrBusyPers(false); setVoiceNoticePers(""); setVoiceErrorPers(""); setVoiceBusyPers(false); setNewCatName(""); };
   // Registro rápido desde Inicio: se queda en Inicio y abre el formulario
   // de movimientos en un pop-up, sin ir a Movimientos. Al guardar, el
@@ -2185,6 +2233,7 @@ export function App(){
   </div>}
   {ocrDateErrorMv && <p className="text-sm text-[var(--red)]">{ocrDateErrorMv}</p>}
   {mvStep===1 && <>
+  {mvRepeatError && <p className="text-sm text-[var(--red)]">{mvRepeatError}</p>}
   <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
     {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
   </div>
@@ -2223,6 +2272,22 @@ export function App(){
     <button type="button" className="text-xs underline mt-2" onClick={()=>setOcrLabelMv("")}>Omitir, elegiré otra</button>
     {createCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createCat.error)}</p>}
   </div>}
+  {mvType==="expense" && editingMv==null && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-sm font-bold">Repetir este gasto</p>
+      <button type="button" role="switch" aria-checked={mvRepeat} aria-label="Repetir este gasto" onClick={()=>{ if(!mvRepeat){ setMvRepeatDay(String(mvDate?Number(mvDate.slice(8,10)):1)); setMvRepeatWeekday(String(mvDate?new Date(mvDate+"T12:00:00").getDay():1)); } setMvRepeat(!mvRepeat); }} className={`shrink-0 w-12 h-7 rounded-full ${mvRepeat?"bg-[var(--accent)]":"bg-[var(--border)]"} relative`}><span className={`absolute top-0.5 ${mvRepeat?"right-0.5":"left-0.5"} w-6 h-6 rounded-full bg-[var(--bg)]`} /></button>
+    </div>
+    <p className="text-xs text-[var(--dim)]">Al guardar, el gasto queda registrado hoy y se crea la regla. Cada vez que venza, le llegará un aviso para confirmarlo.</p>
+    {mvRepeat && <>
+    <div className="grid grid-cols-3 gap-1.5 mt-2" role="group" aria-label="Frecuencia del gasto recurrente">
+      {(["weekly","biweekly","monthly"] as const).map(f=>(<button key={f} type="button" aria-label={`Repetir cada ${f==="weekly"?"semana":f==="biweekly"?"quincena":"mes"}`} onClick={()=>setMvRepeatFreq(f)} className={`rounded-full py-2.5 text-[13px] font-bold ${mvRepeatFreq===f?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{f==="weekly"?"Semanal":f==="biweekly"?"Quincenal":"Mensual"}</button>))}
+    </div>
+    {mvRepeatFreq==="monthly" && <div className="mt-2"><Label htmlFor="mv-repeat-day">Día del mes</Label><input id="mv-repeat-day" aria-label="Día del mes del gasto recurrente" type="number" min={1} max={31} className={inputCls} value={mvRepeatDay} onChange={e=>setMvRepeatDay(e.target.value)} /><p className="text-xs text-[var(--dim)] mt-1">Si el mes no tiene ese día, se ajusta al último día del mes.</p></div>}
+    {mvRepeatFreq==="weekly" && <div className="mt-2"><Label htmlFor="mv-repeat-weekday">Día de la semana</Label><select id="mv-repeat-weekday" aria-label="Día de la semana del gasto recurrente" className={inputCls} value={mvRepeatWeekday} onChange={e=>setMvRepeatWeekday(e.target.value)}>{["domingo","lunes","martes","miércoles","jueves","viernes","sábado"].map((w,i)=>(<option key={w} value={i}>{w}</option>))}</select></div>}
+    {mvRepeatFreq==="biweekly" && <p className="text-xs text-[var(--dim)] mt-2">Cada 14 días a partir de la fecha del gasto.</p>}
+    </>}
+  </div>}
+  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} disabled={mvCat==="__new__"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
   <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(1); scrollFormTop("mv-form");}}>Atrás</button><button type="button" className={btnPrimary+" flex-1"} disabled={mvCat==="__new__"} onClick={()=>{setMvStep(3); scrollFormTop("mv-form");}}>Siguiente</button></div>
   </>}
   {mvStep===3 && <>
@@ -3077,6 +3142,88 @@ export function App(){
           </section>
         )}
 
+        {effTab==="recurrentes" && (
+          <section>
+            {recRulesQuery.isPending ? (
+              <p className="text-sm text-[var(--dim)]">Cargando gastos recurrentes…</p>
+            ) : recRulesQuery.error ? (
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+                <h3 className="font-display font-bold text-lg">Gastos recurrentes</h3>
+                <p className="text-sm text-[var(--red)] mt-1">No se pudieron cargar las reglas. Si es la primera vez, ejecute supabase/recurring-rules.sql en Supabase.</p>
+              </div>
+            ) : (<>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
+              <h3 className="font-display font-bold text-lg">Pendientes de confirmar</h3>
+              <p className="text-sm text-[var(--dim)] mt-1">Cuando vence una fecha, llega un aviso a la campana. Confirme para registrar el gasto u omita solo esa fecha.</p>
+              {recPending.length===0 ? (
+                <p className="text-sm text-[var(--dim)] mt-3">Sin avisos pendientes.</p>
+              ) : (
+                <div className="divide-y divide-[var(--border)] mt-2">{recPending.map(pp=>(<div key={pp.id} className="py-3">
+                  <div className="flex justify-between gap-2"><p className="font-semibold text-sm">{pp.concept}</p><p className="font-semibold text-sm whitespace-nowrap">{money(pp.amount)}</p></div>
+                  <p className="text-xs text-[var(--dim)] mt-0.5">{pp.dueDate===todayISO()?`Vence hoy`:`Venció el ${fmtDate(pp.dueDate)}`} · {pp.accountName ?? "Sin cuenta"}{pp.categoryName?` · ${pp.categoryName}`:""}</p>
+                  <div className="flex gap-2 mt-2">
+                    <button type="button" aria-label={`Confirmar ${pp.concept} de ${money(pp.amount)}`} className={btnPrimary} disabled={confirmRecOcc.isPending} onClick={()=>confirmRecOcc.mutate(pp.id)}>Confirmar</button>
+                    <button type="button" aria-label={`Omitir ${pp.concept} de ${money(pp.amount)}`} className={btnGhost} disabled={skipRecOcc.isPending} onClick={()=>skipRecOcc.mutate(pp.id)}>Omitir</button>
+                  </div>
+                </div>))}</div>
+              )}
+              {(confirmRecOcc.error || skipRecOcc.error) && <p className="text-sm text-[var(--red)] mt-2">{String(confirmRecOcc.error || skipRecOcc.error)}</p>}
+            </div>
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-3">
+              <div className="flex justify-between items-start gap-2">
+                <div><h3 className="font-display font-bold text-lg">Reglas</h3><p className="text-sm text-[var(--dim)] mt-1">Un gasto que se repite. La app nunca registra sola: avisa y usted confirma.</p></div>
+                <button type="button" aria-label="Nueva regla de gasto recurrente" className={btnPrimary} onClick={()=>openRecForm()}>+ Nueva regla</button>
+              </div>
+              {recRules.length===0 ? (
+                <p className="text-sm text-[var(--dim)] mt-3">Sin reglas todavía.</p>
+              ) : (
+                <div className="divide-y divide-[var(--border)] mt-2">{recRules.map(r=>(<div key={r.id} className="py-3">
+                  <div className="flex justify-between gap-2"><p className="font-semibold text-sm">{r.concept}</p><p className="font-semibold text-sm whitespace-nowrap">{money(r.amount)}</p></div>
+                  <p className="text-xs text-[var(--dim)] mt-0.5">{r.accountName ?? "Sin cuenta"}{r.categoryName?` · ${r.categoryName}`:""} · {recWhenText(r)}</p>
+                  <p className="text-xs text-[var(--dim)] mt-0.5">{r.nextDueDate?`Próxima: ${fmtDate(r.nextDueDate)}`:"Sin próximas fechas"} · {r.isActive===1?"Activa":"Pausada"}{r.needsReview?" · Revisar":""}</p>
+                  {r.needsReview && <p className="text-xs text-[var(--red)] mt-1">La cuenta o la categoría de esta regla ya no existe. Corríjala para volver a recibir avisos.</p>}
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <button type="button" aria-label={r.isActive===1?`Pausar la regla ${r.concept}`:`Reanudar la regla ${r.concept}`} className={btnGhost} disabled={setRecActive.isPending} onClick={()=>setRecActive.mutate({id:r.id,isActive:r.isActive===1?0:1})}>{r.isActive===1?"Pausar":"Reanudar"}</button>
+                    <button type="button" aria-label={`Editar la regla ${r.concept}`} className={btnGhost} onClick={()=>openRecForm(r)}>Editar</button>
+                    {recDelId===r.id ? (<><button type="button" aria-label={`Confirmar eliminar la regla ${r.concept}`} className={btnDanger} disabled={delRecRule.isPending} onClick={()=>delRecRule.mutate(r.id)}>Sí, eliminar</button><button type="button" className={btnGhost} onClick={()=>setRecDelId(null)}>Cancelar</button></>) : (<button type="button" aria-label={`Eliminar la regla ${r.concept}`} className={btnGhost} onClick={()=>setRecDelId(r.id)}>Eliminar</button>)}
+                  </div>
+                </div>))}</div>
+              )}
+              {(delRecRule.error || setRecActive.error) && <p className="text-sm text-[var(--red)] mt-2">{String(delRecRule.error || setRecActive.error)}</p>}
+            </div>
+            {recFormOpen && (<form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 mt-3 space-y-2" onSubmit={(e:FormEvent)=>{e.preventDefault(); if(!recConcept.trim()||!recAmount||!recAccount) return; saveRecRule.mutate({id:recEditId??undefined,concept:recConcept.trim(),amount:Number(recAmount),accountId:Number(recAccount),categoryId:recCat?Number(recCat):null,frequency:recFreq,dayOfMonth:recFreq==="monthly"?Number(recDay):null,weekday:recFreq==="weekly"?Number(recWeekday):null,startDate:recStart,endDate:recEnd||null,visibility:recVis},{onSuccess:()=>{setRecFormOpen(false);setRecEditId(null);}});}}>
+              <h3 className="font-display font-bold text-lg">{recEditId?"Editar regla":"Nueva regla"}</h3>
+              <div><Label htmlFor="rec-concept">Concepto</Label><input id="rec-concept" aria-label="Concepto del gasto recurrente" required className={inputCls} value={recConcept} onChange={e=>setRecConcept(e.target.value)} placeholder="Ej. Renta" /></div>
+              <div><Label htmlFor="rec-amount">Importe</Label><input id="rec-amount" aria-label="Importe del gasto recurrente" required type="number" min="0.01" step="0.01" inputMode="decimal" className={inputCls} value={recAmount} onChange={e=>setRecAmount(e.target.value)} placeholder="0.00" /></div>
+              <div><Label htmlFor="rec-account">Cuenta</Label><select id="rec-account" aria-label="Cuenta del gasto recurrente" className={inputCls} value={recAccount} onChange={e=>setRecAccount(e.target.value)}><option value="">Seleccione la cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
+              <div><Label htmlFor="rec-cat">Categoría</Label><select id="rec-cat" aria-label="Categoría del gasto recurrente" className={inputCls} value={recCat} onChange={e=>setRecCat(e.target.value)}><option value="">Sin categoría</option>{data.categories.filter(c=>c.kind==="expense"&&c.isActive===1).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+              <div>
+                <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">Frecuencia</span>
+                <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Frecuencia del gasto recurrente">
+                  {(["weekly","biweekly","monthly"] as const).map(f=>(<button key={f} type="button" aria-label={`Repetir cada ${f==="weekly"?"semana":f==="biweekly"?"quincena":"mes"}`} onClick={()=>setRecFreq(f)} className={`rounded-full py-2.5 text-[13px] font-bold ${recFreq===f?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{recFreqLabel(f)}</button>))}
+                </div>
+              </div>
+              {recFreq==="monthly" && <div><Label htmlFor="rec-day">Día del mes</Label><input id="rec-day" aria-label="Día del mes del gasto recurrente" type="number" min={1} max={31} className={inputCls} value={recDay} onChange={e=>setRecDay(e.target.value)} /><p className="text-xs text-[var(--dim)] mt-1">Si el mes no tiene ese día, se ajusta al último día del mes.</p></div>}
+              {recFreq==="weekly" && <div><Label htmlFor="rec-weekday">Día de la semana</Label><select id="rec-weekday" aria-label="Día de la semana del gasto recurrente" className={inputCls} value={recWeekday} onChange={e=>setRecWeekday(e.target.value)}>{["domingo","lunes","martes","miércoles","jueves","viernes","sábado"].map((w,i)=>(<option key={w} value={i}>{w}</option>))}</select></div>}
+              {recFreq==="biweekly" && <p className="text-sm text-[var(--dim)]">Cada 14 días a partir de la fecha de inicio.</p>}
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label htmlFor="rec-start">Fecha de inicio</Label><input id="rec-start" aria-label="Fecha de inicio del gasto recurrente" type="date" required className={inputCls} value={recStart} onChange={e=>setRecStart(e.target.value)} /></div>
+                <div><Label htmlFor="rec-end">Fecha de término (opcional)</Label><input id="rec-end" aria-label="Fecha de término del gasto recurrente" type="date" className={inputCls} value={recEnd} onChange={e=>setRecEnd(e.target.value)} /></div>
+              </div>
+              <div>
+                <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">Visibilidad</span>
+                <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Visibilidad del gasto recurrente">
+                  <button type="button" aria-label="Gasto recurrente compartido" onClick={()=>setRecVis("shared")} className={`rounded-full py-2.5 text-[13px] font-bold ${recVis==="shared"?"bg-[var(--green)] text-[var(--bg)]":"border border-[var(--border)]"}`}>Compartido</button>
+                  <button type="button" aria-label="Gasto recurrente privado" onClick={()=>setRecVis("private")} className={`rounded-full py-2.5 text-[13px] font-bold ${recVis==="private"?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Privado</button>
+                </div>
+              </div>
+              {saveRecRule.error && <p className="text-sm text-[var(--red)]">{String(saveRecRule.error)}</p>}
+              <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setRecFormOpen(false);setRecEditId(null);}}>Cancelar</button><button className={btnPrimary+" flex-1"} disabled={saveRecRule.isPending || !recConcept.trim() || !recAmount || !recAccount}>{saveRecRule.isPending?"Guardando…":recEditId?"Guardar cambios":"Crear regla"}</button></div>
+            </form>)}
+            </>)}
+          </section>
+        )}
+
         {effTab==="perfiles" && (
           <section className="grid md:grid-cols-[320px_1fr] gap-4 md:gap-6 items-start">
             <div style={{gridColumn:"1 / -1"}} className="bg-[var(--accent)] text-[var(--accent-text)] rounded-2xl p-4 sm:p-5 flex flex-wrap items-center gap-2">
@@ -3372,7 +3519,7 @@ export function App(){
                       <button type="button" aria-label={`Leer la guía en PDF del segmento ${g.title}`} className={btnGhost+" shrink-0"} onClick={()=>setGuidePdf({title:g.title,src:GUIDE_PDF_BY_GROUP[g.title]||""})}>Guía en PDF</button>
                     </div>
                     <div className="divide-y divide-[var(--border)]">
-                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático y arqueo de cuentas.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", seguridad:"Seguridad de su información y bloqueo con PIN.", guia:"Instalación y guías.", legales:"Aviso de privacidad, términos, reembolsos y versión de prueba." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
+                      {g.tabs.map(tid=>{ const t=TABS.find(x=>x.id===tid)!; const desc: Partial<Record<Tab,string>> = { inicio:"Disponible, gráficas y movimientos.", personal:"Su sueldo y sus gastos del día.", movimientos:"Registro con filtros y comprobantes.", cuentas:"Cuentas con saldo automático y arqueo de cuentas.", presupuestos:"Límites mensuales por categoría.", fondos:"Apartados en sus cuentas.", aportaciones:"Reparto del gasto compartido.", metas:"Ahorro con fecha.", acuerdos:"Votos de gastos mayores.", patrimonio:"Activos, pasivos y neto.", tandas:"Reunión, pase de lista y saldos.", categorias:"Categorías y subcategorías.", recurrentes:"Gastos que se repiten cada semana, quincena o mes.", perfiles:"Personas del hogar.", hogar:"Nombre, modo y reglas.", seguridad:"Seguridad de su información y bloqueo con PIN.", guia:"Instalación y guías.", legales:"Aviso de privacidad, términos, reembolsos y versión de prueba." }; return <div key={tid} className="py-2.5 flex items-start justify-between gap-2"><div><p className="font-semibold text-sm">{t.label}</p><p className="text-[13px] text-[var(--dim)]">{desc[tid]||""}</p></div><button type="button" aria-label={`Abrir el módulo ${t.label} desde la guía`} className={btnGhost+" shrink-0"} onClick={()=>goTab(tid)}>Abrir</button></div>; })}
                     </div>
                   </div>
                 ))}

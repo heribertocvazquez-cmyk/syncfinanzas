@@ -15,7 +15,7 @@ export const USAGE_MODULES = [
   "inicio", "personal", "tandas", "movimientos", "cuentas", "categorias",
   "presupuestos", "fondos", "aportaciones", "metas", "acuerdos",
   "patrimonio", "perfiles", "hogar", "seguridad", "guia", "desarrollador",
-  "legales",
+  "legales", "recurrentes",
 ] as const;
 export type UsageModule = (typeof USAGE_MODULES)[number];
 
@@ -50,6 +50,7 @@ export const USAGE_MODULE_LABEL: Record<UsageModule, string> = {
   guia: "Guía de uso",
   desarrollador: "Desarrollador",
   legales: "Documentos legales",
+  recurrentes: "Gastos recurrentes",
 };
 
 export const USAGE_ACTION_LABEL: Record<UsageAction, string> = {

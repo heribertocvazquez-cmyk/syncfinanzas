@@ -409,7 +409,7 @@ export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
   householdId: integer("household_id").notNull(),
   userId: uuid("user_id").notNull(),
-  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "presupuesto_80", "gasto_anomalo", "suscripcion_sube", "tarjeta_corte", "tarjeta_pago", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida", "ajuste_gasto", "ajuste_sobrante", "pago_tanda", "nueva_opinion", "aceptacion_otro_correo", "recordatorio_tanda", "presupuesto_sugerido"] }).notNull(),
+  type: text("type", { enum: ["nuevo_integrante", "gasto_umbral", "presupuesto_excedido", "presupuesto_80", "gasto_anomalo", "suscripcion_sube", "tarjeta_corte", "tarjeta_pago", "plan_aporte", "plan_mes_sin_aporte", "plan_en_riesgo", "meta_cumplida", "ajuste_gasto", "ajuste_sobrante", "pago_tanda", "nueva_opinion", "aceptacion_otro_correo", "recordatorio_tanda", "presupuesto_sugerido", "gasto_recurrente"] }).notNull(),
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   amount: doublePrecision("amount"),
@@ -427,6 +427,45 @@ export const categoryRules = pgTable("category_rules", {
   keyword: text("keyword").notNull(),
   categoryId: integer("category_id").notNull(),
   isActive: integer("is_active").notNull().default(1),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+// Gastos recurrentes: una regla es un gasto que se repite (semanal,
+// quincenal o mensual). Las tablas se crean con
+// supabase/recurring-rules.sql; RLS con denegación total, solo
+// service_role. La app nunca registra sola: al vencer una fecha se crea
+// una ocurrencia pendiente y un aviso; confirmar crea el movimiento y
+// deja su id en la ocurrencia (trazabilidad regla → movimiento).
+// frequency: weekly | biweekly | monthly. dayOfMonth (1-31) solo para
+// monthly; weekday (0-6, domingo 0) solo para weekly. startDate es el
+// ancla (biweekly: cada 14 días desde ahí). lastPromptedDate es la
+// última fecha vencida ya avisada (idempotencia); endDate opcional.
+export const recurringRules = pgTable("recurring_rules", {
+  id: serial("id").primaryKey(),
+  householdId: integer("household_id").notNull(),
+  concept: text("concept").notNull(),
+  amount: doublePrecision("amount").notNull(),
+  accountId: integer("account_id").notNull(),
+  categoryId: integer("category_id"),
+  frequency: text("frequency", { enum: ["weekly", "biweekly", "monthly"] }).notNull(),
+  dayOfMonth: integer("day_of_month"),
+  weekday: integer("weekday"),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date"),
+  lastPromptedDate: text("last_prompted_date"),
+  visibility: text("visibility", { enum: ["private", "shared"] }).notNull().default("shared"),
+  isActive: integer("is_active").notNull().default(1),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+export const recurringOccurrences = pgTable("recurring_occurrences", {
+  id: serial("id").primaryKey(),
+  ruleId: integer("rule_id").notNull(),
+  dueDate: text("due_date").notNull(),
+  status: text("status", { enum: ["pending", "confirmed", "skipped"] }).notNull().default("pending"),
+  movementId: integer("movement_id"),
+  resolvedAt: timestamp("resolved_at", { mode: "date" }),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 

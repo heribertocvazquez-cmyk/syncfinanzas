@@ -66,7 +66,7 @@ async function requireMovementVisible(ctx: Ctx, db: Ctx["db"], movementId: numbe
 // la operación principal: si la tabla aún no existe (falta correr
 // supabase/notifications.sql), la inserción falla en silencio y la app
 // sigue funcionando sin avisos.
-type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion" | "aceptacion_otro_correo" | "recordatorio_tanda" | "presupuesto_sugerido"; title: string; body: string; amount?: number | null; target: string };
+type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion" | "aceptacion_otro_correo" | "recordatorio_tanda" | "presupuesto_sugerido" | "gasto_recurrente"; title: string; body: string; amount?: number | null; target: string };
 async function notifyHousehold(ctx: Ctx, householdId: number, n: NotifInput, excludeUserId?: string | null) {
   try {
     const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
@@ -343,7 +343,7 @@ function computeBudgetSpents(movs: { categoryId: number | null; subcategory: str
 // que protege a los testers (solo módulo y botón, nunca importes ni
 // contenido). Debe mantenerse igual que USAGE_MODULES/USAGE_ACTIONS en
 // client/src/lib/usageLog.ts.
-const USAGE_MODULES: string[] = ["inicio", "personal", "tandas", "movimientos", "cuentas", "categorias", "presupuestos", "fondos", "aportaciones", "metas", "acuerdos", "patrimonio", "perfiles", "hogar", "seguridad", "guia", "desarrollador", "legales"];
+const USAGE_MODULES: string[] = ["inicio", "personal", "tandas", "movimientos", "cuentas", "categorias", "presupuestos", "fondos", "aportaciones", "metas", "acuerdos", "patrimonio", "perfiles", "hogar", "seguridad", "guia", "desarrollador", "legales", "recurrentes"];
 const USAGE_ACTIONS: string[] = ["ver_modulo", "guardar_movimiento", "guardar_cuenta", "guardar_presupuesto", "guardar_meta", "guardar_fondo", "aportar_meta", "retirar_meta"];
 // Versiones vigentes de los documentos legales y del apartado «Versión de
 // prueba». La aceptación de un usuario vale solo si coincide con las
@@ -1506,6 +1506,134 @@ async function ensureOrganizerParticipant(
     joinedDate: joined,
   });
   return await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, td.id));
+}
+
+// ---- Gastos recurrentes: fechas de vencimiento (funciones puras) ----
+// Fechas en texto YYYY-MM-DD, en UTC como el resto del servidor
+// (saveBudget usa el mismo todayUtc). Mensual: mismo día del mes,
+// ajustado al último día si no existe (31 → 30 o 28/29). Semanal:
+// mismo día de la semana. Quincenal: cada 14 días desde startDate.
+function ymdParts(s: string): { y: number; m: number; d: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return { y, m: mo, d };
+}
+function ymdToString(y: number, m: number, d: number): string {
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+function ymdAddDays(s: string, n: number): string {
+  const p = ymdParts(s);
+  if (!p) return s;
+  const dt = new Date(Date.UTC(p.y, p.m - 1, p.d + n));
+  return ymdToString(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+}
+function ymdWeekday(s: string): number {
+  const p = ymdParts(s);
+  if (!p) return 0;
+  return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay();
+}
+function dateDiffDays(a: string, b: string): number {
+  const pa = ymdParts(a), pb = ymdParts(b);
+  if (!pa || !pb) return 0;
+  return Math.round((Date.UTC(pb.y, pb.m - 1, pb.d) - Date.UTC(pa.y, pa.m - 1, pa.d)) / 86400000);
+}
+function daysInMonth(y: number, m: number): number {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+type RecurringRuleRow = typeof schema.recurringRules.$inferSelect;
+// Fechas de vencimiento de una regla en (fromExclusive, toInclusive],
+// desde startDate y hasta endDate si lo tiene. Sin tope de cantidad: el
+// llamador acota el intervalo (la revisión diaria solo mira hasta hoy).
+function recurringDueDates(rule: RecurringRuleRow, fromExclusive: string, toInclusive: string): string[] {
+  const out: string[] = [];
+  const start = rule.startDate;
+  const end = rule.endDate ?? "9999-12-31";
+  if (toInclusive < start || fromExclusive >= end) return out;
+  let first = start;
+  if (fromExclusive >= first) first = ymdAddDays(fromExclusive, 1);
+  if (first > toInclusive || first > end) return out;
+  if (rule.frequency === "weekly") {
+    const wd = rule.weekday ?? ymdWeekday(start);
+    let d = ymdAddDays(first, (wd - ymdWeekday(first) + 7) % 7);
+    while (d <= toInclusive && d <= end) { out.push(d); d = ymdAddDays(d, 7); }
+  } else if (rule.frequency === "biweekly") {
+    let k = 0;
+    if (first > start) k = Math.ceil(dateDiffDays(start, first) / 14);
+    let d = ymdAddDays(start, 14 * k);
+    while (d <= toInclusive && d <= end) { out.push(d); d = ymdAddDays(d, 14); }
+  } else {
+    const dom = rule.dayOfMonth ?? ymdParts(start)?.d ?? 1;
+    const p = ymdParts(first);
+    if (!p) return out;
+    let y = p.y, m = p.m;
+    for (;;) {
+      const cand = ymdToString(y, m, Math.min(dom, daysInMonth(y, m)));
+      if (cand > toInclusive || cand > end) break;
+      if (cand >= first) out.push(cand);
+      if (m === 12) { y += 1; m = 1; } else { m += 1; }
+    }
+  }
+  return out;
+}
+// Marca como leídos los avisos de gasto recurrente de esta regla y fecha
+// para este usuario (el cuerpo lleva el concepto, el importe y la fecha
+// o «vence hoy»: con eso se distingue una fecha de otra).
+async function markRecurringNotifRead(ctx: Ctx, householdId: number, rule: { concept: string; amount: number }, dueDate: string) {
+  try {
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    const marker = `${rule.concept} de ${moneyShort(rule.amount)}`;
+    const dateMarker = dueDate === todayUtc ? "vence hoy" : (fmtDateEs(dueDate) ?? dueDate);
+    const rows = await ctx.db.select().from(schema.notifications).where(and(eq(schema.notifications.householdId, householdId), eq(schema.notifications.userId, ctx.user.id), eq(schema.notifications.type, "gasto_recurrente"), eq(schema.notifications.isRead, 0)));
+    const ids = rows.filter((r) => r.body.includes(marker) && (r.body.includes("vence hoy") || r.body.includes(dateMarker))).map((r) => r.id);
+    if (ids.length > 0) await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(inArray(schema.notifications.id, ids));
+  } catch { /* el aviso ya no estorba: la ocurrencia quedó resuelta */ }
+}
+// Revisión diaria de vencimientos: una ocurrencia pendiente y un aviso
+// por cada fecha vencida no avisada de las reglas activas del hogar.
+// Idempotente: la UNIQUE (rule_id, due_date) es la guarda final y
+// lastPromptedDate es la marca de agua. Solo se avisan vencimientos de
+// los últimos 90 días (una regla creada hace un año no inunda la
+// campana con 12 avisos). Las reglas con la cuenta o la categoría
+// borradas («Revisar») no generan avisos hasta corregirse. Nunca
+// bloquea la app: si las tablas aún no existen, no pasa nada.
+async function checkDueRecurringInternal(ctx: Ctx, householdId: number): Promise<{ created: number }> {
+  let created = 0;
+  try {
+    const db = ctx.db;
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    const rules = await db.select().from(schema.recurringRules).where(and(eq(schema.recurringRules.householdId, householdId), eq(schema.recurringRules.isActive, 1)));
+    if (rules.length === 0) return { created: 0 };
+    const accs = await db.select().from(schema.accounts).where(eq(schema.accounts.householdId, householdId));
+    const cats = await db.select().from(schema.categories).where(eq(schema.categories.householdId, householdId));
+    const floor = ymdAddDays(todayUtc, -90);
+    for (const rule of rules) {
+      const account = accs.find((a) => a.id === rule.accountId);
+      const category = rule.categoryId != null ? cats.find((c) => c.id === rule.categoryId) : undefined;
+      if (!account || (rule.categoryId != null && !category)) continue;
+      const from = [rule.lastPromptedDate ?? "0000-00-00", floor].sort().pop()!;
+      const dues = recurringDueDates(rule, from, todayUtc);
+      let maxDue: string | null = null;
+      for (const due of dues) {
+        let inserted: { id: number } | undefined;
+        try {
+          [inserted] = await db.insert(schema.recurringOccurrences).values({ ruleId: rule.id, dueDate: due, status: "pending" }).returning({ id: schema.recurringOccurrences.id });
+        } catch { inserted = undefined; }
+        if (!inserted) continue;
+        const body = due === todayUtc
+          ? `Tu ${rule.concept} de ${moneyShort(rule.amount)} vence hoy — ¿la registro?`
+          : `Tu ${rule.concept} de ${moneyShort(rule.amount)} venció el ${fmtDateEs(due) ?? due} — ¿la registro?`;
+        if (!(await unreadAlertExists(ctx, householdId, "gasto_recurrente", `${rule.concept} de ${moneyShort(rule.amount)}`))) {
+          await notifyHousehold(ctx, householdId, { type: "gasto_recurrente", title: "Gasto recurrente por confirmar", body, amount: rule.amount, target: "recurrentes" });
+        }
+        created++;
+        maxDue = due;
+      }
+      if (maxDue) await db.update(schema.recurringRules).set({ lastPromptedDate: maxDue }).where(eq(schema.recurringRules.id, rule.id));
+    }
+  } catch { /* los avisos nunca bloquean la app */ }
+  return { created };
 }
 
 export const Actions = {
@@ -4641,6 +4769,185 @@ export const Actions = {
     async handler(ctx, args): Promise<Ok> {
       try { await ctx.db.delete(schema.categoryRules).where(eq(schema.categoryRules.id, args.id)); } catch { /* tabla aún no creada: no había reglas */ }
       ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+  // ---- Gastos recurrentes (primera mejora del benchmark v2) ----
+  listRecurringRules: defineAction({
+    description: "Lists the household's recurring-expense rules with their next due date and needsReview flag, and the pending occurrences waiting for confirmation. Returns empty lists if the tables have not been created yet.",
+    request: z.object({ householdId: z.number() }),
+    response: z.object({
+      rules: z.array(z.object({ id: z.number(), concept: z.string(), amount: z.number(), accountId: z.number(), accountName: z.string().nullable(), categoryId: z.number().nullable(), categoryName: z.string().nullable(), frequency: z.enum(["weekly", "biweekly", "monthly"]), dayOfMonth: z.number().nullable(), weekday: z.number().nullable(), startDate: z.string(), endDate: z.string().nullable(), lastPromptedDate: z.string().nullable(), isActive: z.number(), needsReview: z.boolean(), nextDueDate: z.string().nullable(), visibility: z.enum(["private", "shared"]) })),
+      pending: z.array(z.object({ id: z.number(), ruleId: z.number(), dueDate: z.string(), concept: z.string(), amount: z.number(), accountId: z.number(), accountName: z.string().nullable(), categoryId: z.number().nullable(), categoryName: z.string().nullable() })),
+    }),
+    async handler(ctx, args) {
+      try {
+        const db = ctx.db;
+        const todayUtc = new Date().toISOString().slice(0, 10);
+        const rules = await db.select().from(schema.recurringRules).where(eq(schema.recurringRules.householdId, args.householdId)).orderBy(schema.recurringRules.id);
+        const accs = await db.select().from(schema.accounts).where(eq(schema.accounts.householdId, args.householdId));
+        const cats = await db.select().from(schema.categories).where(eq(schema.categories.householdId, args.householdId));
+        const ruleIds = rules.map((r) => r.id);
+        const occs = ruleIds.length > 0
+          ? await db.select().from(schema.recurringOccurrences).where(and(inArray(schema.recurringOccurrences.ruleId, ruleIds), eq(schema.recurringOccurrences.status, "pending"))).orderBy(schema.recurringOccurrences.dueDate)
+          : [];
+        const ruleById = new Map(rules.map((r) => [r.id, r]));
+        return {
+          rules: rules.map((r) => {
+            const account = accs.find((a) => a.id === r.accountId);
+            const category = r.categoryId != null ? cats.find((c) => c.id === r.categoryId) : undefined;
+            return {
+              id: r.id, concept: r.concept, amount: r.amount, accountId: r.accountId,
+              accountName: account?.name ?? null,
+              categoryId: r.categoryId ?? null, categoryName: category?.name ?? null,
+              frequency: r.frequency, dayOfMonth: r.dayOfMonth ?? null, weekday: r.weekday ?? null,
+              startDate: r.startDate, endDate: r.endDate ?? null, lastPromptedDate: r.lastPromptedDate ?? null,
+              isActive: r.isActive,
+              needsReview: !account || (r.categoryId != null && !category),
+              nextDueDate: recurringDueDates(r, todayUtc, ymdAddDays(todayUtc, 366))[0] ?? null,
+              visibility: r.visibility,
+            };
+          }),
+          pending: occs.map((o) => {
+            const r = ruleById.get(o.ruleId)!;
+            const account = accs.find((a) => a.id === r.accountId);
+            const category = r.categoryId != null ? cats.find((c) => c.id === r.categoryId) : undefined;
+            return { id: o.id, ruleId: o.ruleId, dueDate: o.dueDate, concept: r.concept, amount: r.amount, accountId: r.accountId, accountName: account?.name ?? null, categoryId: r.categoryId ?? null, categoryName: category?.name ?? null };
+          }),
+        };
+      } catch { return { rules: [], pending: [] }; }
+    },
+  }),
+  saveRecurringRule: defineAction({
+    description: "Creates or updates a recurring-expense rule (weekly, biweekly or monthly). If the table has not been created, it explains that supabase/recurring-rules.sql must be run first.",
+    request: z.object({ id: z.number().optional(), householdId: z.number(), concept: z.string().min(1).max(200), amount: z.number().positive().max(100_000_000), accountId: z.number(), categoryId: z.number().nullable().optional(), frequency: z.enum(["weekly", "biweekly", "monthly"]), dayOfMonth: z.number().int().min(1).max(31).nullable().optional(), weekday: z.number().int().min(0).max(6).nullable().optional(), startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), visibility: vis.optional(), lastPromptedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      const db = ctx.db;
+      const concept = args.concept.trim();
+      if (!concept) throw new Error("Escriba el concepto del gasto recurrente.");
+      if (!ymdParts(args.startDate)) throw new Error("La fecha de inicio no es válida.");
+      if (args.endDate && args.endDate < args.startDate) throw new Error("La fecha de término no puede ser anterior a la de inicio.");
+      if (args.frequency === "monthly" && (args.dayOfMonth == null || args.dayOfMonth < 1 || args.dayOfMonth > 31)) throw new Error("Elija el día del mes (1 a 31).");
+      if (args.frequency === "weekly" && (args.weekday == null || args.weekday < 0 || args.weekday > 6)) throw new Error("Elija el día de la semana.");
+      const acc = (await db.select().from(schema.accounts).where(eq(schema.accounts.id, args.accountId)).limit(1))[0];
+      if (!acc || acc.householdId !== args.householdId) throw new Error("La cuenta indicada no pertenece a este hogar.");
+      if (args.categoryId != null) {
+        const cat = (await db.select().from(schema.categories).where(eq(schema.categories.id, args.categoryId)).limit(1))[0];
+        if (!cat || cat.householdId !== args.householdId) throw new Error("La categoría indicada no pertenece a este hogar.");
+      }
+      const values = {
+        householdId: args.householdId, concept, amount: Math.round(args.amount * 100) / 100,
+        accountId: args.accountId, categoryId: args.categoryId ?? null,
+        frequency: args.frequency,
+        dayOfMonth: args.frequency === "monthly" ? (args.dayOfMonth ?? null) : null,
+        weekday: args.frequency === "weekly" ? (args.weekday ?? null) : null,
+        startDate: args.startDate, endDate: args.endDate ?? null,
+        visibility: args.visibility ?? "shared",
+      };
+      try {
+        if (args.id) {
+          await requireRowHousehold(db, schema.recurringRules, args.id, args.householdId, "La regla indicada");
+          await db.update(schema.recurringRules).set(values).where(eq(schema.recurringRules.id, args.id));
+          ctx.invalidateQueries(); return { ok: true, id: args.id };
+        }
+        const [row] = await db.insert(schema.recurringRules).values({ ...values, lastPromptedDate: args.lastPromptedDate ?? null, isActive: 1, createdBy: ctx.user.id }).returning({ id: schema.recurringRules.id });
+        if (!row) throw new Error("No se pudo guardar la regla.");
+        ctx.invalidateQueries(); return { ok: true, id: row.id };
+      } catch (e) {
+        if (String(e).includes("does not exist")) throw new Error("Para crear gastos recurrentes, primero ejecute supabase/recurring-rules.sql en el SQL Editor de Supabase.");
+        throw e;
+      }
+    },
+  }),
+  deleteRecurringRule: defineAction({
+    description: "Deletes a recurring-expense rule and its pending occurrences. Movements already created from it stay.",
+    request: z.object({ id: z.number(), householdId: z.number() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      const db = ctx.db;
+      try {
+        await requireRowHousehold(db, schema.recurringRules, args.id, args.householdId, "La regla indicada");
+        await db.delete(schema.recurringOccurrences).where(and(eq(schema.recurringOccurrences.ruleId, args.id), eq(schema.recurringOccurrences.status, "pending")));
+        await db.delete(schema.recurringRules).where(eq(schema.recurringRules.id, args.id));
+      } catch (e) {
+        if (String(e).includes("does not exist")) { ctx.invalidateQueries(); return { ok: true }; }
+        throw e;
+      }
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+  setRecurringRuleActive: defineAction({
+    description: "Pauses or resumes a recurring-expense rule. A paused rule creates no new notices; pending occurrences stay until confirmed or skipped.",
+    request: z.object({ id: z.number(), householdId: z.number(), isActive: z.number().int().min(0).max(1) }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      const db = ctx.db;
+      try {
+        await requireRowHousehold(db, schema.recurringRules, args.id, args.householdId, "La regla indicada");
+        await db.update(schema.recurringRules).set({ isActive: args.isActive }).where(eq(schema.recurringRules.id, args.id));
+      } catch (e) {
+        if (String(e).includes("does not exist")) throw new Error("Para usar gastos recurrentes, primero ejecute supabase/recurring-rules.sql en el SQL Editor de Supabase.");
+        throw e;
+      }
+      ctx.invalidateQueries(); return { ok: true };
+    },
+  }),
+  checkDueRecurring: defineAction({
+    description: "Creates one pending occurrence (and one bell notice) per overdue due date of the household's active recurring rules, up to today. Idempotent: a second call creates nothing. Never blocks the app.",
+    request: z.object({ householdId: z.number() }),
+    response: z.object({ created: z.number() }),
+    async handler(ctx, args) {
+      return checkDueRecurringInternal(ctx, args.householdId);
+    },
+  }),
+  confirmRecurringOccurrence: defineAction({
+    description: "Confirms a pending recurring occurrence: creates the normal expense movement (same amount, account, category and concept; date = due date) and marks the occurrence confirmed with its movement id. Confirming twice returns the same movement, never a second one.",
+    request: z.object({ householdId: z.number(), occurrenceId: z.number() }),
+    response: z.object({ ok: z.literal(true), movementId: z.number() }),
+    async handler(ctx, args): Promise<{ ok: true; movementId: number }> {
+      const db = ctx.db;
+      const occ = (await db.select().from(schema.recurringOccurrences).where(eq(schema.recurringOccurrences.id, args.occurrenceId)).limit(1))[0];
+      if (!occ) throw new Error("Aviso no encontrado.");
+      if (occ.status === "confirmed") {
+        if (occ.movementId != null) return { ok: true as const, movementId: occ.movementId };
+        throw new Error("Este aviso ya se confirmó.");
+      }
+      if (occ.status === "skipped") throw new Error("Esta fecha ya se omitió; la regla sigue viva para las siguientes fechas.");
+      const rule = (await db.select().from(schema.recurringRules).where(eq(schema.recurringRules.id, occ.ruleId)).limit(1))[0];
+      if (!rule || rule.householdId !== args.householdId) throw new Error("Regla no encontrada.");
+      const acc = (await db.select().from(schema.accounts).where(eq(schema.accounts.id, rule.accountId)).limit(1))[0];
+      if (!acc || acc.householdId !== args.householdId) throw new Error("La cuenta de esta regla ya no existe. Corrija la regla en Gastos recurrentes.");
+      if (rule.categoryId != null) {
+        const cat = (await db.select().from(schema.categories).where(eq(schema.categories.id, rule.categoryId)).limit(1))[0];
+        if (!cat || cat.householdId !== args.householdId) throw new Error("La categoría de esta regla ya no existe. Corrija la regla en Gastos recurrentes.");
+      }
+      const profs = await db.select().from(schema.profiles).where(and(eq(schema.profiles.householdId, args.householdId), eq(schema.profiles.userId, ctx.user.id)));
+      const [mv] = await db.insert(schema.movements).values({ householdId: args.householdId, type: "expense", amount: rule.amount, concept: rule.concept, accountId: rule.accountId, toAccountId: null, categoryId: rule.categoryId ?? null, subcategory: null, date: occ.dueDate, visibility: rule.visibility, profileId: profs[0]?.id ?? null, receiptBlobKey: null, reversalOfId: null }).returning({ id: schema.movements.id });
+      if (!mv) throw new Error("No se pudo registrar el gasto.");
+      await db.update(schema.recurringOccurrences).set({ status: "confirmed", movementId: mv.id, resolvedAt: new Date() }).where(eq(schema.recurringOccurrences.id, occ.id));
+      await markRecurringNotifRead(ctx, args.householdId, rule, occ.dueDate);
+      await logActivity(ctx, args.householdId, "Gasto recurrente confirmado", `${rule.concept} · $${rule.amount}`);
+      await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: mv.id, type: "expense", amount: rule.amount, categoryId: rule.categoryId ?? null, visibility: rule.visibility, date: occ.dueDate });
+      ctx.invalidateQueries();
+      return { ok: true as const, movementId: mv.id };
+    },
+  }),
+  skipRecurringOccurrence: defineAction({
+    description: "Skips one pending recurring occurrence: only that date is skipped, the rule stays alive for the next dates. Skipping twice is fine.",
+    request: z.object({ householdId: z.number(), occurrenceId: z.number() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      const db = ctx.db;
+      const occ = (await db.select().from(schema.recurringOccurrences).where(eq(schema.recurringOccurrences.id, args.occurrenceId)).limit(1))[0];
+      if (!occ) throw new Error("Aviso no encontrado.");
+      if (occ.status === "skipped") { ctx.invalidateQueries(); return { ok: true }; }
+      if (occ.status === "confirmed") throw new Error("Esta fecha ya se registró como gasto.");
+      const rule = (await db.select().from(schema.recurringRules).where(eq(schema.recurringRules.id, occ.ruleId)).limit(1))[0];
+      if (!rule || rule.householdId !== args.householdId) throw new Error("Regla no encontrada.");
+      await db.update(schema.recurringOccurrences).set({ status: "skipped", resolvedAt: new Date() }).where(eq(schema.recurringOccurrences.id, occ.id));
+      await markRecurringNotifRead(ctx, args.householdId, rule, occ.dueDate);
+      ctx.invalidateQueries();
+      return { ok: true };
     },
   }),
   importMovements: defineAction({
