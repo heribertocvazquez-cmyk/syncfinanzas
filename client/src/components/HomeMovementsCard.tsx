@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { CollapsibleCard } from "./CollapsibleCard";
 import { MonthPicker } from "./MonthPicker";
 
@@ -28,6 +29,8 @@ export type HomeMovRow = {
   amount: string;
   isIncome: boolean;
   struck: boolean;
+  /** Partes de un gasto dividido: se muestran al expandir la fila. */
+  subRows?: { title: string; amount: string }[];
 };
 
 export function HomeMovementsCard(p: {
@@ -74,26 +77,57 @@ export function HomeMovementsCard(p: {
       </button>
     </div>
   );
+  const [expanded, setExpanded] = useState<Set<number | string>>(new Set());
   const rows = (
     <>
-      {p.rows.map((r) => (
-        <div
-          key={r.key}
-          className="flex justify-between gap-2 py-2 border-b border-[var(--border)] last:border-0 text-sm"
-        >
-          <span className="min-w-0">
-            {r.title}
-            <span className="text-[var(--dim)] block text-[13px]">
-              {r.detail}
-            </span>
-          </span>
-          <b
-            className={`text-base whitespace-nowrap ${r.isIncome ? "text-[var(--green)]" : ""} ${r.struck ? "line-through opacity-60" : ""}`}
-          >
-            {r.amount}
-          </b>
-        </div>
-      ))}
+      {p.rows.map((r) => {
+        const open = expanded.has(r.key);
+        return (
+          <div key={r.key} className="py-2 border-b border-[var(--border)] last:border-0 text-sm">
+            <div className="flex justify-between gap-2">
+              <span className="min-w-0">
+                {r.title}
+                <span className="text-[var(--dim)] block text-[13px]">
+                  {r.detail}
+                </span>
+              </span>
+              <b
+                className={`text-base whitespace-nowrap ${r.isIncome ? "text-[var(--green)]" : ""} ${r.struck ? "line-through opacity-60" : ""}`}
+              >
+                {r.amount}
+              </b>
+            </div>
+            {r.subRows && r.subRows.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  aria-label={`${open ? "Ocultar" : "Ver"} las ${r.subRows.length} categorías de ${r.title}`}
+                  onClick={() => setExpanded((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(r.key)) next.delete(r.key);
+                    else next.add(r.key);
+                    return next;
+                  })}
+                  className="text-xs font-bold text-[var(--dim)] mt-1"
+                >
+                  {open ? "▾" : "▸"} {r.subRows.length} categorías
+                </button>
+                {open && (
+                  <div className="mt-1 pl-3 border-l-2 border-[var(--border)]">
+                    {r.subRows.map((s, i) => (
+                      <div key={i} className="flex justify-between gap-2 py-1 text-[13px]">
+                        <span>{s.title}</span>
+                        <b className="whitespace-nowrap">{s.amount}</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
     </>
   );
   if (!p.hasAnyMovements || p.rows.length === 0) {

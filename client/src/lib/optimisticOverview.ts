@@ -33,6 +33,7 @@ export interface SavedMovement {
   categoryId: number | null;
   subcategory: string | null;
   budgetId: number | null;
+  splitGroupId: string | null;
   date: string; // YYYY-MM-DD
   visibility: string;
   profileId: number | null;
@@ -381,6 +382,7 @@ export function applyMovementChange(
         categoryId: change.previous.categoryId,
         subcategory: change.previous.subcategory,
         budgetId: null,
+        splitGroupId: null,
         date: today,
         visibility: change.previous.visibility,
         profileId: change.previous.profileId,
@@ -468,6 +470,7 @@ export function applyMovementChange(
         categoryId: added.categoryId,
         subcategory: added.subcategory,
         budgetId: added.budgetId,
+        splitGroupId: added.splitGroupId ?? null,
         date: added.date,
         visibility: added.visibility,
         profileId: added.profileId,

@@ -313,3 +313,98 @@ export function fmtMonthShort(ym: string): string {
   if (!y || !m || m < 1 || m > 12) return ym;
   return `${MONTH_SHORT_ES[m - 1]} ${y}`;
 }
+
+// --- Gasto dividido entre categorías ---
+// Las partes de un gasto dividido comparten split_group_id (lo pone el
+// servidor, supabase/split-movements.sql) y se muestran como UNA sola
+// entrada en Movimientos e Inicio: concepto + total + «N categorías ▸»,
+// con las partes al expandir. Los totales no se duplican: el total del
+// grupo es la suma de sus partes cargadas. Las partes aparecen juntas
+// en la lista (misma fecha, ids consecutivos); si un grupo queda partido
+// por la paginación, el total es el de las partes cargadas y el refetch
+// lo completa.
+
+/** Fila que puede pertenecer a un gasto dividido. */
+export type SplittableMovement = {
+  id: number;
+  splitGroupId?: string | null;
+  amount: number;
+  concept: string;
+  date: string;
+  accountId: number | null;
+  visibility: string;
+  profileId: number | null;
+  type: string;
+  isReversed: boolean;
+  reversalOfId: number | null;
+  receiptUrl?: string | null;
+};
+
+/** Una entrada agrupada de un gasto dividido. */
+export type SplitGroup<T extends SplittableMovement> = {
+  key: string;
+  groupId: string;
+  concept: string;
+  total: number;
+  date: string;
+  accountId: number | null;
+  visibility: string;
+  profileId: number | null;
+  type: string;
+  /** Partes en el orden en que venían en la lista (fecha desc., id desc.). */
+  parts: T[];
+  /** Todas las partes reversadas (el grupo queda fuera de los totales). */
+  allReversed: boolean;
+  /** La foto del comprobante: va solo en la primera parte del grupo. */
+  receiptUrl: string | null;
+};
+
+/**
+ * Agrupa las partes de cada gasto dividido en una sola entrada, en el
+ * lugar de su primera parte. No muta la lista recibida. Las filas sin
+ * grupo pasan tal cual.
+ */
+export function groupSplitMovements<T extends SplittableMovement>(
+  movs: T[],
+): (T | SplitGroup<T>)[] {
+  const out: (T | SplitGroup<T>)[] = [];
+  const byGroup = new Map<string, SplitGroup<T>>();
+  for (const m of movs) {
+    const gid = m.splitGroupId ?? null;
+    if (gid == null) {
+      out.push(m);
+      continue;
+    }
+    let g = byGroup.get(gid);
+    if (!g) {
+      g = {
+        key: `split-${gid}`,
+        groupId: gid,
+        concept: m.concept,
+        total: 0,
+        date: m.date,
+        accountId: m.accountId,
+        visibility: m.visibility,
+        profileId: m.profileId,
+        type: m.type,
+        parts: [],
+        allReversed: true,
+        receiptUrl: null,
+      };
+      byGroup.set(gid, g);
+      out.push(g);
+    }
+    g.parts.push(m);
+    g.total = Math.round((g.total + m.amount) * 100) / 100;
+    if (!m.isReversed) g.allReversed = false;
+    if (g.receiptUrl == null && m.receiptUrl) g.receiptUrl = m.receiptUrl;
+  }
+  return out;
+}
+
+/** ¿Es una entrada agrupada (no una fila suelta)? */
+export function isSplitGroup<T extends SplittableMovement>(
+  e: T | SplitGroup<T>,
+): e is SplitGroup<T> {
+  return (e as SplitGroup<T>).parts !== undefined;
+}

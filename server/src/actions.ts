@@ -8,6 +8,7 @@ import {
   requireMpToken,
 } from "./mercadopago.js";
 import { and, desc, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import * as schema from "./schema.js";
 import { fmtDateEs, notifyTandaOrganizer, notifyTandaOrganizerAcceptOtherEmail } from "./tandaNotify.js";
 import { supabaseAdmin } from "./supabase.js";
@@ -269,6 +270,103 @@ async function writeMovementBudgetId(db: Ctx["db"], movementId: number, budgetId
     await db.execute(sql`UPDATE movements SET budget_id = ${budgetId} WHERE id = ${movementId}`);
     return true;
   } catch { return false; }
+}
+// División de un gasto entre categorías (supabase/split-movements.sql):
+// las partes de un gasto dividido comparten movements.split_group_id
+// (TEXT, sin clave foránea: el grupo es solo una etiqueta que une las
+// partes; borrar una parte no deja al resto inválido porque el servidor
+// borra el grupo completo junto). Acceso por SQL directo (lección
+// Drizzle, igual que movements.budget_id): la columna NO está en el
+// esquema de Drizzle; sin el SQL, la lectura devuelve vacío y la
+// escritura false, en vez de romper. La foto del comprobante se adjunta
+// solo a la primera parte del grupo (el comprobante es uno solo; la
+// entrada agrupada lo muestra una vez).
+async function readMovementSplitGroups(db: Ctx["db"], householdId: number): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  try {
+    const res = (await db.execute(sql`SELECT id, split_group_id FROM movements WHERE household_id = ${householdId}`)) as unknown as { rows?: { id: number; split_group_id: string | null }[] } | { id: number; split_group_id: string | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    for (const row of rows) if (row.split_group_id != null) out.set(row.id, row.split_group_id);
+  } catch { /* columna aún no creada: sin grupos */ }
+  return out;
+}
+async function readMovementSplitGroupId(db: Ctx["db"], movementId: number): Promise<string | null> {
+  try {
+    const res = (await db.execute(sql`SELECT split_group_id FROM movements WHERE id = ${movementId} LIMIT 1`)) as unknown as { rows?: { split_group_id: string | null }[] } | { split_group_id: string | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    return rows[0]?.split_group_id ?? null;
+  } catch { return null; }
+}
+async function readSplitGroupPartIds(db: Ctx["db"], groupId: string, householdId: number): Promise<number[]> {
+  try {
+    const res = (await db.execute(sql`SELECT id FROM movements WHERE split_group_id = ${groupId} AND household_id = ${householdId} ORDER BY id`)) as unknown as { rows?: { id: number }[] } | { id: number }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    return rows.map((r) => r.id);
+  } catch { return []; }
+}
+// Guarda un gasto dividido (crear o editar un grupo completo). La
+// inserción es una sola sentencia con todas las partes: si una parte
+// falla, no se inserta ninguna. La edición borra las partes viejas e
+// inserta las nuevas con el mismo identificador de grupo.
+async function saveSplitMovement(ctx: Ctx, args: { householdId: number; id?: number; type: string; amount: number; concept: string; accountId?: number | null; date: string; visibility: "private" | "shared"; profileId?: number | null; splits: { categoryId: number; amount: number; budgetId?: number | null }[] }, receiptBlobKey: string | null): Promise<{ ok: true; id?: number; savedBudgetAssignment: boolean; splitGroupId: string; ids: number[] }> {
+  const db = ctx.db;
+  const splits = args.splits;
+  if (args.type !== "expense") throw new Error("Solo un gasto se puede dividir entre categorías.");
+  // La suma en centavos debe ser exacta (sin errores de coma flotante).
+  const totalCents = Math.round(args.amount * 100);
+  const sumCents = splits.reduce((acc, part) => acc + Math.round(part.amount * 100), 0);
+  if (sumCents !== totalCents) throw new Error("Las partes deben sumar exactamente el total del gasto.");
+  const month = args.date.slice(0, 7);
+  const seenCats = new Set<number>();
+  for (const part of splits) {
+    if (seenCats.has(part.categoryId)) throw new Error("No repita la misma categoría en la división.");
+    seenCats.add(part.categoryId);
+    const cat = (await db.select().from(schema.categories).where(eq(schema.categories.id, part.categoryId)).limit(1))[0];
+    if (!cat || cat.householdId !== args.householdId) throw new Error("La categoría indicada no pertenece a este hogar.");
+    if (part.budgetId != null && part.budgetId !== -1) {
+      const brow = (await db.select().from(schema.budgets).where(eq(schema.budgets.id, part.budgetId)).limit(1))[0];
+      if (!brow || brow.householdId !== args.householdId) throw new Error("El presupuesto indicado no pertenece a este hogar.");
+      if (brow.categoryId !== part.categoryId || brow.month !== month) throw new Error("El presupuesto indicado no corresponde a este gasto.");
+    }
+  }
+  let groupId: string;
+  if (args.id) {
+    // Edición de un grupo: el id es una de sus partes; se reemplaza el
+    // grupo completo con el mismo identificador. Si una parte ya fue
+    // reversada, el grupo no se puede editar (igual que un movimiento
+    // reversado no se puede editar).
+    const row = await requireMovementVisible(ctx, db, args.id, args.householdId);
+    if (row.reversalOfId != null) throw new Error("Una reversión no puede editarse; forma parte del registro de auditoría.");
+    const gid = await readMovementSplitGroupId(db, args.id);
+    if (!gid) throw new Error("Este movimiento no es un gasto dividido.");
+    const partIds = await readSplitGroupPartIds(db, gid, args.householdId);
+    if (partIds.length === 0) throw new Error("El gasto dividido ya no existe.");
+    const reversed = await db.select().from(schema.movements).where(inArray(schema.movements.reversalOfId, partIds)).limit(1);
+    if (reversed[0]) throw new Error("Una parte de este gasto ya fue reversada; no se puede editar el grupo.");
+    await db.delete(schema.movements).where(inArray(schema.movements.id, partIds));
+    groupId = gid;
+  } else {
+    groupId = randomUUID();
+  }
+  const valueRows = splits.map((part, i) => sql`(${args.householdId}, 'expense', ${Math.round(part.amount * 100) / 100}, ${args.concept}, ${args.accountId ?? null}, ${part.categoryId}, ${args.date}, ${args.visibility}, ${args.profileId ?? null}, ${i === 0 ? (receiptBlobKey ?? null) : null}, ${groupId})`);
+  const inserted = (await db.execute(sql`INSERT INTO movements (household_id, type, amount, concept, account_id, category_id, date, visibility, profile_id, receipt_blob_key, split_group_id) VALUES ${sql.join(valueRows, sql`, `)} RETURNING id`)) as unknown as { rows?: { id: number }[] } | { id: number }[];
+  const insertedRows = Array.isArray(inserted) ? inserted : (inserted.rows ?? []);
+  const ids = insertedRows.map((r) => r.id);
+  if (ids.length !== splits.length) throw new Error("No se pudo guardar el gasto dividido.");
+  // Asignación a presupuesto por parte (tolerante: sin la columna
+  // budget_id, la asignación queda pendiente y el cliente avisa, igual
+  // que con un gasto único).
+  let savedAssignment = true;
+  for (let i = 0; i < splits.length; i++) {
+    const b = splits[i]!.budgetId;
+    if (b != null) { const okW = await writeMovementBudgetId(db, ids[i]!, b); if (!okW) savedAssignment = false; }
+  }
+  await logActivity(ctx, args.householdId, args.id ? "Gasto dividido editado" : "Gasto dividido registrado", `${args.concept} · $${args.amount}`);
+  for (let i = 0; i < splits.length; i++) {
+    await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: ids[i]!, type: "expense", amount: splits[i]!.amount, categoryId: splits[i]!.categoryId, visibility: args.visibility, date: args.date });
+  }
+  ctx.invalidateQueries();
+  return { ok: true as const, id: ids[0], savedBudgetAssignment: savedAssignment, splitGroupId: groupId, ids };
 }
 // Corte de un presupuesto «como nuevo»: si el usuario eligió una fecha
 // de inicio, desde el inicio de ese día (00:00 UTC); si no, desde su
@@ -1291,7 +1389,7 @@ const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAd
 // Esquema de una fila de movimiento (lo comparten getOverview y
 // listMovements): un movimiento es siempre el mismo objeto, venga del
 // mes visible o de una página del historial.
-const movementRowSchema = z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), budgetId: z.number().nullable(), date: z.string(), createdAt: z.string().nullable().optional(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() });
+const movementRowSchema = z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), budgetId: z.number().nullable(), splitGroupId: z.string().nullable(), date: z.string(), createdAt: z.string().nullable().optional(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() });
 type MovementRow = z.infer<typeof movementRowSchema>;
 
 // Normalización de concepto: la MISMA que el cliente (smart.ts normText
@@ -1326,8 +1424,8 @@ async function signedUrls(ctx: Ctx, keys: (string | null | undefined)[]): Promis
 // resuelta (o null). `urls` debe venir de signedUrls sobre las mismas
 // filas, en el mismo orden. `mine` marca si el perfil del movimiento es
 // del usuario que consulta (lo usa el cliente para el filtro por perfil).
-function toMovementRows(rows: (typeof schema.movements.$inferSelect)[], urls: (string | null)[], reversedIds: Set<number>, myProfileIds: Set<number>, budgetIds?: Map<number, number>): MovementRow[] {
-  return rows.map((m, i) => ({ id: m.id, type: m.type, amount: m.amount, concept: m.concept, accountId: m.accountId ?? null, toAccountId: m.toAccountId ?? null, categoryId: m.categoryId ?? null, subcategory: m.subcategory ?? null, budgetId: budgetIds?.get(m.id) ?? null, date: m.date, createdAt: m.createdAt instanceof Date ? m.createdAt.toISOString() : (m.createdAt != null ? String(m.createdAt) : null), visibility: m.visibility, profileId: m.profileId ?? null, receiptUrl: urls[i] ?? null, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId != null && myProfileIds.has(m.profileId) }));
+function toMovementRows(rows: (typeof schema.movements.$inferSelect)[], urls: (string | null)[], reversedIds: Set<number>, myProfileIds: Set<number>, budgetIds?: Map<number, number>, splitGroups?: Map<number, string>): MovementRow[] {
+  return rows.map((m, i) => ({ id: m.id, type: m.type, amount: m.amount, concept: m.concept, accountId: m.accountId ?? null, toAccountId: m.toAccountId ?? null, categoryId: m.categoryId ?? null, subcategory: m.subcategory ?? null, budgetId: budgetIds?.get(m.id) ?? null, splitGroupId: splitGroups?.get(m.id) ?? null, date: m.date, createdAt: m.createdAt instanceof Date ? m.createdAt.toISOString() : (m.createdAt != null ? String(m.createdAt) : null), visibility: m.visibility, profileId: m.profileId ?? null, receiptUrl: urls[i] ?? null, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId != null && myProfileIds.has(m.profileId) }));
 }
 
 // ---- Vista de una tanda (la misma que getOverview arma por hogar) ----
@@ -2031,7 +2129,8 @@ export const Actions = {
       const scopedTargets = visibleMovs.filter(m=>targetIds.has(m.id) && !scopedIds.has(m.id));
       const scopedAll = [...scopedRows, ...scopedTargets].sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id);
       const scopedUrls = await signedUrls(ctx, scopedAll.map(m=>m.receiptBlobKey));
-      const movementsOut = toMovementRows(scopedAll, scopedUrls, reversedIds, myProfileIds, movementBudgetIds);
+      const movementSplitGroups = await readMovementSplitGroups(db, hid);
+      const movementsOut = toMovementRows(scopedAll, scopedUrls, reversedIds, myProfileIds, movementBudgetIds, movementSplitGroups);
       const totalMovements = visibleMovs.length;
       const monthsWithMovements = [...new Set(visibleMovs.map(m=>m.date.slice(0,7)))].sort().reverse();
       const cashCandidates = accountsR.filter(a=>a.type==="cash" || a.name.trim().toLowerCase()==="efectivo");
@@ -2248,8 +2347,9 @@ export const Actions = {
       const allRows = [...pageRows, ...linkedRows];
       const urls = await signedUrls(ctx, allRows.map(m => m.receiptBlobKey));
       const mvBudgetIdsList = await readMovementBudgetIds(db, hid);
-      const rowsOut = toMovementRows(pageRows, urls.slice(0, pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList);
-      const linkedOut = toMovementRows(linkedRows, urls.slice(pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList);
+      const mvSplitGroupsList = await readMovementSplitGroups(db, hid);
+      const rowsOut = toMovementRows(pageRows, urls.slice(0, pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList, mvSplitGroupsList);
+      const linkedOut = toMovementRows(linkedRows, urls.slice(pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList, mvSplitGroupsList);
       return { rows: rowsOut, linked: linkedOut, nextCursor, total, incomeTotal, expenseTotal };
     },
   }),
@@ -2485,9 +2585,9 @@ export const Actions = {
 
   saveMovement: defineAction({
     description: "Creates or updates a movement (income, expense, transfer, debt payment).",
-    request: z.object({ id: z.number().optional(), householdId: z.number(), type: z.enum(["income","expense","transfer","debt_payment"]), amount: z.number().positive().max(100_000_000), concept: z.string().min(1).max(200), accountId: z.number().nullable().optional(), toAccountId: z.number().nullable().optional(), categoryId: z.number().nullable().optional(), subcategory: z.string().max(60).optional(), budgetId: z.number().nullable().optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), visibility: vis, profileId: z.number().nullable().optional(), receipt: z.object({ dataBase64: z.string().max(16_000_000), mimeType: z.string() }).optional() }),
-    response: z.object({ ok: z.literal(true), id: z.number().optional(), savedBudgetAssignment: z.boolean() }),
-    async handler(ctx,args): Promise<{ ok: true; id?: number; savedBudgetAssignment: boolean }>{ const db=ctx.db; let receiptBlobKey: string|null|undefined = undefined;
+    request: z.object({ id: z.number().optional(), householdId: z.number(), type: z.enum(["income","expense","transfer","debt_payment"]), amount: z.number().positive().max(100_000_000), concept: z.string().min(1).max(200), accountId: z.number().nullable().optional(), toAccountId: z.number().nullable().optional(), categoryId: z.number().nullable().optional(), subcategory: z.string().max(60).optional(), budgetId: z.number().nullable().optional(), splits: z.array(z.object({ categoryId: z.number(), amount: z.number().positive().max(100_000_000), budgetId: z.number().nullable().optional() })).min(2).max(20).optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), visibility: vis, profileId: z.number().nullable().optional(), receipt: z.object({ dataBase64: z.string().max(16_000_000), mimeType: z.string() }).optional() }),
+    response: z.object({ ok: z.literal(true), id: z.number().optional(), savedBudgetAssignment: z.boolean(), splitGroupId: z.string().nullable().optional(), ids: z.array(z.number()).optional() }),
+    async handler(ctx,args): Promise<{ ok: true; id?: number; savedBudgetAssignment: boolean; splitGroupId?: string | null; ids?: number[] }>{ const db=ctx.db; let receiptBlobKey: string|null|undefined = undefined;
       if (args.receipt) { const okTypes=["image/jpeg","image/png","image/webp"]; if (!okTypes.includes(args.receipt.mimeType)) throw new Error("La foto del comprobante debe estar en formato JPG, PNG o WebP."); const key=`receipts/${args.householdId}/${Date.now()}-${Math.floor(Math.random()*1e9)}`; const bytes=Buffer.from(args.receipt.dataBase64,"base64"); await ctx.blobs.put(key, bytes, { contentType: args.receipt.mimeType }); receiptBlobKey=key; }
       // Permisos por hogar: toda referencia (cuenta, categoría, perfil) debe pertenecer al mismo
       // hogar del movimiento; una referencia de otro hogar se rechaza en el servidor.
@@ -2495,6 +2595,11 @@ export const Actions = {
       if (args.toAccountId) { const r = await db.select().from(schema.accounts).where(eq(schema.accounts.id, args.toAccountId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("La cuenta destino no pertenece a este hogar."); }
       if (args.categoryId) { const r = await db.select().from(schema.categories).where(eq(schema.categories.id, args.categoryId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("La categoría indicada no pertenece a este hogar."); }
       if (args.profileId) { const r = await db.select().from(schema.profiles).where(eq(schema.profiles.id, args.profileId)); if (!r[0] || r[0].householdId !== args.householdId) throw new Error("El perfil indicado no pertenece a este hogar."); }
+      // Gasto dividido: se guarda como una fila por parte, todas con el
+      // mismo identificador de grupo (saveSplitMovement). La categoría
+      // única, la subcategoría y el budgetId del nivel superior no
+      // aplican: cada parte lleva los suyos.
+      if (args.splits) return await saveSplitMovement(ctx, { ...args, splits: args.splits }, receiptBlobKey ?? null);
       if (args.id) { const r = await requireMovementVisible(ctx, db, args.id, args.householdId); if (r.reversalOfId != null) throw new Error("Una reversión no puede editarse; forma parte del registro de auditoría."); }
       // Asignación a un presupuesto (pregunta al meter el gasto): si el
       // cliente eligió uno, debe existir, pertenecer al hogar y
@@ -2538,13 +2643,13 @@ export const Actions = {
       };
       const vals={householdId:args.householdId,type:args.type,amount:args.amount,concept:args.concept,accountId:args.accountId??null,toAccountId:args.toAccountId??null,categoryId:args.categoryId??null,subcategory:args.subcategory||null,date:args.date,visibility:args.visibility,profileId:args.profileId??null, ...(receiptBlobKey!==undefined?{receiptBlobKey}:{})}; if(args.id){ await db.update(schema.movements).set(vals).where(eq(schema.movements.id,args.id)); const savedAssignment = await storeAssignment(args.id); await logActivity(ctx, args.householdId, "Movimiento editado", `${args.concept} · $${args.amount}`); ctx.invalidateQueries(); return {ok:true as const,id:args.id,savedBudgetAssignment:savedAssignment}; } const [r]=await db.insert(schema.movements).values(vals).returning({id:schema.movements.id}); const savedAssignment = r?.id ? await storeAssignment(r.id) : true; await logActivity(ctx, args.householdId, "Movimiento registrado", `${args.concept} · $${args.amount}`); if(r?.id) await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: r.id, type: args.type, amount: args.amount, categoryId: args.categoryId ?? null, visibility: args.visibility, date: args.date }); ctx.invalidateQueries(); return {ok:true as const,id:r?.id,savedBudgetAssignment:savedAssignment}; },
   }),
-  deleteMovement: defineAction({ description: "Deletes a movement.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const rows=await db.select().from(schema.movements).where(eq(schema.movements.id,args.id)); const row=rows[0]; if(row) await requireMovementVisibleRow(ctx, db, row, ctx.householdId); if(row && row.reversalOfId!=null) throw new Error("Una reversión no puede eliminarse por separado; forma parte del registro de auditoría. Si elimina el movimiento original, su reversión se elimina junto con él."); await db.delete(schema.movements).where(eq(schema.movements.reversalOfId,args.id)); await db.delete(schema.movements).where(eq(schema.movements.id,args.id)); if(row) await logActivity(ctx, row.householdId, "Movimiento eliminado", `${row.concept} · $${row.amount}`); ctx.invalidateQueries(); return {ok:true}; } }),
+  deleteMovement: defineAction({ description: "Deletes a movement.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const rows=await db.select().from(schema.movements).where(eq(schema.movements.id,args.id)); const row=rows[0]; if(row) await requireMovementVisibleRow(ctx, db, row, ctx.householdId); if(row && row.reversalOfId!=null) throw new Error("Una reversión no puede eliminarse por separado; forma parte del registro de auditoría. Si elimina el movimiento original, su reversión se elimina junto con él."); if (row) { const gid = await readMovementSplitGroupId(db, row.id); if (gid) { const partIds = await readSplitGroupPartIds(db, gid, row.householdId); if (partIds.length > 0) { await db.delete(schema.movements).where(inArray(schema.movements.reversalOfId, partIds)); await db.delete(schema.movements).where(inArray(schema.movements.id, partIds)); await logActivity(ctx, row.householdId, "Gasto dividido eliminado", `${row.concept} · ${partIds.length} partes`); ctx.invalidateQueries(); return {ok:true}; } } } await db.delete(schema.movements).where(eq(schema.movements.reversalOfId,args.id)); await db.delete(schema.movements).where(eq(schema.movements.id,args.id)); if(row) await logActivity(ctx, row.householdId, "Movimiento eliminado", `${row.concept} · $${row.amount}`); ctx.invalidateQueries(); return {ok:true}; } }),
 
   reverseMovement: defineAction({
     description: "Reverses a movement (income, expense, transfer or debt payment) by creating a linked counter-movement of the opposite effect on today's date. The original and its reversal both remain visible, marked, and neither counts toward balances, totals, budgets or charts. A movement can be reversed only once, and a reversal cannot itself be reversed.",
     request: z.object({ id: z.number() }),
-    response: z.object({ ok: z.literal(true), id: z.number().optional(), reversalId: z.number().optional() }),
-    async handler(ctx, args): Promise<{ ok: true; id?: number; reversalId?: number }> {
+    response: z.object({ ok: z.literal(true), id: z.number().optional(), reversalId: z.number().optional(), reversalIds: z.array(z.number()).optional() }),
+    async handler(ctx, args): Promise<{ ok: true; id?: number; reversalId?: number; reversalIds?: number[] }> {
       await rateLimit("reverseMovement", 60, 60_000);
       const db = ctx.db;
       const rows = await db.select().from(schema.movements).where(eq(schema.movements.id, args.id));
@@ -2554,6 +2659,28 @@ export const Actions = {
       if (orig.reversalOfId != null) throw new Error("Este movimiento es la reversión de otro registro y no puede reversarse a su vez.");
       const existing = await db.select().from(schema.movements).where(eq(schema.movements.reversalOfId, args.id));
       if (existing[0]) throw new Error("Este movimiento ya fue reversado; la reversión quedó registrada y no es posible reversarlo dos veces.");
+      // Gasto dividido: se reversan TODAS sus partes juntas (cada una
+      // con su propia reversión); si una parte ya fue reversada, el grupo
+      // no se puede reversar. reversalIds viene en orden de id
+      // descendente, el mismo orden en que el cliente lista las partes.
+      const splitGid = await readMovementSplitGroupId(db, orig.id);
+      if (splitGid) {
+        const partIds = await readSplitGroupPartIds(db, splitGid, orig.householdId);
+        if (partIds.length === 0) throw new Error("Movimiento no encontrado.");
+        const parts = (await db.select().from(schema.movements).where(inArray(schema.movements.id, partIds))).sort((a, b) => b.id - a.id);
+        for (const part of parts) if (part.reversalOfId != null) throw new Error("Este movimiento es la reversión de otro registro y no puede reversarse a su vez.");
+        const alreadyReversed = await db.select().from(schema.movements).where(inArray(schema.movements.reversalOfId, partIds)).limit(1);
+        if (alreadyReversed[0]) throw new Error("Este gasto ya fue reversado; la reversión quedó registrada y no es posible reversarlo dos veces.");
+        const nowRev = new Date(); const todayRev = `${nowRev.getFullYear()}-${String(nowRev.getMonth()+1).padStart(2,"0")}-${String(nowRev.getDate()).padStart(2,"0")}`;
+        const reversalIds: number[] = [];
+        for (const part of parts) {
+          const [rr] = await db.insert(schema.movements).values({ householdId: part.householdId, type: "income", amount: part.amount, concept: `Reversión de: ${part.concept}`, accountId: part.accountId ?? null, toAccountId: null, categoryId: part.categoryId ?? null, subcategory: part.subcategory ?? null, date: todayRev, visibility: part.visibility, profileId: part.profileId ?? null, receiptBlobKey: null, reversalOfId: part.id }).returning({ id: schema.movements.id });
+          if (rr?.id) reversalIds.push(rr.id);
+        }
+        await logActivity(ctx, orig.householdId, "Gasto dividido reversado", `${orig.concept} · $${orig.amount}`);
+        ctx.invalidateQueries();
+        return { ok: true as const, id: orig.id, reversalId: reversalIds[0], reversalIds };
+      }
       const nowD = new Date(); const todayStr = `${nowD.getFullYear()}-${String(nowD.getMonth()+1).padStart(2,"0")}-${String(nowD.getDate()).padStart(2,"0")}`;
       // Efecto contrario según el tipo: ingreso↔gasto; un pago de deuda se compensa con un ingreso
       // a la misma cuenta; una transferencia se compensa con otra en sentido inverso.

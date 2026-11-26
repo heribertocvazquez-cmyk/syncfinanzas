@@ -9,7 +9,7 @@ import type { ReceiptRead } from "./lib/smart";
 import { readReceiptText, ocrStatusText, OcrError, warmUpOcr } from "./lib/ocr";
 import { downloadTextFile, parseCsv, toCsv } from "./lib/csv";
 import { pinCheck, pinIsSet, pinLock, pinMarkUnlocked, pinRemove, pinSet, pinUnlocked } from "./lib/pin";
-import { canSeeMovementRow, fmtMonthShort, groupMovementsByAccount, monthMovements, movementTitle, requiredAccountNotice, requiredGoalAccountNotice, requiredGoalReturnAccountNotice, requiredInitialAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
+import { canSeeMovementRow, fmtMonthShort, groupMovementsByAccount, groupSplitMovements, isSplitGroup, monthMovements, movementTitle, requiredAccountNotice, requiredGoalAccountNotice, requiredGoalReturnAccountNotice, requiredInitialAccountNotice, sortMovementsByDate, type IncExpDetailView } from "./lib/movementsList";
 import { readStoredProfile, resolveActiveProfile, writeStoredProfile } from "./lib/activeProfile";
 import { clearStoredHousehold, readStoredHousehold, writeStoredHousehold } from "./lib/activeHousehold";
 import { HouseholdSwitcher } from "./components/HouseholdSwitcher";
@@ -988,6 +988,43 @@ export function App(){
   const [mvRepeatDay,setMvRepeatDay]=useState("");
   const [mvRepeatWeekday,setMvRepeatWeekday]=useState("");
   const [mvRepeatError,setMvRepeatError]=useState("");
+  // «Dividir entre categorías» (paso 2, solo gasto nuevo o edición de un
+  // gasto dividido): cada línea es categoría + importe; las líneas deben
+  // sumar exactamente el total. Al guardar, el gasto se divide en una
+  // fila por parte con el mismo identificador de grupo (lo genera el
+  // servidor). Incompatible con «Repetir este gasto»: una regla recurrente
+  // tiene una sola categoría. El lector de comprobantes prellena el mismo
+  // formulario: al activar Dividir, la categoría sugerida pasa a ser la
+  // primera línea y el total a dividir es el importe leído.
+  type SplitLine = { key: number; categoryId: string; amount: string; budgetId: number | null };
+  const [mvSplit,setMvSplit]=useState(false);
+  const [mvSplitLines,setMvSplitLines]=useState<SplitLine[]>([]);
+  const [editingSplitGroup,setEditingSplitGroup]=useState<string|null>(null);
+  const splitKeyRef=useRef(0);
+  const mvSplitTotal = useMemo(()=>mvSplitLines.reduce((s,l)=>s+(Number(l.amount)||0),0),[mvSplitLines]);
+  const mvSplitDiff = useMemo(()=>Math.round(((Number(mvAmount)||0)-mvSplitTotal)*100)/100,[mvAmount,mvSplitTotal]);
+  const mvSplitDupCat = useMemo(()=>{ const seen=new Set<string>(); for(const l of mvSplitLines){ if(l.categoryId==="") continue; if(seen.has(l.categoryId)) return true; seen.add(l.categoryId); } return false; },[mvSplitLines]);
+  const mvSplitValid = useMemo(()=>mvSplitLines.length>=2 && mvSplitLines.every(l=>l.categoryId!=="" && Number(l.amount)>0) && !mvSplitDupCat && mvSplitDiff===0,[mvSplitLines,mvSplitDupCat,mvSplitDiff]);
+  const toggleSplit=(on:boolean)=>{
+    if(editingSplitGroup!=null && !on) return; // editar un grupo es siempre dividido: no se puede «desdividir» y dejar huérfanas las demás partes
+    if(on){
+      setMvRepeat(false);
+      const firstCat = mvCat && mvCat!=="__new__" ? mvCat : "";
+      setMvSplitLines([
+        { key: splitKeyRef.current++, categoryId: firstCat, amount: mvAmount, budgetId: null },
+        { key: splitKeyRef.current++, categoryId: "", amount: "", budgetId: null },
+      ]);
+      setMvCat("");
+      setMvSub("");
+      setMvBudget(null);
+      setMvSplit(true);
+    } else {
+      const first = mvSplitLines[0];
+      if(first && first.categoryId!=="") setMvCat(first.categoryId);
+      setMvSplit(false);
+      setMvSplitLines([]);
+    }
+  };
   // Totales al instante al guardar un movimiento: en cuanto el servidor
   // confirma el guardado, la vista en caché se proyecta con el movimiento
   // guardado (los totales de Inicio y Presupuestos ya muestran el valor
@@ -1017,17 +1054,39 @@ export function App(){
     categoryId: mvCat && mvCat !== "__new__" ? Number(mvCat) : null,
     subcategory: mvSub || null,
     budgetId: (mvType === "expense" || mvType === "debt_payment") ? (mvBudget ?? null) : null,
+    splitGroupId: null,
     date: mvDate,
     visibility: mvVis,
     profileId: mvProfile ? Number(mvProfile) : (me ? me.id : null),
   });
-  const saveMv=useMutation({mutationFn:async()=>await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,budgetId:(mvType==="expense"||mvType==="debt_payment")?mvBudget:undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined}),onSuccess:(r)=>{const wasRepeat=mvRepeat && editingMv==null && mvType==="expense";const repData=wasRepeat?{concept:mvConcept,amount:Number(mvAmount),accountId:mvAccount?Number(mvAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,date:mvDate,visibility:mvVis,freq:mvRepeatFreq,day:mvRepeatFreq==="monthly"?Number(mvRepeatDay||mvDate.slice(8,10)):null,weekday:mvRepeatFreq==="weekly"?Number(mvRepeatWeekday):null}:null;const previous=editingMv!=null?data?.movements.find(m=>m.id===editingMv)??null:null;const saved=savedMovementFromForm(r?.id ?? editingMv ?? 0);projectMovementChange(previous?{kind:"edit",movement:saved,previous}:{kind:"create",movement:saved});refreshAfterMovementSave();resetMvForm();setMvAssignPendingSql(r?.savedBudgetAssignment===false);if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}logUsageEvent(data!.household!.id,"movimientos","guardar_movimiento");if(repData && repData.accountId){ void api.saveRecurringRule({householdId:data!.household!.id,concept:repData.concept,amount:repData.amount,accountId:repData.accountId,categoryId:repData.categoryId,frequency:repData.freq,dayOfMonth:repData.day,weekday:repData.weekday,startDate:repData.date,visibility:repData.visibility,lastPromptedDate:repData.date}).then(()=>{ qc.invalidateQueries({queryKey:["recurringRules"]}); }).catch((e)=>{ setMvRepeatError(`El gasto se guardó, pero no se pudo crear la regla: ${String(e)}`); }); }}});
+  const saveMv=useMutation({mutationFn:async()=>{
+    if(mvSplit && mvType==="expense"){
+      if(!mvSplitValid) throw new Error("Las partes deben sumar exactamente el total del gasto.");
+      return await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:"expense",amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,categoryId:null,splits:mvSplitLines.map(l=>({categoryId:Number(l.categoryId),amount:Number(l.amount),budgetId:l.budgetId??undefined})),date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined});
+    }
+    return await api.saveMovement({id:editingMv??undefined,householdId:data!.household!.id,type:mvType,amount:Number(mvAmount),concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:mvToAccount?Number(mvToAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,subcategory:mvSub||undefined,budgetId:(mvType==="expense"||mvType==="debt_payment")?mvBudget:undefined,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null),receipt:receipt?{dataBase64:receipt.dataBase64,mimeType:receipt.mimeType}:undefined});
+  },onSuccess:(r)=>{
+    if(mvSplit && mvType==="expense" && r?.splitGroupId && r?.ids){
+      const gid=r.splitGroupId;
+      const oldParts=(data?.movements ?? []).filter(m=>m.splitGroupId===gid);
+      const base={type:"expense" as const,concept:mvConcept,accountId:mvAccount?Number(mvAccount):null,toAccountId:null,subcategory:null,date:mvDate,visibility:mvVis,profileId:mvProfile?Number(mvProfile):(me?me.id:null)};
+      const newParts:SavedMovement[]=mvSplitLines.map((l,i)=>({...base,id:r.ids?.[i] ?? 0,amount:Number(l.amount),categoryId:Number(l.categoryId),budgetId:l.budgetId ?? null,splitGroupId:gid}));
+      for(const old of oldParts) projectMovementChange({kind:"delete",previous:old});
+      for(const np of newParts) projectMovementChange({kind:"create",movement:np});
+      refreshAfterMovementSave();resetMvForm();setMvAssignPendingSql(r?.savedBudgetAssignment===false);if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}logUsageEvent(data!.household!.id,"movimientos","guardar_movimiento");
+      return;
+    }
+    const wasRepeat=mvRepeat && editingMv==null && mvType==="expense";const repData=wasRepeat?{concept:mvConcept,amount:Number(mvAmount),accountId:mvAccount?Number(mvAccount):null,categoryId:mvCat&&mvCat!=="__new__"?Number(mvCat):null,date:mvDate,visibility:mvVis,freq:mvRepeatFreq,day:mvRepeatFreq==="monthly"?Number(mvRepeatDay||mvDate.slice(8,10)):null,weekday:mvRepeatFreq==="weekly"?Number(mvRepeatWeekday):null}:null;const previous=editingMv!=null?data?.movements.find(m=>m.id===editingMv)??null:null;const saved=savedMovementFromForm(r?.id ?? editingMv ?? 0);projectMovementChange(previous?{kind:"edit",movement:saved,previous}:{kind:"create",movement:saved});refreshAfterMovementSave();resetMvForm();setMvAssignPendingSql(r?.savedBudgetAssignment===false);if(inicioMvOpenRef.current){inicioMvOpenRef.current=false;setInicioMvOpen(false);}logUsageEvent(data!.household!.id,"movimientos","guardar_movimiento");if(repData && repData.accountId){ void api.saveRecurringRule({householdId:data!.household!.id,concept:repData.concept,amount:repData.amount,accountId:repData.accountId,categoryId:repData.categoryId,frequency:repData.freq,dayOfMonth:repData.day,weekday:repData.weekday,startDate:repData.date,visibility:repData.visibility,lastPromptedDate:repData.date}).then(()=>{ qc.invalidateQueries({queryKey:["recurringRules"]}); }).catch((e)=>{ setMvRepeatError(`El gasto se guardó, pero no se pudo crear la regla: ${String(e)}`); }); }
+  }});
   const [confirmDeleteMvId,setConfirmDeleteMvId]=useState<number|null>(null);
+  const [expandedSplit,setExpandedSplit]=useState<Set<string>>(new Set());
   const [confirmDeleteProfId,setConfirmDeleteProfId]=useState<number|null>(null);
   const [confirmDelInvId,setConfirmDelInvId]=useState<number|null>(null);
-  const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:(_r,id)=>{const previous=data?.movements.find(m=>m.id===id)??null;if(previous) projectMovementChange({kind:"delete",previous});refreshAfterMovementSave();setConfirmDeleteMvId(null);}});
+  const delMv=useMutation({mutationFn:async(id:number)=>await api.deleteMovement({id}),onSuccess:(_r,id)=>{const previous=data?.movements.find(m=>m.id===id)??null;if(previous){ projectMovementChange({kind:"delete",previous}); if(previous.splitGroupId){ for(const part of (data?.movements ?? []).filter(m=>m.splitGroupId===previous.splitGroupId && m.id!==id)) projectMovementChange({kind:"delete",previous:part}); } }refreshAfterMovementSave();setConfirmDeleteMvId(null);}});
+  // Borrado (único punto de llamada a la mutación de borrado): los dos avisos de confirmación (gasto único y gasto dividido) pasan por aquí, así el borrado solo ocurre desde «Avanzar».
+  const confirmDeleteMovement=(id:number)=>delMv.mutate(id);
   const [confirmReverseId,setConfirmReverseId]=useState<number|null>(null);
-  const revMv=useMutation({mutationFn:async(id:number)=>await api.reverseMovement({id}),onSuccess:(r,id)=>{const previous=data?.movements.find(m=>m.id===id)??null;if(previous) projectMovementChange({kind:"reverse",previous,reversalId:r?.reversalId ?? null});refreshAfterMovementSave();setConfirmReverseId(null);}});
+  const revMv=useMutation({mutationFn:async(id:number)=>await api.reverseMovement({id}),onSuccess:(r,id)=>{const previous=data?.movements.find(m=>m.id===id)??null;if(previous){ if(previous.splitGroupId && r?.reversalIds?.length){ const parts=[...(data?.movements ?? [])].filter(m=>m.splitGroupId===previous.splitGroupId).sort((a,b)=>b.id-a.id); parts.forEach((part,i)=>projectMovementChange({kind:"reverse",previous:part,reversalId:r.reversalIds?.[i] ?? null})); } else { projectMovementChange({kind:"reverse",previous,reversalId:r?.reversalId ?? null}); } }refreshAfterMovementSave();setConfirmReverseId(null);}});
 
   // account form
   const [accFormName,setAccFormName]=useState(""); const [accType,setAccType]=useState<"bank"|"cash"|"credit"|"investment"|"loan">("bank"); const [accVis,setAccVis]=useState<"private"|"shared">("shared"); const [accInit,setAccInit]=useState("0"); const [editingAcc,setEditingAcc]=useState<number|null>(null); const [showAccPreview,setShowAccPreview]=useState(false);
@@ -1150,7 +1209,7 @@ export function App(){
   // Toda meta nace con su plan: una sola acción crea meta + fondo + plan.
   const saveGoalWithPlan=useMutation({mutationFn:async()=>await api.saveGoalWithPlan({householdId:data!.household!.id,name:goalName,targetAmount:Number(goalTarget)||0,savedAmount:Number(goalSaved)||0,targetDate:goalDate||undefined,visibility:"shared",monthlyAmount:goalMonthly?Number(goalMonthly):undefined,months:Number(goalMonths)||0,dueDay:Number(goalDueDay)||data!.household!.cutoffDay,initialAccountId:goalInitialAcc?Number(goalInitialAcc):null,importance:Number(goalImportance)||3}),onSuccess:()=>{inv();setGoalName("");setGoalTarget("");setGoalSaved("0");setGoalDate("");setGoalMonthly("");setGoalMonths("");setGoalDueDay("");setGoalInitialAcc("");setGoalImportance("3");setGoalFormError("");logUsageEvent(data!.household!.id,"metas","guardar_meta");},onError:(e:Error)=>{setGoalFormError(e.message);}});
   const addGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving(v),onSuccess:(_,v)=>{inv();setGoalAdd(a=>({...a,[v.id]:""}));setGoalAddAcc(a=>({...a,[v.id]:""}));setGoalAddAccError(a=>({...a,[v.id]:""}));logUsageEvent(data!.household!.id,"metas","aportar_meta");}});
-  const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;subcategory?:string;budgetId?:number;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,subcategory:v.subcategory,budgetId:v.budgetId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:(r,v)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,toAccountId:null,categoryId:v.categoryId,subcategory:v.subcategory ?? null,budgetId:v.budgetId ?? null,date:todayISO(),visibility:v.visibility,profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();if(r?.savedBudgetAssignment===false){setPayBudAssignPendingSql(true);}else{setPayBudAssignPendingSql(false);setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");logUsageEvent(data!.household!.id,"presupuestos","guardar_movimiento");}}});
+  const payBudget=useMutation({mutationFn:async(v:{categoryId:number;categoryName:string;subcategory?:string;budgetId?:number;visibility:string;amount:number;accountId:number|null})=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,categoryId:v.categoryId,subcategory:v.subcategory,budgetId:v.budgetId,date:todayISO(),visibility:v.visibility as "private"|"shared",profileId:me?me.id:null}),onSuccess:(r,v)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:v.amount,concept:`Pago · ${v.categoryName}`,accountId:v.accountId,toAccountId:null,categoryId:v.categoryId,subcategory:v.subcategory ?? null,budgetId:v.budgetId ?? null,splitGroupId:null,date:todayISO(),visibility:v.visibility,profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();if(r?.savedBudgetAssignment===false){setPayBudAssignPendingSql(true);}else{setPayBudAssignPendingSql(false);setQuickBud(null);setQuickBudAmt("");setQuickBudAcc("");logUsageEvent(data!.household!.id,"presupuestos","guardar_movimiento");}}});
   const contributeGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving(v),onSuccess:()=>{inv();setQuickGoal(null);setQuickGoalAmt("");setQuickGoalAcc("");setQuickGoalAccError("");logUsageEvent(data!.household!.id,"metas","aportar_meta");}});
   const withdrawGoal=useMutation({mutationFn:async(v:{id:number;amount:number;accountId:number})=>await api.addGoalSaving({id:v.id,amount:-v.amount,accountId:v.accountId}),onSuccess:()=>{inv();setWithdrawGoalId(null);setWithdrawGoalAmt("");setWithdrawGoalAcc("");setWithdrawGoalAccError("");setGoalWithdrawPreviewId(null);logUsageEvent(data!.household!.id,"metas","retirar_meta");}});
   const updatePat=useMutation({mutationFn:async(v:{id:number;name:string;kind:string;category:string;value:number;owner:string|null})=>await api.savePatrimony({id:v.id,householdId:data!.household!.id,name:v.name,kind:v.kind as "asset"|"liability",category:v.category,value:v.value,owner:v.owner??undefined}),onSuccess:()=>{inv();setQuickPat(null);setQuickPatVal("");}});
@@ -1208,7 +1267,7 @@ export function App(){
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persAccountError,setPersAccountError]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
-  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:(r)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,toAccountId:null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,subcategory:null,budgetId:null,date:todayISO(),visibility:"private",profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();resetPersForm();logUsageEvent(data!.household!.id,"personal","guardar_movimiento");}});
+  const savePersExp=useMutation({mutationFn:async()=>await api.saveMovement({householdId:data!.household!.id,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,date:todayISO(),visibility:"private",profileId:me?me.id:null,receipt:persReceipt?{dataBase64:persReceipt.dataBase64,mimeType:persReceipt.mimeType}:undefined}),onSuccess:(r)=>{const saved:SavedMovement={id:r?.id ?? 0,type:"expense",amount:Number(persAmt),concept:persConcept||"Gasto del día",accountId:persAccount?Number(persAccount):null,toAccountId:null,categoryId:persCat&&persCat!=="__new__"?Number(persCat):null,subcategory:null,budgetId:null,splitGroupId:null,date:todayISO(),visibility:"private",profileId:me?me.id:null};projectMovementChange({kind:"create",movement:saved});refreshAfterMovementSave();resetPersForm();logUsageEvent(data!.household!.id,"personal","guardar_movimiento");}});
   // Mike dinámico: preguntas con cifras reales del mes que se está viendo,
   // calculadas en el dispositivo con los datos ya cargados (sin llamadas nuevas
   // ni servicios externos). Las respuestas usan solo los movimientos que el
@@ -1505,7 +1564,7 @@ export function App(){
   // limpiaban algunos campos y la nota «Leído del comprobante» (con el
   // nombre leído) y la fecha leída se quedaban, así que el siguiente gasto
   // heredaba el anterior.
-  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvAccountError(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvBudget(null); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setOcrDateCheckMv(null); setOcrDateErrorMv(""); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); setNewCatName(""); setMvRepeat(false); setMvRepeatFreq("monthly"); setMvRepeatDay(""); setMvRepeatWeekday(""); setMvRepeatError(""); };
+  const resetMvForm=()=>{ setMvType("expense"); setMvStep(1); setMvAmount(""); setMvConcept(""); setMvAccount(""); setMvAccountError(""); setMvToAccount(""); setMvCat(""); setMvSub(""); setMvBudget(null); setMvDate(todayISO()); setMvVis("shared"); setMvProfile(""); setMvMore(false); setEditingMv(null); setReceipt(null); setOcrDetailMv(null); setOcrLabelMv(""); setOcrNewCatName(""); setOcrNoticeMv(""); setOcrErrorMv(""); setOcrErrDetailMv(""); setOcrProgressMv(""); setOcrBusyMv(false); setOcrDateCheckMv(null); setOcrDateErrorMv(""); setAppliedRuleMv(null); setVoiceNoticeMv(""); setVoiceErrorMv(""); setVoiceBusyMv(false); setNewSubName(""); setNewCatName(""); setMvRepeat(false); setMvRepeatFreq("monthly"); setMvRepeatDay(""); setMvRepeatWeekday(""); setMvRepeatError(""); setMvSplit(false); setMvSplitLines([]); setEditingSplitGroup(null); };
   const resetPersForm=()=>{ setPersAmt(""); setPersConcept(""); setPersReceipt(null); setPersCat(""); setPersAccount(""); setPersAccountError(""); setAppliedRulePers(null); setPersStep(1); setPersMore(false); setOcrDetailPers(null); setOcrLabelPers(""); setOcrNewCatName(""); setOcrNoticePers(""); setOcrErrorPers(""); setOcrErrDetailPers(""); setOcrProgressPers(""); setOcrBusyPers(false); setVoiceNoticePers(""); setVoiceErrorPers(""); setVoiceBusyPers(false); setNewCatName(""); };
   // Registro rápido desde Inicio: se queda en Inicio y abre el formulario
   // de movimientos en un pop-up, sin ir a Movimientos. Al guardar, el
@@ -1689,6 +1748,10 @@ export function App(){
   const catsForType = useMemo(()=>{ if(!data) return []; const kind = mvType==="income"?"income":"expense"; if(mvType==="transfer") return []; return data.categories.filter(c=>c.kind===kind && c.isActive===1); },[data,mvType]);
   const selectedCat = data?.categories.find(c=>String(c.id)===mvCat);
   const filteredMovs = useMemo(()=>{ if(!data) return []; const meId = meEarly?.id ?? null; const meIsAdmin = meEarly?.role==="admin"; const meRow = meId!=null ? { id: meId, role: meIsAdmin ? "admin" : "member" } : null; const rows = (mvQuery.data?.pages ?? []).flatMap(p=>p.rows); return filterMovements(rows.filter(m=> canSeeMovementRow(m, meRow)), mvFilters); },[data,mvFilters,meEarly,mvQuery.data]);
+  // Movimientos con las partes de cada gasto dividido agrupadas en una
+  // sola entrada (el conteo de filas del servidor, mvTotals.total, sigue
+  // contando filas, no grupos: se deja como está).
+  const groupedMovs = useMemo(()=>groupSplitMovements(filteredMovs),[filteredMovs]);
   // Totales del conjunto filtrado completo (no solo la página cargada):
   // vienen de la primera página, que el servidor calcula sobre todo el
   // historial filtrado. La etiqueta «Anula …» de una reversión busca el
@@ -2235,7 +2298,7 @@ export function App(){
   {mvStep===1 && <>
   {mvRepeatError && <p className="text-sm text-[var(--red)]">{mvRepeatError}</p>}
   <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Tipo de movimiento">
-    {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{TYPE_LABEL[t]}</button>)}
+    {(["expense","income","transfer","debt_payment"] as const).map(t=><button type="button" key={t} aria-label={TYPE_LABEL[t]} disabled={editingSplitGroup!=null} onClick={()=>{setMvType(t);setMvCat("");setMvSub("");if(t!=="expense"){setMvSplit(false);setMvSplitLines([]);}}} className={`rounded-full py-2 text-[12px] font-bold ${mvType===t?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"} disabled:opacity-50`}>{TYPE_LABEL[t]}</button>)}
   </div>
   {(mvType==="expense"||mvType==="debt_payment") && <div className="border border-dashed border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
     <p className="text-sm font-bold">¿Tiene el comprobante?</p>
@@ -2254,7 +2317,7 @@ export function App(){
   <button type="button" className={btnPrimary+" w-full"} disabled={!mvAmount} onClick={()=>{setMvStep(2); scrollFormTop("mv-form");}}>Siguiente</button>
   </>}
   {mvStep===2 && <>
-  {mvType!=="transfer" && <>
+  {mvType!=="transfer" && !mvSplit && <>
     <div><Label htmlFor="mv-cat">{mvType==="income"?"Tipo de ingreso":"Tipo de gasto"}</Label><select id="mv-cat" aria-label="Categoría del movimiento" className={inputCls} value={mvCat} onChange={e=>{setMvCat(e.target.value);setMvSub("");setAppliedRuleMv(null);}}><option value="">Sin categoría</option>{catsForType.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}<option value="__new__">+ Nueva categoría…</option></select></div>
     {mvCat==="__new__" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
     <p className="text-sm">Escriba el nombre de la categoría nueva.</p>
@@ -2266,18 +2329,41 @@ export function App(){
     </div>
   </>}
   {mvType==="transfer" && <p className="text-sm text-[var(--dim)]">Las transferencias no llevan categoría.</p>}
-  {ocrLabelMv && mvCat==="" && mvType!=="transfer" && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
+  {ocrLabelMv && mvCat==="" && mvType!=="transfer" && !mvSplit && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]">
     <p className="text-sm">La categoría sugerida «{ocrLabelMv}» no está en su hogar. Puede crearla ya ajustada a este ticket.</p>
     <div className="flex gap-2 mt-2"><input aria-label="Nombre de la categoría nueva" className={inputCls} value={ocrNewCatName} onChange={e=>setOcrNewCatName(e.target.value)} /><button type="button" aria-label="Crear la categoría sugerida y usarla" className={btnPrimary} disabled={!ocrNewCatName.trim() || createCat.isPending} onClick={()=>createCat.mutate({target:"mv",name:ocrNewCatName.trim(),kind:"expense"})}>{createCat.isPending?"Creando…":"Crear y usar"}</button></div>
     <button type="button" className="text-xs underline mt-2" onClick={()=>setOcrLabelMv("")}>Omitir, elegiré otra</button>
     {createCat.error && <p className="text-xs text-[var(--red)] mt-1">{String(createCat.error)}</p>}
   </div>}
+  {mvType==="expense" && (editingMv==null || editingSplitGroup!=null) && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+    <div className="flex items-center justify-between gap-2">
+      <p className="text-sm font-bold">Dividir entre categorías</p>
+      <button type="button" role="switch" aria-checked={mvSplit} aria-label="Dividir entre categorías" disabled={editingSplitGroup!=null} onClick={()=>toggleSplit(!mvSplit)} className={`shrink-0 w-12 h-7 rounded-full ${mvSplit?"bg-[var(--accent)]":"bg-[var(--border)]"} relative disabled:opacity-50`}><span className={`absolute top-0.5 ${mvSplit?"right-0.5":"left-0.5"} w-6 h-6 rounded-full bg-[var(--bg)]`} /></button>
+    </div>
+    <p className="text-xs text-[var(--dim)]">Reparte el importe entre varias categorías. Las partes deben sumar el total del gasto.</p>
+    {mvSplit && <>
+      {mvSplitLines.map((line, li) => (
+        <div key={line.key} className="flex gap-2 mt-2 items-center">
+          <select aria-label={`Categoría de la parte ${li+1}`} className={inputCls+" flex-1 min-w-0"} value={line.categoryId} onChange={e=>{ const v=e.target.value; setMvSplitLines(ls=>ls.map((l,j)=>j===li?{...l,categoryId:v,budgetId:null}:l)); }}>
+            <option value="">Seleccione…</option>
+            {catsForType.filter(c=>c.id===Number(line.categoryId) || !mvSplitLines.some((l,j)=>j!==li && l.categoryId===String(c.id))).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <input aria-label={`Importe de la parte ${li+1}`} type="number" min="0.01" step="0.01" className={inputCls+" w-28 shrink-0"} value={line.amount} onChange={e=>{ const v=e.target.value; setMvSplitLines(ls=>ls.map((l,j)=>j===li?{...l,amount:v}:l)); }} />
+          <button type="button" aria-label={`Quitar la parte ${li+1}`} disabled={mvSplitLines.length<=2} onClick={()=>setMvSplitLines(ls=>ls.filter((_,j)=>j!==li))} className="shrink-0 w-8 h-8 rounded-full border border-[var(--border)] text-[var(--dim)] disabled:opacity-40">×</button>
+        </div>
+      ))}
+      <button type="button" aria-label="Agregar otra categoría a la división" className="text-xs font-bold underline mt-2" onClick={()=>setMvSplitLines(ls=>[...ls, { key: splitKeyRef.current++, categoryId: "", amount: "", budgetId: null }])}>+ Agregar categoría</button>
+      <p className={`text-xs mt-2 font-bold ${mvSplitDiff===0 && !mvSplitDupCat ? "text-[var(--green)]" : "text-[var(--red)]"}`}>Total de las partes {money(mvSplitTotal)} · {mvSplitDiff===0 ? "Coincide con el total." : mvSplitDiff>0 ? `Faltan ${money(mvSplitDiff)}.` : `Sobran ${money(-mvSplitDiff)}.`}</p>
+      {mvSplitDupCat && <p className="text-xs text-[var(--red)] mt-1">No repita la misma categoría en la división.</p>}
+    </>}
+  </div>}
   {mvType==="expense" && editingMv==null && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
     <div className="flex items-center justify-between gap-2">
       <p className="text-sm font-bold">Repetir este gasto</p>
-      <button type="button" role="switch" aria-checked={mvRepeat} aria-label="Repetir este gasto" onClick={()=>{ if(!mvRepeat){ setMvRepeatDay(String(mvDate?Number(mvDate.slice(8,10)):1)); setMvRepeatWeekday(String(mvDate?new Date(mvDate+"T12:00:00").getDay():1)); } setMvRepeat(!mvRepeat); }} className={`shrink-0 w-12 h-7 rounded-full ${mvRepeat?"bg-[var(--accent)]":"bg-[var(--border)]"} relative`}><span className={`absolute top-0.5 ${mvRepeat?"right-0.5":"left-0.5"} w-6 h-6 rounded-full bg-[var(--bg)]`} /></button>
+      <button type="button" role="switch" aria-checked={mvRepeat} aria-label="Repetir este gasto" disabled={mvSplit} onClick={()=>{ if(!mvRepeat){ setMvRepeatDay(String(mvDate?Number(mvDate.slice(8,10)):1)); setMvRepeatWeekday(String(mvDate?new Date(mvDate+"T12:00:00").getDay():1)); } setMvRepeat(!mvRepeat); }} className={`shrink-0 w-12 h-7 rounded-full ${mvRepeat?"bg-[var(--accent)]":"bg-[var(--border)]"} relative disabled:opacity-50`}><span className={`absolute top-0.5 ${mvRepeat?"right-0.5":"left-0.5"} w-6 h-6 rounded-full bg-[var(--bg)]`} /></button>
     </div>
     <p className="text-xs text-[var(--dim)]">Al guardar, el gasto queda registrado hoy y se crea la regla. Cada vez que venza, le llegará un aviso para confirmarlo.</p>
+    {mvSplit && <p className="text-xs text-[var(--dim)] mt-1">No se puede repetir un gasto dividido: una regla recurrente tiene una sola categoría.</p>}
     {mvRepeat && <>
     <div className="grid grid-cols-3 gap-1.5 mt-2" role="group" aria-label="Frecuencia del gasto recurrente">
       {(["weekly","biweekly","monthly"] as const).map(f=>(<button key={f} type="button" aria-label={`Repetir cada ${f==="weekly"?"semana":f==="biweekly"?"quincena":"mes"}`} onClick={()=>setMvRepeatFreq(f)} className={`rounded-full py-2.5 text-[13px] font-bold ${mvRepeatFreq===f?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>{f==="weekly"?"Semanal":f==="biweekly"?"Quincenal":"Mensual"}</button>))}
@@ -2298,7 +2384,7 @@ export function App(){
   {appliedRuleMv && <p className="text-xs text-[var(--dim)] mt-1">Regla aplicada: «{appliedRuleMv.keyword}» → {appliedRuleMv.categoryName}. Puede cambiarla en el paso 2.</p>}</div>
   <div><Label htmlFor="mv-account">{mvType==="income"?"¿A qué cuenta entra?":mvType==="transfer"?"¿De qué cuenta sale?":"¿De dónde se descuenta?"}</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>{setMvAccount(e.target.value); setMvAccountError("");}}><option value="">Seleccione la cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
   {mvAccountError && <p className="text-sm text-[var(--red)]">{mvAccountError}</p>}
-  {mvBudgetQuestion && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+  {!mvSplit && mvBudgetQuestion && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
     <p className="text-sm font-bold">{mvBudgetQuestion.kind === "both" ? `¿Al presupuesto general o al de ${mvBudgetQuestion.sub.subcategory}?` : `¿Aplica al presupuesto de ${mvBudgetQuestion.budget.subcategory ? `${getCatName(mvBudgetQuestion.budget.categoryId)} · ${mvBudgetQuestion.budget.subcategory}` : getCatName(mvBudgetQuestion.budget.categoryId)} o a gastos generales?`}</p>
     <p className="text-xs text-[var(--dim)]">{mvBudgetQuestion.kind === "both" ? `Este gasto coincide con el presupuesto general de ${getCatName(mvBudgetQuestion.general.categoryId)} y con el de ${mvBudgetQuestion.sub.subcategory}. Elija dónde se descuenta: solo cuenta en uno, no en los dos.` : `Este gasto coincide con el presupuesto de ${mvBudgetQuestion.budget.subcategory ? `${getCatName(mvBudgetQuestion.budget.categoryId)} · ${mvBudgetQuestion.budget.subcategory}` : getCatName(mvBudgetQuestion.budget.categoryId)}. Si no aplica, va a gastos generales.`}</p>
     <div className="grid grid-cols-2 gap-1.5 mt-2" role="group" aria-label="Presupuesto al que aplica el gasto">
@@ -2311,6 +2397,22 @@ export function App(){
     </div>
     <p className="text-xs text-[var(--dim)] mt-1">{mvBudget===-1?"No se descuenta de ningún presupuesto; va a gastos generales.":mvBudgetQuestion.kind === "both" ? (mvBudget===mvBudgetQuestion.general.id?"Se descuenta del presupuesto general.":mvBudget===mvBudgetQuestion.sub.id?`Se descuenta del presupuesto de ${mvBudgetQuestion.sub.subcategory}.`:"Si no elige, se aplica según las reglas del presupuesto."):(mvBudget===mvBudgetQuestion.budget.id?`Se descuenta del presupuesto de ${mvBudgetQuestion.budget.subcategory ? `${getCatName(mvBudgetQuestion.budget.categoryId)} · ${mvBudgetQuestion.budget.subcategory}` : getCatName(mvBudgetQuestion.budget.categoryId)}.`:"Si no elige, se aplica al presupuesto según las reglas.")}</p>
   </div>}
+  {mvSplit && mvSplitLines.map((line, li) => {
+    const catId = line.categoryId ? Number(line.categoryId) : null;
+    const q = catId != null ? data.budgets.find(b => b.categoryId === catId && b.month === mvMonth && b.subcategory == null) ?? null : null;
+    if (!q) return null;
+    return (
+      <div key={line.key} className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+        <p className="text-sm font-bold">¿Aplica al presupuesto de {getCatName(catId)} o a gastos generales?</p>
+        <p className="text-xs text-[var(--dim)]">La parte de {money(Number(line.amount) || 0)} en {getCatName(catId)} coincide con el presupuesto de este mes. Si no aplica, va a gastos generales.</p>
+        <div className="grid grid-cols-2 gap-1.5 mt-2" role="group" aria-label={`Presupuesto al que aplica la parte de ${getCatName(catId)}`}>
+          <button type="button" aria-label={`Aplica al presupuesto de ${getCatName(catId)}`} onClick={()=>setMvSplitLines(ls=>ls.map((l,j)=>j===li?{...l,budgetId:l.budgetId===q.id?null:q.id}:l))} className={`rounded-full py-2.5 text-[13px] font-bold ${line.budgetId===q.id?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Aplica al presupuesto</button>
+          <button type="button" aria-label={`Gastos generales de ${getCatName(catId)}`} onClick={()=>setMvSplitLines(ls=>ls.map((l,j)=>j===li?{...l,budgetId:l.budgetId===-1?null:-1}:l))} className={`rounded-full py-2.5 text-[13px] font-bold ${line.budgetId===-1?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Gastos generales</button>
+        </div>
+        <p className="text-xs text-[var(--dim)] mt-1">{line.budgetId===-1?"No se descuenta de ningún presupuesto; va a gastos generales.":line.budgetId===q.id?`Se descuenta del presupuesto de ${getCatName(catId)}.`:"Si no elige, se aplica al presupuesto según las reglas."}</p>
+      </div>
+    );
+  })}
   {ocrDetailMv && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
     <p className="text-sm font-bold">¿Este movimiento es Compartido o Privado?</p>
     <p className="text-xs text-[var(--dim)]">Revise antes de guardar: lo compartido lo ven todos; lo privado solo usted.</p>
@@ -2353,15 +2455,16 @@ export function App(){
   </div>
     </div>)}
   </div>
-  {mvReview.length>0 && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+  {!mvSplit && mvReview.length>0 && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
     <p className="text-sm font-bold">Revisión de Mike</p>
     {mvReview.map((w,i)=><p key={i} className="text-sm mt-1">{w}</p>)}
     <p className="text-xs text-[var(--dim)] mt-1">Es solo un aviso: puede guardar de todos modos.</p>
   </div>}
   {Number(mvAmount)>=hh.approvalThreshold && mvVis==="shared" && mvType==="expense" && <Help>Supera el umbral de {money(hh.approvalThreshold)}: requiere un Acuerdo.</Help>}
+  {mvSplit && !mvSplitValid && <p className="text-sm text-[var(--red)]">{mvSplitDupCat ? "No repita la misma categoría en la división." : mvSplitLines.some(l=>l.categoryId==="" || !(Number(l.amount)>0)) ? "Cada parte necesita categoría e importe mayor que cero." : `Las partes deben sumar ${money(Number(mvAmount)||0)}: ${mvSplitDiff>0 ? `faltan ${money(mvSplitDiff)}` : `sobran ${money(-mvSplitDiff)}`}.`}</p>}
   {saveMv.error && <p className="text-sm text-[var(--red)]">{String(saveMv.error)}</p>}
-  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(2); scrollFormTop("mv-form");}}>Atrás</button><button className={btnPrimary+" flex-1"} disabled={saveMv.isPending || !mvAmount || !mvConcept}>{saveMv.isPending?"Guardando…":editingMv?"Guardar cambios":"Finalizar"}</button></div>
-  {editingMv && <button type="button" className={btnGhost+" w-full"} onClick={()=>{setEditingMv(null);setMvStep(1);}}>Cancelar edición</button>}
+  <div className="flex gap-2"><button type="button" className={btnGhost+" flex-1"} onClick={()=>{setMvStep(2); scrollFormTop("mv-form");}}>Atrás</button><button className={btnPrimary+" flex-1"} disabled={saveMv.isPending || !mvAmount || !mvConcept || (mvSplit && !mvSplitValid)}>{saveMv.isPending?"Guardando…":editingMv?"Guardar cambios":"Finalizar"}</button></div>
+  {editingMv && <button type="button" className={btnGhost+" w-full"} onClick={()=>{setEditingMv(null);setEditingSplitGroup(null);setMvStep(1);}}>Cancelar edición</button>}
   {data.accounts.length===0 && <Help>Si no tiene cuentas, los movimientos se descuentan de Efectivo.</Help>}
   </>}
 </form>
@@ -2582,7 +2685,7 @@ export function App(){
               onMonthChange={setViewMonth}
               monthsWithMovements={monthsWithMovs}
               summary={homeMovSummary}
-              rows={homeMovs.map(m=>({key:m.id,title:movTitle(m),detail:`${fmtDate(m.date)} · ${TYPE_LABEL[m.type]||m.type} · ${getCatName(m.categoryId)} · ${getAccName(m.accountId)}${m.isReversed?" · Reversado (fuera de los totales)":""}${m.reversalOfId?" · Reversión (fuera de los totales)":""}`,amount:`${m.type==="income"?"+":"−"}${money(m.amount)}`,isIncome:m.type==="income",struck:!!(m.isReversed||m.reversalOfId)}))}
+              rows={groupSplitMovements(homeMovs).map((entry)=>{ if (isSplitGroup(entry)) { const g = entry; return {key:g.key,title:movTitle(g.parts[0]!),detail:`${fmtDate(g.date)} · Gasto · ${g.parts.length} categorías · ${getAccName(g.accountId)}${g.allReversed?" · Reversado (fuera de los totales)":""}`,amount:`−${money(g.total)}`,isIncome:false,struck:g.allReversed,subRows:[...g.parts].reverse().map(p=>({title:getCatName(p.categoryId),amount:money(p.amount)}))}; } const m = entry; return {key:m.id,title:movTitle(m),detail:`${fmtDate(m.date)} · ${TYPE_LABEL[m.type]||m.type} · ${getCatName(m.categoryId)} · ${getAccName(m.accountId)}${m.isReversed?" · Reversado (fuera de los totales)":""}${m.reversalOfId?" · Reversión (fuera de los totales)":""}`,amount:`${m.type==="income"?"+":"−"}${money(m.amount)}`,isIncome:m.type==="income",struck:!!(m.isReversed||m.reversalOfId)}; })}
               hasAnyMovements={data.totalMovements>0}
               showAll={showAllHomeMovs}
               onToggleShowAll={()=>setShowAllHomeMovs(v=>!v)}
@@ -2700,14 +2803,23 @@ export function App(){
               {revMv.error && <p className="text-sm text-[var(--red)] mt-2">{String(revMv.error)}</p>}
               {revMv.isSuccess && <p className="text-sm text-[var(--green)] mt-2">Movimiento reversado.</p>}
               <div className="divide-y divide-[var(--border)] mt-2">
-                {filteredMovs.map(m=>{ const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm">{movTitle(m)}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
+                {groupedMovs.map((entry)=>{ if (isSplitGroup(entry)) { const g = entry; const first = g.parts[0]!; const gAnnulled = g.allReversed; const gOpen = expandedSplit.has(g.key); const partsAsc = [...g.parts].reverse(); return <div key={g.key} className={`py-2 ${gAnnulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm">{movTitle(first)}</p><p className="text-xs text-[var(--dim)]">{fmtDate(g.date)} · Gasto · {getAccName(g.accountId)} · {g.visibility==="shared"?"Compartido":"Privado"} · por {g.profileId?(fullName(data.profiles.find(x=>x.id===g.profileId)||{name:"Integrante"})):"el hogar"}</p>
+                {gAnnulled && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-xs text-[var(--dim)]">Fuera de los totales.</span></p>}
+                </div><div className="text-right shrink-0"><p className={`font-display font-bold whitespace-nowrap ${gAnnulled?"line-through":""}`}>−{money2(g.total)}</p>{g.receiptUrl && <span className="block mt-1"><img loading="lazy" decoding="async" src={g.receiptUrl} alt={`Foto del comprobante de ${g.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${g.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(g.receiptUrl)}>Ver comprobante</button></span>}
+                {!gAnnulled && <><button aria-label={`Editar ${g.concept}`} className="text-xs underline mr-2" onClick={()=>{setMvStep(1);setEditingMv(first.id);setEditingSplitGroup(g.groupId);setMvType("expense");setMvAmount(String(g.total));setMvConcept(g.concept);setMvAccount(g.accountId?String(g.accountId):"");setMvToAccount("");setMvCat("");setMvSub("");setMvBudget(null);setMvDate(g.date);setMvVis(g.visibility as "private"|"shared");setMvSplit(true);setMvSplitLines(partsAsc.map(p=>({ key: splitKeyRef.current++, categoryId: p.categoryId?String(p.categoryId):"", amount: String(p.amount), budgetId: p.budgetId ?? null })));scrollFormTop("mv-form");}}>Editar</button><button aria-label={`Reversar ${g.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===first.id?null:first.id)}>Reversar</button><button aria-label={`Eliminar ${g.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>setConfirmDeleteMvId(confirmDeleteMvId===first.id?null:first.id)}>Eliminar</button></>}
+                </div></div>
+                <button type="button" aria-expanded={gOpen} aria-label={`${gOpen?"Ocultar":"Ver"} las ${g.parts.length} categorías de ${g.concept}`} onClick={()=>setExpandedSplit(prev=>{ const next=new Set(prev); if(next.has(g.key)) next.delete(g.key); else next.add(g.key); return next; })} className="text-xs font-bold text-[var(--dim)] mt-1">{gOpen?"▾":"▸"} {g.parts.length} categorías · {money2(g.total)}</button>
+                {gOpen && <div className="mt-1 pl-3 border-l-2 border-[var(--border)]">{partsAsc.map(p=>(<div key={p.id} className="flex justify-between gap-2 py-1 text-[13px]"><span>{getCatName(p.categoryId)}{p.budgetId!=null && p.budgetId>0 ? " · aplica al presupuesto" : ""}</span><b className="whitespace-nowrap">{money2(p.amount)}</b></div>))}</div>}
+                {confirmReverseId===first.id && !gAnnulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{g.concept}» por <b className="whitespace-nowrap">{money2(g.total)}</b>? Se reversan las {g.parts.length} partes; todas quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${g.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(first.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
+                {confirmDeleteMvId===first.id && !gAnnulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Está seguro de eliminar este gasto dividido?</p><p className="text-xs text-[var(--dim)] mt-1">«{g.concept}» por <b className="whitespace-nowrap">{money2(g.total)}</b> · {g.parts.length} partes. Se eliminan todas las partes. Esta acción no se puede deshacer.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Avanzar con la eliminación de ${g.concept}`} className={btnPrimary} disabled={delMv.isPending} onClick={()=>confirmDeleteMovement(first.id)}>{delMv.isPending?"Eliminando…":"Avanzar"}</button><button type="button" aria-label="Cancelar la eliminación" className={btnGhost} onClick={()=>setConfirmDeleteMvId(null)}>Cancelar</button></div></div>}
+                </div>; } const m = entry; const annulled = m.isReversed || !!m.reversalOfId; return <div key={m.id} className={`py-2 ${annulled?"opacity-70":""}`}><div className="flex justify-between gap-2"><div className="min-w-0"><p className="font-semibold text-sm">{movTitle(m)}</p><p className="text-xs text-[var(--dim)]">{fmtDate(m.date)} · {TYPE_LABEL[m.type]||m.type} · {getCatName(m.categoryId)}{m.subcategory?` / ${m.subcategory}`:""} · {getAccName(m.accountId)} · {m.visibility==="shared"?"Compartido":"Privado"} · por {m.profileId?(fullName(data.profiles.find(x=>x.id===m.profileId)||{name:"Integrante"})):"el hogar"}</p>
                 {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-xs text-[var(--dim)]">Fuera de los totales.</span></p>}
                 {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-xs text-[var(--dim)]">Anula «{reversalConceptById.get(m.reversalOfId)||""}».</span></p>}
                 </div><div className="text-right shrink-0"><p className={`font-display font-bold whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img loading="lazy" decoding="async" src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
                 {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setMvStep(1);setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvToAccount(m.toAccountId?String(m.toAccountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvBudget(m.budgetId??null);setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");scrollFormTop("mv-form");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>setConfirmDeleteMvId(confirmDeleteMvId===m.id?null:m.id)}>Eliminar</button></>}
                 </div></div>
                 {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{m.concept}» por <b className="whitespace-nowrap">{money2(m.amount)}</b>? Ambos quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
-                {confirmDeleteMvId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Está seguro de eliminar este movimiento?</p><p className="text-xs text-[var(--dim)] mt-1">«{m.concept}» por <b className="whitespace-nowrap">{money2(m.amount)}</b>. Esta acción no se puede deshacer.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Avanzar con la eliminación de ${m.concept}`} className={btnPrimary} disabled={delMv.isPending} onClick={()=>delMv.mutate(m.id)}>{delMv.isPending?"Eliminando…":"Avanzar"}</button><button type="button" aria-label="Cancelar la eliminación" className={btnGhost} onClick={()=>setConfirmDeleteMvId(null)}>Cancelar</button></div></div>}
+                {confirmDeleteMvId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Está seguro de eliminar este movimiento?</p><p className="text-xs text-[var(--dim)] mt-1">«{m.concept}» por <b className="whitespace-nowrap">{money2(m.amount)}</b>. Esta acción no se puede deshacer.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Avanzar con la eliminación de ${m.concept}`} className={btnPrimary} disabled={delMv.isPending} onClick={()=>confirmDeleteMovement(m.id)}>{delMv.isPending?"Eliminando…":"Avanzar"}</button><button type="button" aria-label="Cancelar la eliminación" className={btnGhost} onClick={()=>setConfirmDeleteMvId(null)}>Cancelar</button></div></div>}
                 </div>; })}
               </div>
               {mvQuery.hasNextPage && <div className="mt-3 text-center"><button type="button" className={btnGhost} disabled={mvQuery.isFetchingNextPage} onClick={()=>mvQuery.fetchNextPage()}>{mvQuery.isFetchingNextPage?"Cargando más…":"Cargar más"}</button></div>}
