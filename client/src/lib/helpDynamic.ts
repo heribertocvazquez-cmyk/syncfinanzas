@@ -353,6 +353,9 @@ type DraftBudget = OverviewData["budgets"][number];
 export function applicableBudget(ov: OverviewData, d: MovementDraft): DraftBudget | null {
   const month = d.date.slice(0, 7);
   if (d.categoryId == null) return null;
+  // budgetId -1 es la exclusión explícita («gastos generales»): el gasto
+  // no aplica a ningún presupuesto aunque coincida con uno.
+  if (d.budgetId === -1) return null;
   if (d.budgetId != null) {
     const chosen = ov.budgets.find((b) => b.id === d.budgetId);
     if (chosen && chosen.month === month && chosen.categoryId === d.categoryId) return chosen;

@@ -313,6 +313,18 @@ export function parseReceiptText(text: string, todayIso?: string): ReceiptRead {
       if (/\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}/.test(l)) continue;
       for (const a of amountsIn(l, true)) if (a > best && a < 1000000) best = a;
     }
+    if (best === 0) {
+      // Último recurso: el importe suelto mayor de TODO el comprobante
+      // (la misma búsqueda que la ruta de transferencias). Cubre los
+      // comprobantes de billetera como Mercado Pago, donde el importe va
+      // solo en su línea arriba («$ 848.23 MXN») y no hay línea de
+      // total. Solo valen líneas que son solo un importe con decimales:
+      // un folio, una cuenta o una fecha no cuentan.
+      for (const l of lines) {
+        const b = bareAmount(l);
+        if (b != null && b > best) best = b;
+      }
+    }
     total = best > 0 ? best : null;
   }
   // Fecha del comprobante: se juntan TODAS las fechas candidatas del

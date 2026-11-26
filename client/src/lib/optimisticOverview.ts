@@ -65,6 +65,8 @@ function budgetForMovement(
   capture: string,
 ): Budget | null {
   if (mv.categoryId == null) return null;
+  // budgetId -1 es la exclusión explícita («gastos generales»).
+  if (mv.budgetId === -1) return null;
   const month = monthOf(mv.date);
   const budgets = ov.budgets ?? [];
   if (mv.budgetId != null) {

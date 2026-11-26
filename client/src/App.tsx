@@ -1000,7 +1000,30 @@ export function App(){
   // (saved:false cuando falta correr su SQL).
   const [budSub,setBudSub]=useState(""); const [budIncludePrior,setBudIncludePrior]=useState(false); const [budPendingSql,setBudPendingSql]=useState(false);
   const [budStartDate,setBudStartDate]=useState(todayISO()); const [budStartDatePendingSql,setBudStartDatePendingSql]=useState(false);
-  const saveBud=useMutation({mutationFn:async()=>await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis,subcategory:budSub||undefined,includePriorExpenses:budIncludePrior,startDate:(!budIncludePrior && budStartDate!==todayISO())?budStartDate:undefined}),onSuccess:(r)=>{inv();setBudAmount("");setBudSub("");setBudIncludePrior(false);setBudStartDate(todayISO());setBudPendingSql(r?.saved===false);setBudStartDatePendingSql(r?.savedStartDate===false);logUsageEvent(data!.household!.id,"presupuestos","guardar_presupuesto");}});
+  const saveBud=useMutation({mutationFn:async(opts?:{startDateOverride?:string})=>{const effStart=opts?.startDateOverride ?? budStartDate;return await api.saveBudget({householdId:data!.household!.id,categoryId:Number(budCat),month:budMonth,amount:Number(budAmount)||0,visibility:budVis,subcategory:budSub||undefined,includePriorExpenses:budIncludePrior,startDate:(!budIncludePrior && effStart!==todayISO())?effStart:undefined});},onSuccess:(r)=>{inv();setBudAmount("");setBudSub("");setBudIncludePrior(false);setBudStartDate(todayISO());setBudBackfillOpen(false);setBudPendingSql(r?.saved===false);setBudStartDatePendingSql(r?.savedStartDate===false);logUsageEvent(data!.household!.id,"presupuestos","guardar_presupuesto");}});
+  const [budBackfillOpen,setBudBackfillOpen]=useState(false);
+  // Gastos ya registrados que entrarían al presupuesto nuevo (2026-11-25):
+  // con fecha de inicio pasada y sin «suma todo», la ventana es [inicio,
+  // ahora] por fecha de captura. Se listan con el espejo del reclamo
+  // (applicableBudget con el presupuesto nuevo como hipotético) para que
+  // la lista sea la misma que el servidor contaría. Solo el mes visible
+  // trae las filas completas: para otro mes la lista queda vacía y el
+  // formulario guarda directo. Solo para un presupuesto NUEVO (sin uno
+  // igual ya creado): al actualizar uno existente no se pregunta, el
+  // cambio de ventana aplica directo. Si la lista no está vacía, el
+  // formulario no guarda directo: abre el pop-up de revisión.
+  const budBackfill = useMemo(() => {
+    if (!data || budIncludePrior || !budCat || !budMonth) return [];
+    const start = budStartDate;
+    if (!start || start >= todayISO()) return [];
+    const catId = Number(budCat);
+    if (data.budgets.some(b => b.categoryId === catId && b.month === budMonth && (b.subcategory ?? null) === (budSub || null))) return [];
+    const startMs = new Date(`${start}T00:00:00`).getTime();
+    const nowMs = Date.now();
+    const fake = { id: -999, categoryId: catId, month: budMonth, subcategory: budSub || null, amount: Number(budAmount) || 0, spent: 0, remaining: 0, pct: 0, visibility: budVis, includePriorExpenses: false, startDate: start } as unknown as (typeof data.budgets)[number];
+    const hypo = { ...data, budgets: [...data.budgets, fake] };
+    return data.movements.filter(m => (m.type === "expense" || m.type === "debt_payment") && !m.isReversed && m.reversalOfId == null && m.categoryId === catId && m.date.slice(0, 7) === budMonth && applicableBudget(hypo, { type: m.type as "expense" | "debt_payment", amount: m.amount, categoryId: m.categoryId, concept: m.concept, date: m.date, subcategory: m.subcategory ?? null, budgetId: m.budgetId ?? null })?.id === -999 && (m.createdAt ? (new Date(m.createdAt).getTime() >= startMs && new Date(m.createdAt).getTime() <= nowMs) : m.date >= start));
+  }, [data, budCat, budSub, budMonth, budAmount, budVis, budIncludePrior, budStartDate]);
   const [deleteBudgetPreviewId,setDeleteBudgetPreviewId]=useState<number|null>(null);
   const [deleteAccountPreviewId,setDeleteAccountPreviewId]=useState<number|null>(null);
   const delBud=useMutation({mutationFn:async(id:number)=>await api.deleteBudget({id}),onSuccess:()=>{inv();setDeleteBudgetPreviewId(null);}});
@@ -1164,30 +1187,37 @@ export function App(){
   // restante, posible duplicado y monto sobre el promedio de la categoría.
   // Son solo avisos: nunca bloquean el guardado.
   const mvReview = useMemo(() => data ? reviewMovement(data, { type: mvType, amount: Number(mvAmount) || 0, categoryId: mvCat && mvCat!=="__new__" ? Number(mvCat) : null, subcategory: mvSub || null, budgetId: mvBudget, concept: mvConcept, date: mvDate, excludeId: editingMv ?? undefined }) : [], [data, mvType, mvAmount, mvCat, mvSub, mvBudget, mvConcept, mvDate, editingMv]);
-  // Coincidencia de dos presupuestos (pregunta al meter el gasto,
-  // 2026-11-24): el gasto es de una categoría + subcategoría + mes que
-  // tienen a la vez un presupuesto general y uno de subcategoría. Sin los
-  // dos no hay pregunta: el gasto cae en el único presupuesto que hay, o
-  // en ninguno, según las reglas de reclamo. La elección (mvBudget) es el
-  // id del presupuesto elegido: el general para «Gasto corriente», el de
-  // la subcategoría para «Aplica al presupuesto de [X]»; null es no
-  // elegir (mandan las reglas de reclamo).
+  // Pregunta de asignación al meter el gasto (2026-11-24 con dos
+  // presupuestos; 2026-11-25 también con uno solo): el gasto coincide con
+  // un presupuesto general, uno de subcategoría, o los dos. La elección
+  // (mvBudget) es el id del presupuesto elegido; -1 es «gastos generales»
+  // (no cuenta en ningún presupuesto); null es no elegir (mandan las
+  // reglas de reclamo, que asignan el gasto al presupuesto que coincida).
   const mvMonth = mvDate.slice(0, 7);
-  const mvOverlap = useMemo(() => {
-    if ((mvType !== "expense" && mvType !== "debt_payment") || !mvCat || mvCat === "__new__" || !mvSub || mvSub === "__new__" || !data) return null;
+  const mvBudgetQuestion = useMemo(() => {
+    if ((mvType !== "expense" && mvType !== "debt_payment") || !mvCat || mvCat === "__new__" || !data) return null;
     const catId = Number(mvCat);
-    const general = data.budgets.find(b => b.categoryId === catId && b.month === mvMonth && b.subcategory == null);
-    const sub = data.budgets.find(b => b.categoryId === catId && b.month === mvMonth && b.subcategory === mvSub);
-    return general && sub ? { general, sub } : null;
+    const general = data.budgets.find(b => b.categoryId === catId && b.month === mvMonth && b.subcategory == null) ?? null;
+    const sub = mvSub && mvSub !== "__new__" ? data.budgets.find(b => b.categoryId === catId && b.month === mvMonth && b.subcategory === mvSub) ?? null : null;
+    if (general && sub) return { kind: "both" as const, general, sub };
+    if (general) return { kind: "single" as const, budget: general };
+    if (sub) return { kind: "single" as const, budget: sub };
+    return null;
   }, [data, mvType, mvCat, mvSub, mvMonth]);
   // Al cambiar la combinación (categoría, subcategoría o mes), la
-  // elección anterior solo se conserva si sigue siendo uno de los dos
-  // presupuestos que coinciden; si no, se limpia y mandan las reglas de
-  // reclamo. Al editar, la asignación guardada del movimiento se
-  // pre-selecciona (la pone el botón Editar) y este efecto la valida.
+  // elección anterior solo se conserva si sigue siendo una opción de la
+  // pregunta actual (un presupuesto que coincide, o -1 mientras haya
+  // pregunta); si no, se limpia y mandan las reglas de reclamo. Al
+  // editar, la asignación guardada del movimiento se pre-selecciona
+  // (la pone el botón Editar, -1 incluido) y este efecto la valida.
   useEffect(() => {
-    setMvBudget(cur => (mvOverlap && (cur === mvOverlap.general.id || cur === mvOverlap.sub.id)) ? cur : null);
-  }, [mvOverlap]);
+    setMvBudget(cur => {
+      if (!mvBudgetQuestion) return null;
+      if (cur === -1) return -1;
+      if (mvBudgetQuestion.kind === "both") return (cur === mvBudgetQuestion.general.id || cur === mvBudgetQuestion.sub.id) ? cur : null;
+      return cur === mvBudgetQuestion.budget.id ? cur : null;
+    });
+  }, [mvBudgetQuestion]);
   const persReview = useMemo(() => data ? reviewMovement(data, { type: "expense", amount: Number(persAmt) || 0, categoryId: persCat && persCat!=="__new__" ? Number(persCat) : null, concept: persConcept, date: todayISO() }) : [], [data, persAmt, persCat, persConcept]);
   // Acceso directo para registrar un gasto rápido (?accion=nuevo-gasto):
   // al entrar con ese parámetro, después de iniciar sesión y con el espacio
@@ -2203,14 +2233,18 @@ export function App(){
   {appliedRuleMv && <p className="text-xs text-[var(--dim)] mt-1">Regla aplicada: «{appliedRuleMv.keyword}» → {appliedRuleMv.categoryName}. Puede cambiarla en el paso 2.</p>}</div>
   <div><Label htmlFor="mv-account">{mvType==="income"?"¿A qué cuenta entra?":mvType==="transfer"?"¿De qué cuenta sale?":"¿De dónde se descuenta?"}</Label><select id="mv-account" aria-label="Cuenta del movimiento" className={inputCls} value={mvAccount} onChange={e=>{setMvAccount(e.target.value); setMvAccountError("");}}><option value="">Seleccione la cuenta</option>{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name} ({money(a.balance)})</option>)}</select></div>
   {mvAccountError && <p className="text-sm text-[var(--red)]">{mvAccountError}</p>}
-  {mvOverlap && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
-    <p className="text-sm font-bold">¿Gasto corriente o aplica al presupuesto de {mvOverlap.sub.subcategory}?</p>
-    <p className="text-xs text-[var(--dim)]">Este gasto coincide con el presupuesto general de {getCatName(mvOverlap.general.categoryId)} y con el de {mvOverlap.sub.subcategory}. Elija dónde se descuenta: solo cuenta en uno, no en los dos.</p>
+  {mvBudgetQuestion && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
+    <p className="text-sm font-bold">{mvBudgetQuestion.kind === "both" ? `¿Al presupuesto general o al de ${mvBudgetQuestion.sub.subcategory}?` : `¿Aplica al presupuesto de ${mvBudgetQuestion.budget.subcategory ? `${getCatName(mvBudgetQuestion.budget.categoryId)} · ${mvBudgetQuestion.budget.subcategory}` : getCatName(mvBudgetQuestion.budget.categoryId)} o a gastos generales?`}</p>
+    <p className="text-xs text-[var(--dim)]">{mvBudgetQuestion.kind === "both" ? `Este gasto coincide con el presupuesto general de ${getCatName(mvBudgetQuestion.general.categoryId)} y con el de ${mvBudgetQuestion.sub.subcategory}. Elija dónde se descuenta: solo cuenta en uno, no en los dos.` : `Este gasto coincide con el presupuesto de ${mvBudgetQuestion.budget.subcategory ? `${getCatName(mvBudgetQuestion.budget.categoryId)} · ${mvBudgetQuestion.budget.subcategory}` : getCatName(mvBudgetQuestion.budget.categoryId)}. Si no aplica, va a gastos generales.`}</p>
     <div className="grid grid-cols-2 gap-1.5 mt-2" role="group" aria-label="Presupuesto al que aplica el gasto">
-      <button type="button" aria-label="Gasto corriente" onClick={()=>setMvBudget(mvBudget===mvOverlap.general.id?null:mvOverlap.general.id)} className={`rounded-full py-2.5 text-[13px] font-bold ${mvBudget===mvOverlap.general.id?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Gasto corriente</button>
-      <button type="button" aria-label={`Aplica al presupuesto de ${mvOverlap.sub.subcategory}`} onClick={()=>setMvBudget(mvBudget===mvOverlap.sub.id?null:mvOverlap.sub.id)} className={`rounded-full py-2.5 text-[13px] font-bold ${mvBudget===mvOverlap.sub.id?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Aplica a {mvOverlap.sub.subcategory}</button>
+      {mvBudgetQuestion.kind === "both" && <>
+        <button type="button" aria-label="Presupuesto general" onClick={()=>setMvBudget(mvBudget===mvBudgetQuestion.general.id?null:mvBudgetQuestion.general.id)} className={`rounded-full py-2.5 text-[13px] font-bold ${mvBudget===mvBudgetQuestion.general.id?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Presupuesto general</button>
+        <button type="button" aria-label={`Aplica al presupuesto de ${mvBudgetQuestion.sub.subcategory}`} onClick={()=>setMvBudget(mvBudget===mvBudgetQuestion.sub.id?null:mvBudgetQuestion.sub.id)} className={`rounded-full py-2.5 text-[13px] font-bold ${mvBudget===mvBudgetQuestion.sub.id?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Aplica a {mvBudgetQuestion.sub.subcategory}</button>
+      </>}
+      {mvBudgetQuestion.kind === "single" && <button type="button" aria-label={`Aplica al presupuesto de ${mvBudgetQuestion.budget.subcategory ?? getCatName(mvBudgetQuestion.budget.categoryId)}`} onClick={()=>setMvBudget(mvBudget===mvBudgetQuestion.budget.id?null:mvBudgetQuestion.budget.id)} className={`rounded-full py-2.5 text-[13px] font-bold ${mvBudget===mvBudgetQuestion.budget.id?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"}`}>Aplica al presupuesto</button>}
+      <button type="button" aria-label="Gastos generales" onClick={()=>setMvBudget(mvBudget===-1?null:-1)} className={`rounded-full py-2.5 text-[13px] font-bold ${mvBudget===-1?"bg-[var(--accent)] text-[var(--accent-text)]":"border border-[var(--border)]"} ${mvBudgetQuestion.kind === "both" ? "col-span-2" : ""}`}>Gastos generales</button>
     </div>
-    <p className="text-xs text-[var(--dim)] mt-1">{mvBudget===mvOverlap.general.id?"Se descuenta del presupuesto general.":mvBudget===mvOverlap.sub.id?`Se descuenta del presupuesto de ${mvOverlap.sub.subcategory}.`:"Si no elige, se aplica según las reglas del presupuesto."}</p>
+    <p className="text-xs text-[var(--dim)] mt-1">{mvBudget===-1?"No se descuenta de ningún presupuesto; va a gastos generales.":mvBudgetQuestion.kind === "both" ? (mvBudget===mvBudgetQuestion.general.id?"Se descuenta del presupuesto general.":mvBudget===mvBudgetQuestion.sub.id?`Se descuenta del presupuesto de ${mvBudgetQuestion.sub.subcategory}.`:"Si no elige, se aplica según las reglas del presupuesto."):(mvBudget===mvBudgetQuestion.budget.id?`Se descuenta del presupuesto de ${mvBudgetQuestion.budget.subcategory ? `${getCatName(mvBudgetQuestion.budget.categoryId)} · ${mvBudgetQuestion.budget.subcategory}` : getCatName(mvBudgetQuestion.budget.categoryId)}.`:"Si no elige, se aplica al presupuesto según las reglas.")}</p>
   </div>}
   {ocrDetailMv && <div className="border border-[var(--gold)] rounded-2xl p-3 bg-[var(--surface2)]">
     <p className="text-sm font-bold">¿Este movimiento es Compartido o Privado?</p>
@@ -2605,7 +2639,7 @@ export function App(){
                 {m.isReversed && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-red-100 text-red-800">REVERSADO</span> <span className="text-xs text-[var(--dim)]">Fuera de los totales.</span></p>}
                 {!!m.reversalOfId && <p className="mt-1"><span className="text-[11px] font-bold rounded-full px-2 py-0.5 bg-[var(--surface2)]">REVERSIÓN</span> <span className="text-xs text-[var(--dim)]">Anula «{reversalConceptById.get(m.reversalOfId)||""}».</span></p>}
                 </div><div className="text-right shrink-0"><p className={`font-display font-bold whitespace-nowrap ${m.type==="income"?"text-[var(--green)]":""} ${annulled?"line-through":""}`}>{m.type==="income"?"+":"−"}{money2(m.amount)}</p>{m.receiptUrl && <span className="block mt-1"><img loading="lazy" decoding="async" src={m.receiptUrl} alt={`Foto del comprobante de ${m.concept}`} className="w-10 h-10 object-cover rounded-lg border border-[var(--border)] inline-block" /><br/><button aria-label={`Ver foto del comprobante de ${m.concept}`} className="text-xs underline font-bold" onClick={()=>setReceiptView(m.receiptUrl)}>Ver comprobante</button></span>}
-                {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setMvStep(1);setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvBudget(m.budgetId??null);setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");scrollFormTop("mv-form");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>setConfirmDeleteMvId(confirmDeleteMvId===m.id?null:m.id)}>Eliminar</button></>}
+                {!annulled && <><button aria-label={`Editar ${m.concept}`} className="text-xs underline mr-2" onClick={()=>{setMvStep(1);setEditingMv(m.id);setMvType(m.type as typeof mvType);setMvAmount(String(m.amount));setMvConcept(m.concept);setMvAccount(m.accountId?String(m.accountId):"");setMvToAccount(m.toAccountId?String(m.toAccountId):"");setMvCat(m.categoryId?String(m.categoryId):"");setMvSub(m.subcategory||"");setMvBudget(m.budgetId??null);setMvDate(m.date);setMvVis(m.visibility as "private"|"shared");scrollFormTop("mv-form");}}>Editar</button><button aria-label={`Reversar ${m.concept}`} className="text-xs underline font-bold mr-2" onClick={()=>setConfirmReverseId(confirmReverseId===m.id?null:m.id)}>Reversar</button><button aria-label={`Eliminar ${m.concept}`} className="text-xs underline text-[var(--red)]" onClick={()=>setConfirmDeleteMvId(confirmDeleteMvId===m.id?null:m.id)}>Eliminar</button></>}
                 </div></div>
                 {confirmReverseId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Reversar «{m.concept}» por <b className="whitespace-nowrap">{money2(m.amount)}</b>? Ambos quedan fuera de los totales.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Confirmar la reversión de ${m.concept}`} className={btnPrimary} disabled={revMv.isPending} onClick={()=>revMv.mutate(m.id)}>{revMv.isPending?"Reversando…":"Sí, reversar"}</button><button type="button" aria-label="Cancelar la reversión" className={btnGhost} onClick={()=>setConfirmReverseId(null)}>Cancelar</button></div></div>}
                 {confirmDeleteMvId===m.id && !annulled && <div className="mt-2 border border-dashed border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="text-xs">¿Está seguro de eliminar este movimiento?</p><p className="text-xs text-[var(--dim)] mt-1">«{m.concept}» por <b className="whitespace-nowrap">{money2(m.amount)}</b>. Esta acción no se puede deshacer.</p><div className="flex gap-2 mt-2"><button type="button" aria-label={`Avanzar con la eliminación de ${m.concept}`} className={btnPrimary} disabled={delMv.isPending} onClick={()=>delMv.mutate(m.id)}>{delMv.isPending?"Eliminando…":"Avanzar"}</button><button type="button" aria-label="Cancelar la eliminación" className={btnGhost} onClick={()=>setConfirmDeleteMvId(null)}>Cancelar</button></div></div>}
@@ -2701,7 +2735,7 @@ export function App(){
 
         {effTab==="presupuestos" && (
           <section>
-            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();setBudPendingSql(false);saveBud.mutate();}}>
+            <form className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 grid md:grid-cols-5 gap-2 items-end" onSubmit={(e:FormEvent)=>{e.preventDefault();setBudPendingSql(false);if(budBackfill.length>0){setBudBackfillOpen(true);return;}saveBud.mutate({});}}>
               <div><Label htmlFor="bud-cat">Categoría de gasto</Label><select id="bud-cat" aria-label="Categoría del presupuesto" required className={inputCls} value={budCat} onChange={e=>{setBudCat(e.target.value);setBudSub("");}}><option value="">Seleccione…</option>{data.categories.filter(c=>c.kind==="expense").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
               <div><Label htmlFor="bud-sub">Subcategoría</Label><select id="bud-sub" aria-label="Subcategoría del presupuesto" className={inputCls} value={budSub} onChange={e=>setBudSub(e.target.value)} disabled={!budCat}><option value="">Toda la categoría</option>{(data.categories.find(c=>c.id===Number(budCat))?.subcategories||[]).map(sb=><option key={sb} value={sb}>{sb}</option>)}</select></div>
               <div><Label htmlFor="bud-month">Mes</Label><input id="bud-month" aria-label="Mes del presupuesto" type="month" required className={inputCls} value={budMonth} onChange={e=>setBudMonth(e.target.value)} /></div>
@@ -2711,6 +2745,16 @@ export function App(){
               {!budIncludePrior && <div className="md:col-span-2"><Label htmlFor="bud-start">Fecha de inicio</Label><input id="bud-start" aria-label="Fecha de inicio del presupuesto" type="date" className={inputCls} value={budStartDate} onChange={e=>setBudStartDate(e.target.value)} /></div>}
               <button className={btnPrimary} disabled={saveBud.isPending}>Crear presupuesto</button>
             </form>
+            {budBackfillOpen && budBackfill.length>0 && <div className="mt-3 border border-[var(--gold)] rounded-2xl p-4 bg-[var(--surface2)] space-y-2" aria-label="Revisión de los gastos ya registrados">
+              <p className="font-display font-bold text-sm">Gastos ya registrados en este presupuesto</p>
+              <p className="text-sm">Desde el {fmtDate(budStartDate)} se registraron estos gastos de {getCatName(Number(budCat))}{budSub ? ` · ${budSub}` : ""}. ¿Quieres agregarlos al presupuesto?</p>
+              <div className="divide-y divide-[var(--border)]">{budBackfill.map(m=>(<div key={m.id} className="py-2 flex justify-between gap-2"><span className="text-sm">{fmtDate(m.date)} · {m.concept}</span><span className="text-sm font-bold whitespace-nowrap">{money(m.amount)}</span></div>))}</div>
+              <p className="text-sm font-bold">Total: {money(budBackfill.reduce((s,m)=>s+m.amount,0))}</p>
+              <div className="flex gap-2">
+                <button type="button" aria-label="Sí, agregar los gastos registrados al presupuesto" className={btnPrimary+" flex-1"} disabled={saveBud.isPending} onClick={()=>{setBudBackfillOpen(false);saveBud.mutate({});}}>Sí, agregarlos</button>
+                <button type="button" aria-label="No, empezar el presupuesto limpio" className={btnGhost} disabled={saveBud.isPending} onClick={()=>{setBudBackfillOpen(false);saveBud.mutate({startDateOverride: todayISO()});}}>No, empezar limpio</button>
+              </div>
+            </div>}
             <Help>{budSub ? `Solo cuentan los gastos de ${budSub}. ` : "Cuentan los gastos de toda la categoría. "}{budIncludePrior ? "Los gastos ya capturados este mes se descuentan del presupuesto." : budStartDate!==todayISO() ? `Nace como nuevo: solo cuentan los gastos capturados desde el ${fmtDate(budStartDate)}.` : "Nace como nuevo: los gastos ya capturados este mes no se descuentan; solo cuentan los gastos que registre desde ahora."}</Help>
             {budPendingSql && <p className="text-sm text-[var(--red)] mt-2">La subcategoría y la elección de gastos previos se guardarán cuando se ejecute el SQL pendiente (supabase/add-budget-subcategory.sql).</p>}
             {budStartDatePendingSql && <p className="text-sm text-[var(--red)] mt-2">La fecha de inicio se guardará cuando se ejecute el SQL pendiente (supabase/add-budget-start-date.sql).</p>}

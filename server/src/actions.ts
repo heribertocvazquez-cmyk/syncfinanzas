@@ -302,7 +302,10 @@ function computeBudgetSpents(movs: { categoryId: number | null; subcategory: str
   for (const m of movs) {
     if (m.type !== "expense" && m.type !== "debt_payment") continue;
     const month = m.date.slice(0, 7);
-    // 1. Asignación explícita (si sigue valiendo).
+    // 1. Asignación explícita (si sigue valiendo). budgetId -1 es la
+    // exclusión explícita («gastos generales»): no cuenta en ningún
+    // presupuesto aunque coincida con uno por categoría y mes.
+    if (m.budgetId === -1) continue;
     if (m.budgetId != null) {
       const assigned = byId.get(m.budgetId);
       if (assigned && assigned.categoryId === m.categoryId && assigned.month === month && (assigned.subcategory == null || m.subcategory === assigned.subcategory)) {
@@ -1288,7 +1291,7 @@ const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAd
 // Esquema de una fila de movimiento (lo comparten getOverview y
 // listMovements): un movimiento es siempre el mismo objeto, venga del
 // mes visible o de una página del historial.
-const movementRowSchema = z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), budgetId: z.number().nullable(), date: z.string(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() });
+const movementRowSchema = z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), budgetId: z.number().nullable(), date: z.string(), createdAt: z.string().nullable().optional(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() });
 type MovementRow = z.infer<typeof movementRowSchema>;
 
 // Normalización de concepto: la MISMA que el cliente (smart.ts normText
@@ -1324,7 +1327,7 @@ async function signedUrls(ctx: Ctx, keys: (string | null | undefined)[]): Promis
 // filas, en el mismo orden. `mine` marca si el perfil del movimiento es
 // del usuario que consulta (lo usa el cliente para el filtro por perfil).
 function toMovementRows(rows: (typeof schema.movements.$inferSelect)[], urls: (string | null)[], reversedIds: Set<number>, myProfileIds: Set<number>, budgetIds?: Map<number, number>): MovementRow[] {
-  return rows.map((m, i) => ({ id: m.id, type: m.type, amount: m.amount, concept: m.concept, accountId: m.accountId ?? null, toAccountId: m.toAccountId ?? null, categoryId: m.categoryId ?? null, subcategory: m.subcategory ?? null, budgetId: budgetIds?.get(m.id) ?? null, date: m.date, visibility: m.visibility, profileId: m.profileId ?? null, receiptUrl: urls[i] ?? null, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId != null && myProfileIds.has(m.profileId) }));
+  return rows.map((m, i) => ({ id: m.id, type: m.type, amount: m.amount, concept: m.concept, accountId: m.accountId ?? null, toAccountId: m.toAccountId ?? null, categoryId: m.categoryId ?? null, subcategory: m.subcategory ?? null, budgetId: budgetIds?.get(m.id) ?? null, date: m.date, createdAt: m.createdAt instanceof Date ? m.createdAt.toISOString() : (m.createdAt != null ? String(m.createdAt) : null), visibility: m.visibility, profileId: m.profileId ?? null, receiptUrl: urls[i] ?? null, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId != null && myProfileIds.has(m.profileId) }));
 }
 
 // ---- Vista de una tanda (la misma que getOverview arma por hogar) ----
@@ -2373,8 +2376,10 @@ export const Actions = {
       // cliente solo manda un presupuesto que coincide (la pregunta solo
       // aparece cuando coinciden los dos); «Pagar del presupuesto» no
       // manda budgetId si hoy ya no es el mes del presupuesto.
+      // budgetId -1 es la exclusión explícita («gastos generales») y no
+      // se valida contra la tabla de presupuestos.
       const isExpenseType = args.type === "expense" || args.type === "debt_payment";
-      if (isExpenseType && args.budgetId != null) {
+      if (isExpenseType && args.budgetId != null && args.budgetId !== -1) {
         const brow = (await db.select().from(schema.budgets).where(eq(schema.budgets.id, args.budgetId)).limit(1))[0];
         if (!brow || brow.householdId !== args.householdId) throw new Error("El presupuesto indicado no pertenece a este hogar.");
         const subB = (await readBudgetExtras(db, args.householdId)).get(args.budgetId)?.subcategory ?? null;
@@ -2396,7 +2401,7 @@ export const Actions = {
         if (args.budgetId === null) { if (args.id) await writeMovementBudgetId(db, movementId, null); return true; }
         if (!args.id) return true;
         const stored = await readMovementBudgetId(db, movementId);
-        if (stored == null) return true;
+        if (stored == null || stored === -1) return true; // la exclusión explícita siempre vale
         const brow = (await db.select().from(schema.budgets).where(eq(schema.budgets.id, stored)).limit(1))[0];
         const subB = brow ? (await readBudgetExtras(db, args.householdId)).get(stored)?.subcategory ?? null : null;
         const stillValid = !!brow && brow.householdId === args.householdId && brow.categoryId === args.categoryId && brow.month === args.date.slice(0, 7) && (subB == null || subB === (args.subcategory || null));
