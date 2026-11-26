@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { IncExpDetailView } from "../lib/movementsList";
 import { accountTotalsLine, groupMovementsByMonthDay } from "../lib/movementsList";
 import { money, money2 } from "../lib/format";
+import { fxLabel, movementRateNotice } from "../lib/currency";
 function fmtDate(iso: string) {
   const [y = 2026, m = 1, d = 1] = iso.split("-").map(Number);
   return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString("es-MX", {
@@ -25,6 +26,13 @@ export type IncExpDetailMov = {
   accountId: number | null;
   visibility: string;
   amount: number;
+  // Conversión de moneda (alcance B): amount es el equivalente en moneda
+  // del hogar; el original y la tasa congelada (null = misma moneda).
+  originalAmount?: number | null;
+  originalCurrency?: string | null;
+  exchangeRate?: number | null;
+  exchangeRateDate?: string | null;
+  transferToAmount?: number | null;
 };
 
 /** Un grupo por cuenta del detalle (grupos por total descendente). */
@@ -38,6 +46,9 @@ export type IncExpDetailGroup = {
 export type IncExpDetailModalProps = {
   kind: "income" | "expense";
   label: string;
+  /** Moneda del hogar (R2: cada movimiento muestra su moneda de origen
+   *  cuando difiere, con la tasa congelada y su fecha). */
+  householdCurrency: string;
   /** Mes anterior en carga (el mes visible usa las filas del overview). */
   loading?: boolean;
   movementCount: number;
@@ -107,11 +118,20 @@ export function IncExpDetailModal(p: IncExpDetailModalProps) {
           {p.getCatName(m.categoryId)}
           {showAcc ? ` · ${p.getAccName(m.accountId)}` : ""} ·{" "}
           {m.visibility === "shared" ? "Compartido" : "Privado"}
+          {(() => {
+            const n = movementRateNotice(
+              m.originalCurrency ?? "",
+              p.householdCurrency,
+              m.exchangeRate ?? null,
+              m.exchangeRateDate ?? null,
+            );
+            return n ? <span className="block">{n}</span> : null;
+          })()}
         </span>
       </span>
       <b className="shrink-0 whitespace-nowrap">
         {sign}
-        {money(m.amount)}
+        {fxLabel(m.originalAmount, m.originalCurrency, m.amount, p.householdCurrency) ?? money(m.amount)}
       </b>
     </div>
   );

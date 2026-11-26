@@ -239,9 +239,27 @@ export function AuthGate({ children }: { children: ReactNode }) {
               {invitePreview.usable
                 ? invitePreview.kind === "household" && invitePreview.generic
                   ? "Cree su cuenta; después podrá crear su propio espacio. Este enlace no le da acceso al hogar de quien le invitó."
-                  : "Cree su cuenta con el correo invitado y luego podrá aceptar o rechazar la invitación, sin crear un hogar nuevo por error."
+                  : "Cree su cuenta o inicie sesión con la que ya tiene, con el correo invitado, y luego podrá aceptar o rechazar la invitación, sin crear un hogar nuevo por error."
                 : "Esta invitación ya fue utilizada o venció. Solicite una invitación nueva a la persona que lo invitó."}
             </p>
+          </div>
+        )}
+        {invitePreview && (
+          <div className="mt-4 flex gap-2" role="group" aria-label="Elegir entre iniciar sesión o crear cuenta">
+            <button
+              type="button"
+              onClick={() => { setMode("login"); setError(""); setInfo(""); }}
+              className={`flex-1 rounded-full px-4 py-2.5 font-bold ${mode === "login" ? "bg-[var(--accent)] text-[var(--accent-text)]" : "border border-[var(--border)]"}`}
+            >
+              Iniciar sesión
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode("signup"); setError(""); setInfo(""); }}
+              className={`flex-1 rounded-full px-4 py-2.5 font-bold ${mode === "signup" ? "bg-[var(--accent)] text-[var(--accent-text)]" : "border border-[var(--border)]"}`}
+            >
+              Crear su cuenta
+            </button>
           </div>
         )}
         <h2 className="font-display font-bold text-lg mt-5">{titles[mode]}</h2>

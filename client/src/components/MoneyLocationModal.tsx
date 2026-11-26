@@ -6,12 +6,16 @@ import {
 } from "../lib/accountSummary";
 import { fundPct } from "../lib/goalMonth";
 import { money, money2 } from "../lib/format";
+import { fxLabel } from "../lib/currency";
 
 const btnGhost =
   "rounded-full border border-[var(--border)] px-3 py-2 text-sm font-semibold";
 
 export type MoneyLocationModalProps = {
   monthLabel: string;
+  /** Moneda del hogar (R1: los totales van en esta moneda; R2: cada
+   *  cuenta muestra su moneda de origen cuando difiere). */
+  householdCurrency: string;
   availableFree: number;
   totalBalance: number;
   fundsReserved: number;
@@ -142,6 +146,13 @@ export function MoneyLocationModal(p: MoneyLocationModalProps) {
         )
       : 0;
   const pctSetAside = saldoReal > 0 ? 100 - pctAvailable : 0;
+  // Saldo de una cuenta (R2): en su moneda de origen con el equivalente
+  // en moneda del hogar cuando difiere; como hoy cuando es la misma.
+  const accBalance = (a: {
+    balance: number;
+    currency?: string | null;
+    nativeBalance?: number | null;
+  }) => fxLabel(a.nativeBalance, a.currency, a.balance, p.householdCurrency) ?? money2(a.balance);
   const accountNames = new Map<number, string>();
   for (const g of p.groups)
     for (const a of g.accounts) accountNames.set(a.id, a.name);
@@ -251,15 +262,15 @@ export function MoneyLocationModal(p: MoneyLocationModalProps) {
                               {open ? "▾" : "▸"}
                             </span>
                           </span>
-                          <span className="whitespace-nowrap">
-                            {money2(a.balance)}
+                          <span className="whitespace-nowrap text-right">
+                            {accBalance(a)}
                           </span>
                         </button>
                       ) : (
                         <div className="flex justify-between gap-2 pl-3 text-[var(--dim)]">
                           <span className="min-w-0 truncate">{a.name}</span>
-                          <span className="whitespace-nowrap">
-                            {money2(a.balance)}
+                          <span className="whitespace-nowrap text-right">
+                            {accBalance(a)}
                           </span>
                         </div>
                       )}

@@ -8,6 +8,7 @@ import {
   requireMpToken,
 } from "./mercadopago.js";
 import { and, desc, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import { getRate, listStoredRates, toHousehold } from "./exchange.js";
 import { randomUUID } from "node:crypto";
 import * as schema from "./schema.js";
 import { fmtDateEs, notifyTandaOrganizer, notifyTandaOrganizerAcceptOtherEmail } from "./tandaNotify.js";
@@ -67,7 +68,7 @@ async function requireMovementVisible(ctx: Ctx, db: Ctx["db"], movementId: numbe
 // la operación principal: si la tabla aún no existe (falta correr
 // supabase/notifications.sql), la inserción falla en silencio y la app
 // sigue funcionando sin avisos.
-type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion" | "aceptacion_otro_correo" | "recordatorio_tanda" | "presupuesto_sugerido" | "gasto_recurrente"; title: string; body: string; amount?: number | null; target: string };
+type NotifInput = { type: "nuevo_integrante" | "gasto_umbral" | "presupuesto_excedido" | "presupuesto_80" | "gasto_anomalo" | "suscripcion_sube" | "tarjeta_corte" | "tarjeta_pago" | "plan_aporte" | "plan_mes_sin_aporte" | "plan_en_riesgo" | "meta_cumplida" | "ajuste_gasto" | "ajuste_sobrante" | "pago_tanda" | "nueva_opinion" | "respuesta_opinion" | "aceptacion_otro_correo" | "recordatorio_tanda" | "presupuesto_sugerido" | "gasto_recurrente"; title: string; body: string; amount?: number | null; target: string };
 async function notifyHousehold(ctx: Ctx, householdId: number, n: NotifInput, excludeUserId?: string | null) {
   try {
     const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.householdId, householdId));
@@ -304,11 +305,164 @@ async function readSplitGroupPartIds(db: Ctx["db"], groupId: string, householdId
     return rows.map((r) => r.id);
   } catch { return []; }
 }
+// ---- Conversión de moneda (alcance B, supabase/exchange-rates.sql) ----
+// movements.amount sigue siendo SIEMPRE el equivalente en la moneda del
+// hogar: todo el código existente (totales, presupuestos, fondos, tandas,
+// saldos) funciona sin cambios. Los campos nuevos son solo informativos,
+// salvo transfer_to_amount (el lado destino de un traspaso). Las columnas
+// NO están en el esquema Drizzle (lección Drizzle): acceso por SQL directo
+// con listas explícitas, tolerante — sin el SQL, las lecturas devuelven
+// vacío y las escrituras false, y la app sigue como hoy. La conversión
+// queda CONGELADA al registrar: importe original + moneda + equivalente +
+// tasa usada y su fecha. Solo hay conversión cuando la moneda difiere de
+// la del hogar; en cualquier otro caso no hay aviso ni campos nuevos.
+// La dirección es siempre base=moneda original, destino=moneda del hogar:
+// equivalente = round2(importe * tasa) (toHousehold, en exchange.ts).
+export type MovementFx = { originalAmount: number | null; originalCurrency: string | null; exchangeRate: number | null; exchangeRateDate: string | null; transferToAmount: number | null };
+async function readMovementFx(db: Ctx["db"], householdId: number): Promise<Map<number, MovementFx>> {
+  const out = new Map<number, MovementFx>();
+  try {
+    const res = (await db.execute(sql`SELECT id, original_amount, original_currency, exchange_rate, exchange_rate_date, transfer_to_amount FROM movements WHERE household_id = ${householdId}`)) as unknown as { rows?: { id: number; original_amount: number | null; original_currency: string | null; exchange_rate: number | null; exchange_rate_date: string | null; transfer_to_amount: number | null }[] } | { id: number; original_amount: number | null; original_currency: string | null; exchange_rate: number | null; exchange_rate_date: string | null; transfer_to_amount: number | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    for (const r of rows) out.set(r.id, { originalAmount: r.original_amount, originalCurrency: r.original_currency, exchangeRate: r.exchange_rate, exchangeRateDate: r.exchange_rate_date, transferToAmount: r.transfer_to_amount });
+  } catch { /* columnas aún no creadas */ }
+  return out;
+}
+async function writeMovementFx(db: Ctx["db"], movementId: number, fx: MovementFx): Promise<boolean> {
+  try {
+    await db.execute(sql`UPDATE movements SET original_amount = ${fx.originalAmount}, original_currency = ${fx.originalCurrency}, exchange_rate = ${fx.exchangeRate}, exchange_rate_date = ${fx.exchangeRateDate}, transfer_to_amount = ${fx.transferToAmount} WHERE id = ${movementId}`);
+    return true;
+  } catch { return false; }
+}
+export type AccountFx = { currency: string | null; initialBalanceOriginal: number | null };
+async function readAccountFx(db: Ctx["db"], householdId: number): Promise<Map<number, AccountFx>> {
+  const out = new Map<number, AccountFx>();
+  try {
+    const res = (await db.execute(sql`SELECT id, currency, initial_balance_original FROM accounts WHERE household_id = ${householdId}`)) as unknown as { rows?: { id: number; currency: string | null; initial_balance_original: number | null }[] } | { id: number; currency: string | null; initial_balance_original: number | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    for (const r of rows) out.set(r.id, { currency: r.currency, initialBalanceOriginal: r.initial_balance_original });
+  } catch { /* columnas aún no creadas */ }
+  return out;
+}
+async function writeAccountFx(db: Ctx["db"], accountId: number, currency: string, initialBalanceOriginal: number | null): Promise<boolean> {
+  try {
+    await db.execute(sql`UPDATE accounts SET currency = ${currency}, initial_balance_original = ${initialBalanceOriginal} WHERE id = ${accountId}`);
+    return true;
+  } catch { return false; }
+}
+async function readFundMovementFx(db: Ctx["db"], householdId: number): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  try {
+    const res = (await db.execute(sql`SELECT id, original_amount FROM fund_movements WHERE household_id = ${householdId}`)) as unknown as { rows?: { id: number; original_amount: number | null }[] } | { id: number; original_amount: number | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    for (const r of rows) if (r.original_amount != null) out.set(r.id, r.original_amount);
+  } catch { /* columna aún no creada */ }
+  return out;
+}
+async function writeFundMovementFx(db: Ctx["db"], fundMovementId: number, originalAmount: number | null): Promise<boolean> {
+  try {
+    await db.execute(sql`UPDATE fund_movements SET original_amount = ${originalAmount} WHERE id = ${fundMovementId}`);
+    return true;
+  } catch { return false; }
+}
+// Moneda de una cuenta: la guardada; sin valor o sin columna, la del hogar.
+async function accountCurrencyOf(db: Ctx["db"], householdId: number, accountId: number | null, householdCurrency: string): Promise<string> {
+  if (accountId == null) return householdCurrency;
+  const fx = await readAccountFx(db, householdId);
+  return fx.get(accountId)?.currency ?? householdCurrency;
+}
+async function householdCurrencyOf(db: Ctx["db"], householdId: number): Promise<string> {
+  const rows = await db.select({ currency: schema.households.currency }).from(schema.households).where(eq(schema.households.id, householdId)).limit(1);
+  return rows[0]?.currency ?? "MXN";
+}
+// Resuelve la conversión de UN movimiento (no dividido). Devuelve el
+// equivalente a guardar en movements.amount y los campos de conversión.
+// Reglas: (a) misma moneda que el hogar -> sin conversión, amount tal cual;
+// (b) al EDITAR sin cambiar importe ni moneda se conserva la conversión
+// CONGELADA (no se reconvierte con la tasa de hoy); (c) un cliente sin
+// selector que trae el equivalente guardado (amount igual al guardado y
+// sin currency) también conserva lo congelado; (d) traspaso entre monedas
+// distintas: toAmount explícito gana; si no viene, se calcula con la misma
+// tasa; al editar sin cambiar destino se conserva el transfer_to_amount.
+async function resolveMovementConversion(db: Ctx["db"], input: { householdId: number; householdCurrency: string; movementCurrency: string; amount: number; type: string; toAccountId: number | null; toAmount?: number | null; destCurrency: string | null; currencyProvided: boolean; existingId?: number }): Promise<{ equivalent: number; fx: MovementFx | null }> {
+  const { householdId, householdCurrency, movementCurrency, amount, type, toAccountId, toAmount, destCurrency, currencyProvided, existingId } = input;
+  let existingFx: MovementFx | null = null;
+  let existingAmount: number | null = null;
+  let existingToAccountId: number | null = null;
+  if (existingId != null) {
+    const row = (await db.select().from(schema.movements).where(eq(schema.movements.id, existingId)).limit(1))[0];
+    if (row) { existingAmount = row.amount; existingToAccountId = row.toAccountId ?? null; }
+    existingFx = (await readMovementFx(db, householdId)).get(existingId) ?? null;
+  }
+  const frozenUnchanged = existingFx != null && existingFx.originalAmount === amount && existingFx.originalCurrency === movementCurrency;
+  if (!currencyProvided && existingFx != null && existingAmount != null && amount === existingAmount) {
+    return { equivalent: existingAmount, fx: existingFx };
+  }
+  let equivalent = amount;
+  let fx: MovementFx | null = null;
+  if (frozenUnchanged && existingAmount != null && existingFx != null) {
+    equivalent = existingAmount;
+    fx = { ...existingFx };
+  } else if (movementCurrency !== householdCurrency) {
+    const rate = await getRate(db, movementCurrency, householdCurrency);
+    equivalent = toHousehold(amount, rate.rate);
+    fx = { originalAmount: amount, originalCurrency: movementCurrency, exchangeRate: rate.rate, exchangeRateDate: rate.rateDate, transferToAmount: null };
+  }
+  if (type === "transfer" && toAccountId != null && destCurrency != null && destCurrency !== movementCurrency) {
+    if (!fx) fx = { originalAmount: amount, originalCurrency: movementCurrency, exchangeRate: 1, exchangeRateDate: new Date().toISOString().slice(0, 10), transferToAmount: null };
+    const transferUnchanged = frozenUnchanged && existingToAccountId === toAccountId;
+    if (toAmount != null) fx.transferToAmount = round2(toAmount);
+    else if (transferUnchanged && existingFx?.transferToAmount != null) fx.transferToAmount = existingFx.transferToAmount;
+    else fx.transferToAmount = toHousehold(amount, (await getRate(db, movementCurrency, destCurrency)).rate);
+  }
+  return { equivalent, fx };
+}
+// Conversión congelada de un grupo dividido: si al editar el grupo el
+// total escrito y la moneda coinciden con lo guardado, se conserva la
+// tasa del grupo (no se reconvierte con la tasa de hoy).
+async function resolveSplitGroupConversion(db: Ctx["db"], householdId: number, householdCurrency: string, movementCurrency: string, totalAmount: number, existingId?: number): Promise<{ rate: number; rateDate: string } | null> {
+  if (movementCurrency === householdCurrency || existingId == null) return null;
+  const gid = await readMovementSplitGroupId(db, existingId);
+  if (!gid) return null;
+  const partIds = await readSplitGroupPartIds(db, gid, householdId);
+  if (partIds.length === 0) return null;
+  const fxMap = await readMovementFx(db, householdId);
+  const partsFx = partIds.map((id) => fxMap.get(id)).filter((f): f is MovementFx => f != null);
+  if (partsFx.length !== partIds.length) return null;
+  if (!partsFx.every((f) => f.originalCurrency === movementCurrency)) return null;
+  const totalOriginal = partsFx.reduce((sum, f) => sum + (f.originalAmount ?? 0), 0);
+  if (Math.round(totalOriginal * 100) !== Math.round(totalAmount * 100)) return null;
+  const rate = partsFx[0]?.exchangeRate;
+  const rateDate = partsFx[0]?.exchangeRateDate;
+  if (rate == null || rateDate == null) return null;
+  return { rate, rateDate };
+}
+// Convierte un importe escrito en la moneda de una cuenta a la moneda del
+// hogar (alcance B). El importe se escribe en la moneda de la cuenta: un
+// aporte a un fondo o una regla recurrente se teclea como lo que sale de
+// la cuenta. Devuelve el equivalente, el original y la tasa usada.
+async function convertAccountAmount(db: Ctx["db"], householdId: number, accountId: number, typedAmount: number): Promise<{ equivalent: number; originalAmount: number; accountCurrency: string; householdCurrency: string; rate: number | null; rateDate: string | null }> {
+  const householdCurrency = await householdCurrencyOf(db, householdId);
+  const accountCurrency = await accountCurrencyOf(db, householdId, accountId, householdCurrency);
+  if (accountCurrency === householdCurrency) return { equivalent: typedAmount, originalAmount: typedAmount, accountCurrency, householdCurrency, rate: null, rateDate: null };
+  const r = await getRate(db, accountCurrency, householdCurrency);
+  return { equivalent: toHousehold(typedAmount, r.rate), originalAmount: typedAmount, accountCurrency, householdCurrency, rate: r.rate, rateDate: r.rateDate };
+}
+// Importe en moneda de la cuenta que equivale a un importe en moneda del
+// hogar (saldo inicial de una meta/fondo: la meta va en moneda del hogar,
+// la cuenta aporta en la suya). Devuelve null si no hay conversión.
+async function convertHouseholdAmountToAccount(db: Ctx["db"], householdId: number, accountId: number, householdAmount: number): Promise<number | null> {
+  const householdCurrency = await householdCurrencyOf(db, householdId);
+  const accountCurrency = await accountCurrencyOf(db, householdId, accountId, householdCurrency);
+  if (accountCurrency === householdCurrency) return null;
+  const r = await getRate(db, accountCurrency, householdCurrency);
+  return round2(householdAmount / r.rate);
+}
 // Guarda un gasto dividido (crear o editar un grupo completo). La
 // inserción es una sola sentencia con todas las partes: si una parte
 // falla, no se inserta ninguna. La edición borra las partes viejas e
 // inserta las nuevas con el mismo identificador de grupo.
-async function saveSplitMovement(ctx: Ctx, args: { householdId: number; id?: number; type: string; amount: number; concept: string; accountId?: number | null; date: string; visibility: "private" | "shared"; profileId?: number | null; splits: { categoryId: number; amount: number; budgetId?: number | null }[] }, receiptBlobKey: string | null): Promise<{ ok: true; id?: number; savedBudgetAssignment: boolean; splitGroupId: string; ids: number[] }> {
+async function saveSplitMovement(ctx: Ctx, args: { householdId: number; id?: number; type: string; amount: number; concept: string; accountId?: number | null; date: string; visibility: "private" | "shared"; profileId?: number | null; splits: { categoryId: number; amount: number; budgetId?: number | null }[] }, receiptBlobKey: string | null, conv?: { movementCurrency: string; householdCurrency: string; fx: MovementFx | null }): Promise<{ ok: true; id?: number; savedBudgetAssignment: boolean; splitGroupId: string; ids: number[]; savedConversion: boolean }> {
   const db = ctx.db;
   const splits = args.splits;
   if (args.type !== "expense") throw new Error("Solo un gasto se puede dividir entre categorías.");
@@ -348,7 +502,13 @@ async function saveSplitMovement(ctx: Ctx, args: { householdId: number; id?: num
   } else {
     groupId = randomUUID();
   }
-  const valueRows = splits.map((part, i) => sql`(${args.householdId}, 'expense', ${Math.round(part.amount * 100) / 100}, ${args.concept}, ${args.accountId ?? null}, ${part.categoryId}, ${args.date}, ${args.visibility}, ${args.profileId ?? null}, ${i === 0 ? (receiptBlobKey ?? null) : null}, ${groupId})`);
+  // Conversión por parte (alcance B): la moneda es del movimiento
+  // entero, no por parte; cada parte convierte con la misma tasa y su
+  // equivalente es lo que se guarda (movements.amount sigue siendo el
+  // equivalente en moneda del hogar). Sin conversión, el equivalente es
+  // el importe escrito.
+  const partEquivalents = splits.map((part) => conv?.fx?.exchangeRate != null ? toHousehold(part.amount, conv.fx.exchangeRate) : Math.round(part.amount * 100) / 100);
+  const valueRows = splits.map((part, i) => sql`(${args.householdId}, 'expense', ${partEquivalents[i]!}, ${args.concept}, ${args.accountId ?? null}, ${part.categoryId}, ${args.date}, ${args.visibility}, ${args.profileId ?? null}, ${i === 0 ? (receiptBlobKey ?? null) : null}, ${groupId})`);
   const inserted = (await db.execute(sql`INSERT INTO movements (household_id, type, amount, concept, account_id, category_id, date, visibility, profile_id, receipt_blob_key, split_group_id) VALUES ${sql.join(valueRows, sql`, `)} RETURNING id`)) as unknown as { rows?: { id: number }[] } | { id: number }[];
   const insertedRows = Array.isArray(inserted) ? inserted : (inserted.rows ?? []);
   const ids = insertedRows.map((r) => r.id);
@@ -361,12 +521,23 @@ async function saveSplitMovement(ctx: Ctx, args: { householdId: number; id?: num
     const b = splits[i]!.budgetId;
     if (b != null) { const okW = await writeMovementBudgetId(db, ids[i]!, b); if (!okW) savedAssignment = false; }
   }
+  // Conversión por parte: el original de cada parte es su importe
+  // escrito, con la misma tasa del movimiento (tolerante: sin las
+  // columnas, el equivalente queda guardado pero el original no, y el
+  // cliente avisa, igual que con la asignación a presupuesto).
+  let savedConversion = true;
+  if (conv?.fx) {
+    for (let i = 0; i < splits.length; i++) {
+      const okW = await writeMovementFx(db, ids[i]!, { originalAmount: splits[i]!.amount, originalCurrency: conv.fx.originalCurrency, exchangeRate: conv.fx.exchangeRate, exchangeRateDate: conv.fx.exchangeRateDate, transferToAmount: null });
+      if (!okW) savedConversion = false;
+    }
+  }
   await logActivity(ctx, args.householdId, args.id ? "Gasto dividido editado" : "Gasto dividido registrado", `${args.concept} · $${args.amount}`);
   for (let i = 0; i < splits.length; i++) {
-    await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: ids[i]!, type: "expense", amount: splits[i]!.amount, categoryId: splits[i]!.categoryId, visibility: args.visibility, date: args.date });
+    await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: ids[i]!, type: "expense", amount: partEquivalents[i]!, categoryId: splits[i]!.categoryId, visibility: args.visibility, date: args.date });
   }
   ctx.invalidateQueries();
-  return { ok: true as const, id: ids[0], savedBudgetAssignment: savedAssignment, splitGroupId: groupId, ids };
+  return { ok: true as const, id: ids[0], savedBudgetAssignment: savedAssignment, splitGroupId: groupId, ids, savedConversion };
 }
 // Corte de un presupuesto «como nuevo»: si el usuario eligió una fecha
 // de inicio, desde el inicio de ese día (00:00 UTC); si no, desde su
@@ -1389,7 +1560,7 @@ const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAd
 // Esquema de una fila de movimiento (lo comparten getOverview y
 // listMovements): un movimiento es siempre el mismo objeto, venga del
 // mes visible o de una página del historial.
-const movementRowSchema = z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), budgetId: z.number().nullable(), splitGroupId: z.string().nullable(), date: z.string(), createdAt: z.string().nullable().optional(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() });
+const movementRowSchema = z.object({ id: z.number(), type: z.string(), amount: z.number(), concept: z.string(), accountId: z.number().nullable(), toAccountId: z.number().nullable(), categoryId: z.number().nullable(), subcategory: z.string().nullable(), budgetId: z.number().nullable(), splitGroupId: z.string().nullable(), originalAmount: z.number().nullable(), originalCurrency: z.string().nullable(), exchangeRate: z.number().nullable(), exchangeRateDate: z.string().nullable(), transferToAmount: z.number().nullable(), date: z.string(), createdAt: z.string().nullable().optional(), visibility: z.string(), profileId: z.number().nullable(), receiptUrl: z.string().nullable(), reversalOfId: z.number().nullable(), isReversed: z.boolean(), mine: z.boolean() });
 type MovementRow = z.infer<typeof movementRowSchema>;
 
 // Normalización de concepto: la MISMA que el cliente (smart.ts normText
@@ -1424,8 +1595,8 @@ async function signedUrls(ctx: Ctx, keys: (string | null | undefined)[]): Promis
 // resuelta (o null). `urls` debe venir de signedUrls sobre las mismas
 // filas, en el mismo orden. `mine` marca si el perfil del movimiento es
 // del usuario que consulta (lo usa el cliente para el filtro por perfil).
-function toMovementRows(rows: (typeof schema.movements.$inferSelect)[], urls: (string | null)[], reversedIds: Set<number>, myProfileIds: Set<number>, budgetIds?: Map<number, number>, splitGroups?: Map<number, string>): MovementRow[] {
-  return rows.map((m, i) => ({ id: m.id, type: m.type, amount: m.amount, concept: m.concept, accountId: m.accountId ?? null, toAccountId: m.toAccountId ?? null, categoryId: m.categoryId ?? null, subcategory: m.subcategory ?? null, budgetId: budgetIds?.get(m.id) ?? null, splitGroupId: splitGroups?.get(m.id) ?? null, date: m.date, createdAt: m.createdAt instanceof Date ? m.createdAt.toISOString() : (m.createdAt != null ? String(m.createdAt) : null), visibility: m.visibility, profileId: m.profileId ?? null, receiptUrl: urls[i] ?? null, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId != null && myProfileIds.has(m.profileId) }));
+function toMovementRows(rows: (typeof schema.movements.$inferSelect)[], urls: (string | null)[], reversedIds: Set<number>, myProfileIds: Set<number>, budgetIds?: Map<number, number>, splitGroups?: Map<number, string>, fx?: Map<number, MovementFx>): MovementRow[] {
+  return rows.map((m, i) => ({ id: m.id, type: m.type, amount: m.amount, concept: m.concept, accountId: m.accountId ?? null, toAccountId: m.toAccountId ?? null, categoryId: m.categoryId ?? null, subcategory: m.subcategory ?? null, budgetId: budgetIds?.get(m.id) ?? null, splitGroupId: splitGroups?.get(m.id) ?? null, originalAmount: fx?.get(m.id)?.originalAmount ?? null, originalCurrency: fx?.get(m.id)?.originalCurrency ?? null, exchangeRate: fx?.get(m.id)?.exchangeRate ?? null, exchangeRateDate: fx?.get(m.id)?.exchangeRateDate ?? null, transferToAmount: fx?.get(m.id)?.transferToAmount ?? null, date: m.date, createdAt: m.createdAt instanceof Date ? m.createdAt.toISOString() : (m.createdAt != null ? String(m.createdAt) : null), visibility: m.visibility, profileId: m.profileId ?? null, receiptUrl: urls[i] ?? null, reversalOfId: m.reversalOfId ?? null, isReversed: reversedIds.has(m.id), mine: m.profileId != null && myProfileIds.has(m.profileId) }));
 }
 
 // ---- Vista de una tanda (la misma que getOverview arma por hogar) ----
@@ -1742,7 +1913,7 @@ export const Actions = {
       household: z.object({ id: z.number(), name: z.string(), currency: z.string(), cutoffDay: z.number(), contributionRule: z.string(), approvalRule: z.string(), approvalThreshold: z.number(), mode: z.string() }).nullable(),
       households: z.array(z.object({ id: z.number(), name: z.string(), role: z.string() })),
       profiles: z.array(z.object({ id: z.number(), name: z.string(), lastName: z.string().nullable(), role: z.string(), email: z.string().nullable(), kind: z.string(), dependentType: z.string().nullable(), monthlyIncome: z.number(), fixedCommitments: z.number(), capacity: z.number() })), myProfileId: z.number().nullable(), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string(), householdName: z.string(), requested: z.boolean() })),
-      accounts: z.array(z.object({ id: z.number(), name: z.string(), type: z.string(), visibility: z.string(), initialBalance: z.number(), balance: z.number(), ownerProfileId: z.number().nullable() })),
+      accounts: z.array(z.object({ id: z.number(), name: z.string(), type: z.string(), visibility: z.string(), initialBalance: z.number(), balance: z.number(), ownerProfileId: z.number().nullable(), currency: z.string(), nativeBalance: z.number(), initialBalanceOriginal: z.number().nullable() })),
       categories: z.array(z.object({ id: z.number(), name: z.string(), kind: z.string(), isSystem: z.number(), isActive: z.number(), subcategories: z.array(z.string()) })),
       // Historial del mes visible (más las filas de hoy si hoy queda
       // fuera del mes visible y los originales de las reversiones que
@@ -1790,6 +1961,7 @@ export const Actions = {
         contributionsNote: z.string(), monthlySeries: z.array(z.object({ month: z.string(), label: z.string(), income: z.number(), expense: z.number() })),
       }),
       activity: z.array(z.object({ id: z.number(), action: z.string(), detail: z.string(), createdAt: z.string() })),
+      exchangeRates: z.array(z.object({ base: z.string(), target: z.string(), rate: z.number(), date: z.string() })),
     }),
     async handler(ctx, args) {
       const db = ctx.db;
@@ -1811,7 +1983,7 @@ export const Actions = {
       if (!hh) {
         return {
           household: null, households: [], profiles: [], myProfileId: null, invitations: [], accounts: [], categories: [], movements: [], totalMovements: 0, monthsWithMovements: [], defaultCashAccountId: null, categoryMonthlyTotals: [], frequentMovements: [], budgets: [], funds: [], fundMovements: [], accountSummaries: [], goals: [], goalPlans: [], spendingAdjustments: [], agreements: [], patrimony: [],
-          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, monthSetAside: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth, contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
+          personal: { salary: 0, monthSpent: 0, remaining: 0, todaySpent: 0, todayCount: 0, byCategory: [], todayMovements: [] }, tandas: [], activity: [], exchangeRates: [], summary: { totalBalance: 0, totalInFunds: 0, availableFree: 0, openingBalance: 0, priorMonthsNet: 0, fundsFromAccounts: 0, fundsReserved: 0, monthIncome: 0, monthExpense: 0, monthNet: 0, monthSetAside: 0, sharedExpenseMonth: 0, unassignedNet: 0, totalAssets: 0, totalLiabilities: 0, netWorth: 0, salaryIncome: 0, salarySpent: 0, salaryRemaining: 0, hasSalaryIncome: 0, currentMonth, contributions: [], contributionsNote: "Crea tu hogar para empezar.", monthlySeries: [] },
         };
       }
       const hid = hh.id;
@@ -1918,6 +2090,13 @@ export const Actions = {
         const rows = Array.isArray(res) ? res : (res.rows ?? []);
         for (const row of rows) if (row.importance != null) fundImportances.set(row.id, row.importance);
       } catch { /* columna aún no creada */ }
+      // Conversión de moneda (alcance B): mapas de conversión de
+      // movimientos y cuentas + tasas guardadas (solo lectura: NO se
+      // refresca la tasa en lectura, solo al guardar).
+      const mvFx = await readMovementFx(db, hid);
+      const accFx = await readAccountFx(db, hid);
+      const fundFx = await readFundMovementFx(db, hid);
+      const storedRates = await listStoredRates(db);
       const invsR = await db.select().from(schema.invitations).where(eq(schema.invitations.householdId, hid));
       // Qué invitaciones tienen enlace (por correo): las solicitudes de
       // ingreso por código del hogar NO tienen token; el cliente las muestra
@@ -1964,22 +2143,36 @@ export const Actions = {
       // account balances
       const accounts = accountsR.map(a => {
         let bal = a.initialBalance;
+        // Saldo en la moneda de la cuenta (alcance B): saldo inicial
+        // original más los importes originales de cada movimiento. El
+        // traspaso que entra usa transfer_to_amount (lo que la cuenta
+        // recibió en su moneda); los aportes a fondos, su original.
+        // El saldo en moneda del hogar (bal) no cambia: sigue sumando
+        // movements.amount, que siempre es el equivalente.
+        const accCurrency = accFx.get(a.id)?.currency ?? hh.currency;
+        let nbal = accFx.get(a.id)?.initialBalanceOriginal ?? a.initialBalance;
         for (const m of activeMovs) {
+          const orig = mvFx.get(m.id)?.originalAmount ?? m.amount;
           if (m.accountId === a.id) {
             if (m.type === "income") bal += m.amount;
             else if (m.type === "expense" || m.type === "debt_payment") bal -= m.amount;
             else if (m.type === "transfer") bal -= m.amount;
+            if (m.type === "income") nbal += orig;
+            else if (m.type === "expense" || m.type === "debt_payment") nbal -= orig;
+            else if (m.type === "transfer") nbal -= orig;
           }
-          if (m.toAccountId === a.id && m.type === "transfer") bal += m.amount;
+          if (m.toAccountId === a.id && m.type === "transfer") { bal += m.amount; nbal += mvFx.get(m.id)?.transferToAmount ?? orig; }
         }
         for (const fm of fundMovsR) {
           // fund movements linked via movements? we store accountId in fundMovements - need to fetch raw: fundMovsR has no accountId in select? it does in schema but type may include
           const anyFm = fm as unknown as { accountId?: number | null };
           if (anyFm.accountId === a.id) {
             if (fm.type === "contribution") bal -= fm.amount; else bal += fm.amount;
+            const fOrig = fundFx.get(fm.id) ?? fm.amount;
+            if (fm.type === "contribution") nbal -= fOrig; else nbal += fOrig;
           }
         }
-        return { id: a.id, name: a.name, type: a.type, visibility: a.visibility, initialBalance: a.initialBalance, balance: Math.round(bal*100)/100, ownerProfileId: a.ownerProfileId ?? null };
+        return { id: a.id, name: a.name, type: a.type, visibility: a.visibility, initialBalance: a.initialBalance, balance: Math.round(bal*100)/100, ownerProfileId: a.ownerProfileId ?? null, currency: accCurrency, nativeBalance: Math.round(nbal*100)/100, initialBalanceOriginal: accFx.get(a.id)?.initialBalanceOriginal ?? null };
       });
       const unassignedNet = Math.round(activeMovs.filter(m=>m.accountId==null).reduce((s,m)=> s + (m.type==="income"? m.amount : (m.type==="expense"||m.type==="debt_payment")? -m.amount : 0),0)*100)/100;
       const totalBalance = accounts.reduce((s,a)=>s+a.balance,0) + unassignedNet;
@@ -2130,7 +2323,7 @@ export const Actions = {
       const scopedAll = [...scopedRows, ...scopedTargets].sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id);
       const scopedUrls = await signedUrls(ctx, scopedAll.map(m=>m.receiptBlobKey));
       const movementSplitGroups = await readMovementSplitGroups(db, hid);
-      const movementsOut = toMovementRows(scopedAll, scopedUrls, reversedIds, myProfileIds, movementBudgetIds, movementSplitGroups);
+      const movementsOut = toMovementRows(scopedAll, scopedUrls, reversedIds, myProfileIds, movementBudgetIds, movementSplitGroups, mvFx);
       const totalMovements = visibleMovs.length;
       const monthsWithMovements = [...new Set(visibleMovs.map(m=>m.date.slice(0,7)))].sort().reverse();
       const cashCandidates = accountsR.filter(a=>a.type==="cash" || a.name.trim().toLowerCase()==="efectivo");
@@ -2229,6 +2422,10 @@ export const Actions = {
 
       return {
         household: { id: hh.id, name: hh.name, currency: hh.currency, cutoffDay: hh.cutoffDay, contributionRule: hh.contributionRule, approvalRule: hh.approvalRule, approvalThreshold: hh.approvalThreshold, mode: hh.mode },
+        // Las tasas guardadas van con la forma que espera el cliente
+        // (ExchangeRateInfo: base, target, rate, date); listStoredRates
+        // devuelve rateDate/fetchedAt y hay que mapear la fecha.
+        exchangeRates: storedRates.map((r) => ({ base: r.base, target: r.target, rate: r.rate, date: r.rateDate ?? (r.fetchedAt ? r.fetchedAt.slice(0, 10) : "") })),
         households,
         profiles: memberProfilesR.map(p=>({ id: p.id, name: p.name, lastName: p.lastName ?? null, role: p.role, email: p.email ?? null, kind: p.kind, dependentType: p.dependentType ?? null, monthlyIncome: p.monthlyIncome, fixedCommitments: p.fixedCommitments, capacity: Math.max(0, p.monthlyIncome - p.fixedCommitments) })),
         myProfileId,
@@ -2348,8 +2545,9 @@ export const Actions = {
       const urls = await signedUrls(ctx, allRows.map(m => m.receiptBlobKey));
       const mvBudgetIdsList = await readMovementBudgetIds(db, hid);
       const mvSplitGroupsList = await readMovementSplitGroups(db, hid);
-      const rowsOut = toMovementRows(pageRows, urls.slice(0, pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList, mvSplitGroupsList);
-      const linkedOut = toMovementRows(linkedRows, urls.slice(pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList, mvSplitGroupsList);
+      const mvFxList = await readMovementFx(db, hid);
+      const rowsOut = toMovementRows(pageRows, urls.slice(0, pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList, mvSplitGroupsList, mvFxList);
+      const linkedOut = toMovementRows(linkedRows, urls.slice(pageRows.length), reversedIds, myProfileIds, mvBudgetIdsList, mvSplitGroupsList, mvFxList);
       return { rows: rowsOut, linked: linkedOut, nextCursor, total, incomeTotal, expenseTotal };
     },
   }),
@@ -2492,9 +2690,48 @@ export const Actions = {
 
   saveAccount: defineAction({
     description: "Creates or updates an account.",
-    request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1), type: z.enum(["bank","cash","credit","investment","loan"]), visibility: vis, initialBalance: z.number(), ownerProfileId: z.number().nullable().optional() }),
-    response: okRes,
-    async handler(ctx,args): Promise<Ok>{ const db=ctx.db; if(args.id){ await requireRowHousehold(db, schema.accounts, args.id, args.householdId, "La cuenta indicada"); await db.update(schema.accounts).set({name:args.name,type:args.type,visibility:args.visibility,initialBalance:args.initialBalance,ownerProfileId:args.ownerProfileId??null}).where(eq(schema.accounts.id,args.id)); ctx.invalidateQueries(); return {ok:true,id:args.id}; } const [r]=await db.insert(schema.accounts).values({householdId:args.householdId,name:args.name,type:args.type,visibility:args.visibility,initialBalance:args.initialBalance,ownerProfileId:args.ownerProfileId??null}).returning({id:schema.accounts.id}); ctx.invalidateQueries(); return {ok:true,id:r?.id}; },
+    request: z.object({ id: z.number().optional(), householdId: z.number(), name: z.string().min(1), type: z.enum(["bank","cash","credit","investment","loan"]), visibility: vis, initialBalance: z.number(), ownerProfileId: z.number().nullable().optional(), currency: z.enum(["MXN","USD","EUR"]).optional() }),
+    response: z.object({ ok: z.literal(true), id: z.number().optional(), savedCurrency: z.boolean() }),
+    async handler(ctx,args): Promise<{ ok: true; id?: number; savedCurrency: boolean }> {
+      const db = ctx.db;
+      // Moneda de la cuenta (alcance B): libre entre MXN/USD/EUR, sin
+      // importar la moneda del hogar; por defecto, la del hogar. El
+      // saldo inicial se escribe en la moneda de la cuenta y se guarda
+      // su equivalente en moneda del hogar (initialBalance), convertido
+      // UNA vez al crear. Al editar, solo se reconvierte si cambió el
+      // saldo inicial escrito o la moneda; cambiar solo el nombre no
+      // mueve nada. El original escrito queda en initial_balance_original.
+      const hhCurrency = await householdCurrencyOf(db, args.householdId);
+      const accCurrency = args.currency ?? hhCurrency;
+      const convertInitial = async (typed: number): Promise<number> => {
+        if (accCurrency === hhCurrency) return typed;
+        const r = await getRate(db, accCurrency, hhCurrency);
+        return toHousehold(typed, r.rate);
+      };
+      if (args.id) {
+        await requireRowHousehold(db, schema.accounts, args.id, args.householdId, "La cuenta indicada");
+        const curFx = (await readAccountFx(db, args.householdId)).get(args.id);
+        const curRow = (await db.select().from(schema.accounts).where(eq(schema.accounts.id, args.id)).limit(1))[0];
+        const curCurrency = curFx?.currency ?? hhCurrency;
+        const curOriginal = curFx?.initialBalanceOriginal ?? curRow?.initialBalance ?? 0;
+        let initialBalance = curRow?.initialBalance ?? args.initialBalance;
+        let initialOriginal: number | null = curFx?.initialBalanceOriginal ?? null;
+        if (accCurrency !== curCurrency || Math.round(args.initialBalance * 100) !== Math.round(curOriginal * 100)) {
+          initialBalance = await convertInitial(args.initialBalance);
+          initialOriginal = args.initialBalance;
+        }
+        await db.update(schema.accounts).set({name:args.name,type:args.type,visibility:args.visibility,initialBalance,ownerProfileId:args.ownerProfileId??null}).where(eq(schema.accounts.id,args.id));
+        const needsWrite = accCurrency !== hhCurrency || curCurrency !== hhCurrency;
+        const savedCurrency = needsWrite ? await writeAccountFx(db, args.id, accCurrency, initialOriginal) : true;
+        ctx.invalidateQueries();
+        return { ok: true as const, id: args.id, savedCurrency };
+      }
+      const initialBalance = await convertInitial(args.initialBalance);
+      const [r] = await db.insert(schema.accounts).values({householdId:args.householdId,name:args.name,type:args.type,visibility:args.visibility,initialBalance,ownerProfileId:args.ownerProfileId??null}).returning({id:schema.accounts.id});
+      const savedCurrency = r?.id != null && accCurrency !== hhCurrency ? await writeAccountFx(db, r.id, accCurrency, args.initialBalance) : true;
+      ctx.invalidateQueries();
+      return { ok: true as const, id: r?.id, savedCurrency };
+    },
   }),
   deleteAccount: defineAction({ description: "Deletes an account.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; await db.delete(schema.accounts).where(eq(schema.accounts.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
@@ -2585,9 +2822,9 @@ export const Actions = {
 
   saveMovement: defineAction({
     description: "Creates or updates a movement (income, expense, transfer, debt payment).",
-    request: z.object({ id: z.number().optional(), householdId: z.number(), type: z.enum(["income","expense","transfer","debt_payment"]), amount: z.number().positive().max(100_000_000), concept: z.string().min(1).max(200), accountId: z.number().nullable().optional(), toAccountId: z.number().nullable().optional(), categoryId: z.number().nullable().optional(), subcategory: z.string().max(60).optional(), budgetId: z.number().nullable().optional(), splits: z.array(z.object({ categoryId: z.number(), amount: z.number().positive().max(100_000_000), budgetId: z.number().nullable().optional() })).min(2).max(20).optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), visibility: vis, profileId: z.number().nullable().optional(), receipt: z.object({ dataBase64: z.string().max(16_000_000), mimeType: z.string() }).optional() }),
-    response: z.object({ ok: z.literal(true), id: z.number().optional(), savedBudgetAssignment: z.boolean(), splitGroupId: z.string().nullable().optional(), ids: z.array(z.number()).optional() }),
-    async handler(ctx,args): Promise<{ ok: true; id?: number; savedBudgetAssignment: boolean; splitGroupId?: string | null; ids?: number[] }>{ const db=ctx.db; let receiptBlobKey: string|null|undefined = undefined;
+    request: z.object({ id: z.number().optional(), householdId: z.number(), type: z.enum(["income","expense","transfer","debt_payment"]), amount: z.number().positive().max(100_000_000), currency: z.enum(["MXN","USD","EUR"]).optional(), toAmount: z.number().positive().max(100_000_000).optional(), concept: z.string().min(1).max(200), accountId: z.number().nullable().optional(), toAccountId: z.number().nullable().optional(), categoryId: z.number().nullable().optional(), subcategory: z.string().max(60).optional(), budgetId: z.number().nullable().optional(), splits: z.array(z.object({ categoryId: z.number(), amount: z.number().positive().max(100_000_000), budgetId: z.number().nullable().optional() })).min(2).max(20).optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), visibility: vis, profileId: z.number().nullable().optional(), receipt: z.object({ dataBase64: z.string().max(16_000_000), mimeType: z.string() }).optional() }),
+    response: z.object({ ok: z.literal(true), id: z.number().optional(), savedBudgetAssignment: z.boolean(), savedConversion: z.boolean(), splitGroupId: z.string().nullable().optional(), ids: z.array(z.number()).optional() }),
+    async handler(ctx,args): Promise<{ ok: true; id?: number; savedBudgetAssignment: boolean; savedConversion: boolean; splitGroupId?: string | null; ids?: number[] }>{ const db=ctx.db; let receiptBlobKey: string|null|undefined = undefined;
       if (args.receipt) { const okTypes=["image/jpeg","image/png","image/webp"]; if (!okTypes.includes(args.receipt.mimeType)) throw new Error("La foto del comprobante debe estar en formato JPG, PNG o WebP."); const key=`receipts/${args.householdId}/${Date.now()}-${Math.floor(Math.random()*1e9)}`; const bytes=Buffer.from(args.receipt.dataBase64,"base64"); await ctx.blobs.put(key, bytes, { contentType: args.receipt.mimeType }); receiptBlobKey=key; }
       // Permisos por hogar: toda referencia (cuenta, categoría, perfil) debe pertenecer al mismo
       // hogar del movimiento; una referencia de otro hogar se rechaza en el servidor.
@@ -2599,7 +2836,24 @@ export const Actions = {
       // mismo identificador de grupo (saveSplitMovement). La categoría
       // única, la subcategoría y el budgetId del nivel superior no
       // aplican: cada parte lleva los suyos.
-      if (args.splits) return await saveSplitMovement(ctx, { ...args, splits: args.splits }, receiptBlobKey ?? null);
+      // Conversión de moneda (alcance B): la moneda del movimiento es la
+      // elegida (por defecto, la de la cuenta); solo hay conversión cuando
+      // difiere de la del hogar. La moneda es del movimiento entero, no
+      // por parte (los splits no llevan moneda propia).
+      const hhCurrency = await householdCurrencyOf(db, args.householdId);
+      const accFxMap = await readAccountFx(db, args.householdId);
+      const accCurrency = args.accountId ? (accFxMap.get(args.accountId)?.currency ?? hhCurrency) : hhCurrency;
+      const mvCurrency = args.currency ?? accCurrency;
+      const destCurrency = args.type === "transfer" && args.toAccountId ? (accFxMap.get(args.toAccountId)?.currency ?? hhCurrency) : null;
+      if (args.splits) {
+        let splitFx: MovementFx | null = null;
+        if (mvCurrency !== hhCurrency) {
+          const frozen = await resolveSplitGroupConversion(db, args.householdId, hhCurrency, mvCurrency, args.amount, args.id);
+          const rate = frozen ?? await getRate(db, mvCurrency, hhCurrency);
+          splitFx = { originalAmount: args.amount, originalCurrency: mvCurrency, exchangeRate: rate.rate, exchangeRateDate: rate.rateDate, transferToAmount: null };
+        }
+        return await saveSplitMovement(ctx, { ...args, splits: args.splits }, receiptBlobKey ?? null, { movementCurrency: mvCurrency, householdCurrency: hhCurrency, fx: splitFx });
+      }
       if (args.id) { const r = await requireMovementVisible(ctx, db, args.id, args.householdId); if (r.reversalOfId != null) throw new Error("Una reversión no puede editarse; forma parte del registro de auditoría."); }
       // Asignación a un presupuesto (pregunta al meter el gasto): si el
       // cliente eligió uno, debe existir, pertenecer al hogar y
@@ -2641,7 +2895,8 @@ export const Actions = {
         if (!stillValid) await writeMovementBudgetId(db, movementId, null);
         return true;
       };
-      const vals={householdId:args.householdId,type:args.type,amount:args.amount,concept:args.concept,accountId:args.accountId??null,toAccountId:args.toAccountId??null,categoryId:args.categoryId??null,subcategory:args.subcategory||null,date:args.date,visibility:args.visibility,profileId:args.profileId??null, ...(receiptBlobKey!==undefined?{receiptBlobKey}:{})}; if(args.id){ await db.update(schema.movements).set(vals).where(eq(schema.movements.id,args.id)); const savedAssignment = await storeAssignment(args.id); await logActivity(ctx, args.householdId, "Movimiento editado", `${args.concept} · $${args.amount}`); ctx.invalidateQueries(); return {ok:true as const,id:args.id,savedBudgetAssignment:savedAssignment}; } const [r]=await db.insert(schema.movements).values(vals).returning({id:schema.movements.id}); const savedAssignment = r?.id ? await storeAssignment(r.id) : true; await logActivity(ctx, args.householdId, "Movimiento registrado", `${args.concept} · $${args.amount}`); if(r?.id) await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: r.id, type: args.type, amount: args.amount, categoryId: args.categoryId ?? null, visibility: args.visibility, date: args.date }); ctx.invalidateQueries(); return {ok:true as const,id:r?.id,savedBudgetAssignment:savedAssignment}; },
+      const { equivalent, fx } = await resolveMovementConversion(db, { householdId: args.householdId, householdCurrency: hhCurrency, movementCurrency: mvCurrency, amount: args.amount, type: args.type, toAccountId: args.toAccountId ?? null, toAmount: args.toAmount ?? null, destCurrency, currencyProvided: args.currency != null, existingId: args.id });
+      const vals={householdId:args.householdId,type:args.type,amount:equivalent,concept:args.concept,accountId:args.accountId??null,toAccountId:args.toAccountId??null,categoryId:args.categoryId??null,subcategory:args.subcategory||null,date:args.date,visibility:args.visibility,profileId:args.profileId??null, ...(receiptBlobKey!==undefined?{receiptBlobKey}:{})}; if(args.id){ await db.update(schema.movements).set(vals).where(eq(schema.movements.id,args.id)); const savedAssignment = await storeAssignment(args.id); const savedConversion = fx ? await writeMovementFx(db, args.id, fx) : true; await logActivity(ctx, args.householdId, "Movimiento editado", `${args.concept} · $${args.amount}`); ctx.invalidateQueries(); return {ok:true as const,id:args.id,savedBudgetAssignment:savedAssignment,savedConversion}; } const [r]=await db.insert(schema.movements).values(vals).returning({id:schema.movements.id}); const savedAssignment = r?.id ? await storeAssignment(r.id) : true; const savedConversion = r?.id && fx ? await writeMovementFx(db, r.id, fx) : true; await logActivity(ctx, args.householdId, "Movimiento registrado", `${args.concept} · $${args.amount}`); if(r?.id) await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: r.id, type: args.type, amount: equivalent, categoryId: args.categoryId ?? null, visibility: args.visibility, date: args.date }); ctx.invalidateQueries(); return {ok:true as const,id:r?.id,savedBudgetAssignment:savedAssignment,savedConversion}; },
   }),
   deleteMovement: defineAction({ description: "Deletes a movement.", request: z.object({ id: z.number() }), response: okRes, async handler(ctx,args): Promise<Ok>{ const db=ctx.db; const rows=await db.select().from(schema.movements).where(eq(schema.movements.id,args.id)); const row=rows[0]; if(row) await requireMovementVisibleRow(ctx, db, row, ctx.householdId); if(row && row.reversalOfId!=null) throw new Error("Una reversión no puede eliminarse por separado; forma parte del registro de auditoría. Si elimina el movimiento original, su reversión se elimina junto con él."); if (row) { const gid = await readMovementSplitGroupId(db, row.id); if (gid) { const partIds = await readSplitGroupPartIds(db, gid, row.householdId); if (partIds.length > 0) { await db.delete(schema.movements).where(inArray(schema.movements.reversalOfId, partIds)); await db.delete(schema.movements).where(inArray(schema.movements.id, partIds)); await logActivity(ctx, row.householdId, "Gasto dividido eliminado", `${row.concept} · ${partIds.length} partes`); ctx.invalidateQueries(); return {ok:true}; } } } await db.delete(schema.movements).where(eq(schema.movements.reversalOfId,args.id)); await db.delete(schema.movements).where(eq(schema.movements.id,args.id)); if(row) await logActivity(ctx, row.householdId, "Movimiento eliminado", `${row.concept} · $${row.amount}`); ctx.invalidateQueries(); return {ok:true}; } }),
 
@@ -2673,9 +2928,10 @@ export const Actions = {
         if (alreadyReversed[0]) throw new Error("Este gasto ya fue reversado; la reversión quedó registrada y no es posible reversarlo dos veces.");
         const nowRev = new Date(); const todayRev = `${nowRev.getFullYear()}-${String(nowRev.getMonth()+1).padStart(2,"0")}-${String(nowRev.getDate()).padStart(2,"0")}`;
         const reversalIds: number[] = [];
+        const partFx = await readMovementFx(db, orig.householdId);
         for (const part of parts) {
           const [rr] = await db.insert(schema.movements).values({ householdId: part.householdId, type: "income", amount: part.amount, concept: `Reversión de: ${part.concept}`, accountId: part.accountId ?? null, toAccountId: null, categoryId: part.categoryId ?? null, subcategory: part.subcategory ?? null, date: todayRev, visibility: part.visibility, profileId: part.profileId ?? null, receiptBlobKey: null, reversalOfId: part.id }).returning({ id: schema.movements.id });
-          if (rr?.id) reversalIds.push(rr.id);
+          if (rr?.id) { reversalIds.push(rr.id); const pf = partFx.get(part.id); if (pf && pf.originalCurrency != null) await writeMovementFx(db, rr.id, { ...pf, transferToAmount: null }); }
         }
         await logActivity(ctx, orig.householdId, "Gasto dividido reversado", `${orig.concept} · $${orig.amount}`);
         ctx.invalidateQueries();
@@ -2691,6 +2947,29 @@ export const Actions = {
       else if (orig.type === "debt_payment") revType = "income";
       else if (orig.type === "transfer") { revType = "transfer"; revAccountId = orig.toAccountId ?? null; revToAccountId = orig.accountId ?? null; }
       const [r] = await db.insert(schema.movements).values({ householdId: orig.householdId, type: revType, amount: orig.amount, concept: `Reversión de: ${orig.concept}`, accountId: revAccountId, toAccountId: revToAccountId, categoryId: orig.categoryId ?? null, subcategory: orig.subcategory ?? null, date: todayStr, visibility: orig.visibility, profileId: orig.profileId ?? null, receiptBlobKey: null, reversalOfId: orig.id }).returning({ id: schema.movements.id });
+      // La reversión espeja la conversión del original: el mismo importe
+      // original y la misma tasa (la reversión anula el movimiento en su
+      // moneda de origen). Un traspaso invierte los lados: la reversión
+      // sale de la cuenta destino original con lo que esa cuenta recibió
+      // (transfer_to_amount) en su moneda, y lo que vuelve a la cuenta
+      // origen es el importe original. Su equivalente es el importe
+      // original exacto (para anularlo), así que la tasa es la implícita
+      // (equivalente / importe recibido), con la fecha de la tasa original.
+      if (r?.id) {
+        const ofx = (await readMovementFx(db, orig.householdId)).get(orig.id);
+        if (ofx && ofx.originalCurrency != null) {
+          if (orig.type === "transfer") {
+            const hhCur = await householdCurrencyOf(db, orig.householdId);
+            const accFxR = await readAccountFx(db, orig.householdId);
+            const destCur = orig.toAccountId != null ? (accFxR.get(orig.toAccountId)?.currency ?? hhCur) : hhCur;
+            const revOriginal = ofx.transferToAmount ?? ofx.originalAmount;
+            const impliedRate = revOriginal != null && revOriginal > 0 ? Math.round((orig.amount / revOriginal) * 1e6) / 1e6 : 1;
+            await writeMovementFx(db, r.id, { originalAmount: revOriginal, originalCurrency: destCur, exchangeRate: destCur === hhCur ? 1 : impliedRate, exchangeRateDate: ofx.exchangeRateDate, transferToAmount: ofx.originalAmount });
+          } else {
+            await writeMovementFx(db, r.id, { ...ofx, transferToAmount: null });
+          }
+        }
+      }
       await logActivity(ctx, orig.householdId, "Movimiento reversado", `${orig.concept} · $${orig.amount}`);
       ctx.invalidateQueries();
       return { ok: true, id: orig.id, reversalId: r?.id };
@@ -2869,7 +3148,22 @@ export const Actions = {
     if (!fund || fund.householdId !== args.householdId) throw new Error("Fondo no encontrado.");
     const ar = await db.select().from(schema.accounts).where(eq(schema.accounts.id, args.accountId));
     if (!ar[0] || ar[0].householdId !== args.householdId) throw new Error("La cuenta indicada no pertenece a este hogar.");
-    const [r]=await db.insert(schema.fundMovements).values({householdId:args.householdId,fundId:args.fundId,type:args.type,amount:args.amount,date:args.date,note:args.note||null,accountId:args.accountId} as never).returning({id:schema.fundMovements.id});
+    // Conversión (alcance B): un APORTE se escribe en la moneda de la
+    // cuenta y el fondo guarda el equivalente en moneda del hogar. Un
+    // RETIRO sale del fondo (moneda del hogar) y vuelve a la cuenta en
+    // su moneda: el importe guardado es el escrito y el original es su
+    // equivalente en la moneda de la cuenta (importe / tasa).
+    const hhCur = await householdCurrencyOf(db, args.householdId);
+    const accCur = await accountCurrencyOf(db, args.householdId, args.accountId, hhCur);
+    let fundAmount = args.amount;
+    let originalAmount: number | null = null;
+    if (accCur !== hhCur) {
+      const rr = await getRate(db, accCur, hhCur);
+      if (args.type === "contribution") { fundAmount = toHousehold(args.amount, rr.rate); originalAmount = args.amount; }
+      else { fundAmount = args.amount; originalAmount = round2(args.amount / rr.rate); }
+    }
+    const [r]=await db.insert(schema.fundMovements).values({householdId:args.householdId,fundId:args.fundId,type:args.type,amount:fundAmount,date:args.date,note:args.note||null,accountId:args.accountId} as never).returning({id:schema.fundMovements.id});
+    if (r?.id && originalAmount != null) await writeFundMovementFx(db, r.id, originalAmount);
     // Si el fondo es de un plan de ahorro, el avance de la meta es el saldo del fondo.
     await syncGoalSavedFromFund(ctx, args.householdId, args.fundId);
     await checkGoalPlanAlerts(ctx, args.householdId);
@@ -2943,7 +3237,13 @@ export const Actions = {
         if (!fund) throw new Error("No se pudo crear el fondo de la meta.");
         fundId = fund.id;
         if (saved > 0) {
-          await db.insert(schema.fundMovements).values({ householdId: args.householdId, fundId, type: "contribution", amount: saved, date: today, note: "Saldo inicial de la meta", accountId: args.initialAccountId ?? null } as never);
+          // El saldo inicial de la meta va en moneda del hogar (R3); si
+          // la cuenta es extranjera, el original en su moneda es
+          // saved / tasa (lo que la cuenta aporta en su moneda).
+          let initialOriginal: number | null = null;
+          if (args.initialAccountId != null) initialOriginal = await convertHouseholdAmountToAccount(db, args.householdId, args.initialAccountId, saved);
+          const [fmInit] = await db.insert(schema.fundMovements).values({ householdId: args.householdId, fundId, type: "contribution", amount: saved, date: today, note: "Saldo inicial de la meta", accountId: args.initialAccountId ?? null } as never).returning({ id: schema.fundMovements.id });
+          if (fmInit?.id && initialOriginal != null) await writeFundMovementFx(db, fmInit.id, initialOriginal);
         }
         const [plan] = await db.insert(schema.goalPlans).values({ householdId: args.householdId, goalId, monthlyAmount, months: args.months, startMonth: curYm, dueDay: args.dueDay, fundId, status: "aceptado" }).returning({ id: schema.goalPlans.id });
         if (!plan) throw new Error("No se pudo guardar el plan.");
@@ -2977,11 +3277,25 @@ export const Actions = {
       plan = plans[0];
     } catch { throw new Error("Para aportar a la meta, primero ejecute supabase/goal-plans.sql en el SQL Editor de Supabase."); }
     if (!plan?.fundId) throw new Error("Esta meta aún no tiene plan de ahorro. Primero arme el plan en Metas.");
-    await db.update(schema.goals).set({savedAmount: Math.max(0, g.savedAmount+args.amount)}).where(eq(schema.goals.id,args.id));
+    // Aporte o retiro desde cuenta extranjera (alcance B): el APORTE se
+    // escribe en la moneda de la cuenta y la meta/fondo guardan el
+    // equivalente en moneda del hogar. El RETIRO sale de la meta (moneda
+    // del hogar) y vuelve a la cuenta en su moneda.
+    const hhCurG = await householdCurrencyOf(db, g.householdId);
+    const accCurG = await accountCurrencyOf(db, g.householdId, args.accountId, hhCurG);
+    let goalDelta = args.amount;
+    let originalGoal: number | null = null;
+    if (accCurG !== hhCurG) {
+      const rr = await getRate(db, accCurG, hhCurG);
+      if (args.amount > 0) { goalDelta = toHousehold(args.amount, rr.rate); originalGoal = args.amount; }
+      else { goalDelta = args.amount; originalGoal = round2(Math.abs(args.amount) / rr.rate); }
+    }
+    await db.update(schema.goals).set({savedAmount: Math.max(0, g.savedAmount+goalDelta)}).where(eq(schema.goals.id,args.id));
     // El abono o retiro entra al fondo del plan, para que el avance de la
     // meta y el saldo del fondo sean el mismo.
     const now = new Date(); const today = `${ymOf(now)}-${String(now.getDate()).padStart(2, "0")}`;
-    await db.insert(schema.fundMovements).values({ householdId: g.householdId, fundId: plan.fundId, type: args.amount > 0 ? "contribution" : "withdrawal", amount: Math.abs(args.amount), date: today, note: args.amount > 0 ? `Aporte a la meta ${g.name}` : `Retiro de la meta ${g.name}`, accountId: args.accountId } as never);
+    const [fmGoal] = await db.insert(schema.fundMovements).values({ householdId: g.householdId, fundId: plan.fundId, type: args.amount > 0 ? "contribution" : "withdrawal", amount: Math.abs(goalDelta), date: today, note: args.amount > 0 ? `Aporte a la meta ${g.name}` : `Retiro de la meta ${g.name}`, accountId: args.accountId } as never).returning({ id: schema.fundMovements.id });
+    if (fmGoal?.id && originalGoal != null) await writeFundMovementFx(db, fmGoal.id, originalGoal);
     await syncGoalSavedFromFund(ctx, g.householdId, plan.fundId);
     await checkGoalPlanAlerts(ctx, g.householdId);
     ctx.invalidateQueries(); return {ok:true,id:args.id}; } }),
@@ -3089,7 +3403,10 @@ export const Actions = {
         // con su cuenta cuando se indicó (metas viejas sin plan que arman
         // su plan). Sin cuenta queda como antes (flujo del sistema).
         if (goal.savedAmount > 0) {
-          await db.insert(schema.fundMovements).values({ householdId: args.householdId, fundId, type: "contribution", amount: goal.savedAmount, date: today, note: "Saldo inicial de la meta", accountId: args.initialAccountId ?? null } as never);
+          let initialOriginal: number | null = null;
+          if (args.initialAccountId != null) initialOriginal = await convertHouseholdAmountToAccount(db, args.householdId, args.initialAccountId, goal.savedAmount);
+          const [fmInit] = await db.insert(schema.fundMovements).values({ householdId: args.householdId, fundId, type: "contribution", amount: goal.savedAmount, date: today, note: "Saldo inicial de la meta", accountId: args.initialAccountId ?? null } as never).returning({ id: schema.fundMovements.id });
+          if (fmInit?.id && initialOriginal != null) await writeFundMovementFx(db, fmInit.id, initialOriginal);
         }
       }
       let planId: number;
@@ -4573,6 +4890,39 @@ export const Actions = {
       // se marcaron todas; esto cubre el guardado directo). Nunca rompe
       // la evaluación: si la tabla aún no existe, se ignora.
       try { await ctx.db.update(schema.notifications).set({ isRead: 1 }).where(and(eq(schema.notifications.userId, ctx.user.id), eq(schema.notifications.type, "nueva_opinion"))); } catch { /* tabla aún no creada */ }
+      // Aviso al tester cuando se le responde: hasta hoy el tester solo
+      // veía la respuesta si consultaba con su correo, así que una
+      // respuesta guardada no le llegaba a nadie. Ahora su campanilla le
+      // avisa en cada guardado con respuesta (también al re-guardar la
+      // misma). Nunca rompe la evaluación: cualquier fallo se ignora.
+      try {
+        const respuesta = args.respuesta?.trim();
+        if (respuesta) {
+          const fb = (await ctx.db.select().from(schema.testerFeedback).where(eq(schema.testerFeedback.id, args.id)).limit(1))[0];
+          const correo = (fb?.correo ?? "").trim().toLowerCase();
+          if (correo) {
+            const admin = supabaseAdmin();
+            let testerId: string | null = null;
+            let page = 1;
+            for (;;) {
+              const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 100 });
+              if (error || !data) break;
+              const users = data.users ?? [];
+              const found = users.find((u) => (u.email ?? "").trim().toLowerCase() === correo);
+              if (found) { testerId = found.id; break; }
+              if (users.length < 100) break;
+              page++;
+            }
+            if (testerId && testerId !== ctx.user.id) {
+              const members = await ctx.db.select().from(schema.householdMembers).where(eq(schema.householdMembers.userId, testerId));
+              const householdIds = Array.from(new Set(members.map((m) => m.householdId)));
+              if (householdIds.length > 0) {
+                await ctx.db.insert(schema.notifications).values(householdIds.map((householdId) => ({ householdId, userId: testerId as string, type: "respuesta_opinion" as const, title: "Respuesta a tu comentario", body: respuesta, amount: null, target: "inicio", isRead: 0 })));
+              }
+            }
+          }
+        }
+      } catch { /* el aviso nunca rompe la evaluación */ }
       ctx.invalidateQueries();
       return { ok: true };
     },
@@ -5049,12 +5399,17 @@ export const Actions = {
         if (!cat || cat.householdId !== args.householdId) throw new Error("La categoría de esta regla ya no existe. Corrija la regla en Gastos recurrentes.");
       }
       const profs = await db.select().from(schema.profiles).where(and(eq(schema.profiles.householdId, args.householdId), eq(schema.profiles.userId, ctx.user.id)));
-      const [mv] = await db.insert(schema.movements).values({ householdId: args.householdId, type: "expense", amount: rule.amount, concept: rule.concept, accountId: rule.accountId, toAccountId: null, categoryId: rule.categoryId ?? null, subcategory: null, date: occ.dueDate, visibility: rule.visibility, profileId: profs[0]?.id ?? null, receiptBlobKey: null, reversalOfId: null }).returning({ id: schema.movements.id });
+      // El importe de la regla va en la moneda de su cuenta (alcance B):
+      // al confirmar se convierte al momento con la tasa del día y se
+      // guarda el equivalente en moneda del hogar con su original.
+      const convRec = await convertAccountAmount(db, args.householdId, rule.accountId, rule.amount);
+      const [mv] = await db.insert(schema.movements).values({ householdId: args.householdId, type: "expense", amount: convRec.equivalent, concept: rule.concept, accountId: rule.accountId, toAccountId: null, categoryId: rule.categoryId ?? null, subcategory: null, date: occ.dueDate, visibility: rule.visibility, profileId: profs[0]?.id ?? null, receiptBlobKey: null, reversalOfId: null }).returning({ id: schema.movements.id });
       if (!mv) throw new Error("No se pudo registrar el gasto.");
+      if (convRec.accountCurrency !== convRec.householdCurrency && convRec.rate != null) await writeMovementFx(db, mv.id, { originalAmount: rule.amount, originalCurrency: convRec.accountCurrency, exchangeRate: convRec.rate, exchangeRateDate: convRec.rateDate, transferToAmount: null });
       await db.update(schema.recurringOccurrences).set({ status: "confirmed", movementId: mv.id, resolvedAt: new Date() }).where(eq(schema.recurringOccurrences.id, occ.id));
       await markRecurringNotifRead(ctx, args.householdId, rule, occ.dueDate);
       await logActivity(ctx, args.householdId, "Gasto recurrente confirmado", `${rule.concept} · $${rule.amount}`);
-      await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: mv.id, type: "expense", amount: rule.amount, categoryId: rule.categoryId ?? null, visibility: rule.visibility, date: occ.dueDate });
+      await checkMovementAlerts(ctx, { householdId: args.householdId, movementId: mv.id, type: "expense", amount: convRec.equivalent, categoryId: rule.categoryId ?? null, visibility: rule.visibility, date: occ.dueDate });
       ctx.invalidateQueries();
       return { ok: true as const, movementId: mv.id };
     },

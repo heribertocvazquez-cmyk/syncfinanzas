@@ -11,12 +11,16 @@ export type BalanceAccount = {
   /** Tipo del servidor: cash | bank | credit | investment | loan. */
   type: string;
   balance: number;
+  /** Moneda de la cuenta (alcance B) y su saldo en esa moneda; sin
+   *  valor, la cuenta va en moneda del hogar. */
+  currency?: string | null;
+  nativeBalance?: number | null;
 };
 
 export type BalanceGroup = {
   key: string;
   label: string;
-  accounts: { id: number; name: string; balance: number }[];
+  accounts: { id: number; name: string; balance: number; currency?: string | null; nativeBalance?: number | null }[];
   subtotal: number;
 };
 
@@ -59,7 +63,7 @@ export function groupAccountsByType(accounts: BalanceAccount[]): BalanceGroup[] 
         accounts: [],
         subtotal: 0,
       } as BalanceGroup);
-    g.accounts.push({ id: a.id, name: a.name, balance: round2(a.balance) });
+    g.accounts.push({ id: a.id, name: a.name, balance: round2(a.balance), currency: a.currency ?? null, nativeBalance: a.nativeBalance ?? null });
     g.subtotal = round2(g.subtotal + a.balance);
     byKey.set(key, g);
   }

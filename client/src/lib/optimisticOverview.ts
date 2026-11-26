@@ -34,6 +34,14 @@ export interface SavedMovement {
   subcategory: string | null;
   budgetId: number | null;
   splitGroupId: string | null;
+  // Conversión de moneda (alcance B): amount es el equivalente en moneda
+  // del hogar; el original y la tasa congelada van aquí (null = misma
+  // moneda que el hogar, sin conversión).
+  originalAmount: number | null;
+  originalCurrency: string | null;
+  exchangeRate: number | null;
+  exchangeRateDate: string | null;
+  transferToAmount: number | null;
   date: string; // YYYY-MM-DD
   visibility: string;
   profileId: number | null;
@@ -368,6 +376,18 @@ export function applyMovementChange(
           : change.previous.type === "transfer"
             ? "transfer"
             : "income";
+      // La reversión espeja la conversión del original (igual que en el
+      // servidor): mismo original y misma tasa; un traspaso invierte los
+      // lados y la tasa es la implícita (equivalente / importe recibido).
+      const prevFx = change.previous;
+      const revFx = (() => {
+        if (prevFx.originalCurrency == null) return { originalAmount: null as number | null, originalCurrency: null as string | null, exchangeRate: null as number | null, exchangeRateDate: null as string | null, transferToAmount: null as number | null };
+        if (prevFx.type !== "transfer") return { originalAmount: prevFx.originalAmount, originalCurrency: prevFx.originalCurrency, exchangeRate: prevFx.exchangeRate, exchangeRateDate: prevFx.exchangeRateDate, transferToAmount: null as number | null };
+        const destCur = prev.accounts?.find((a) => a.id === prevFx.toAccountId)?.currency ?? prevFx.originalCurrency;
+        const revOriginal = prevFx.transferToAmount ?? prevFx.originalAmount;
+        const implied = revOriginal != null && revOriginal > 0 ? Math.round((prevFx.amount / revOriginal) * 1e6) / 1e6 : 1;
+        return { originalAmount: revOriginal, originalCurrency: destCur, exchangeRate: destCur === (prev.household?.currency ?? "MXN") ? 1 : implied, exchangeRateDate: prevFx.exchangeRateDate, transferToAmount: prevFx.originalAmount };
+      })();
       reversalRow = {
         id: change.reversalId ?? -change.previous.id,
         type: revType,
@@ -383,6 +403,11 @@ export function applyMovementChange(
         subcategory: change.previous.subcategory,
         budgetId: null,
         splitGroupId: null,
+        originalAmount: revFx.originalAmount,
+        originalCurrency: revFx.originalCurrency,
+        exchangeRate: revFx.exchangeRate,
+        exchangeRateDate: revFx.exchangeRateDate,
+        transferToAmount: revFx.transferToAmount,
         date: today,
         visibility: change.previous.visibility,
         profileId: change.previous.profileId,
@@ -471,6 +496,11 @@ export function applyMovementChange(
         subcategory: added.subcategory,
         budgetId: added.budgetId,
         splitGroupId: added.splitGroupId ?? null,
+        originalAmount: added.originalAmount,
+        originalCurrency: added.originalCurrency,
+        exchangeRate: added.exchangeRate,
+        exchangeRateDate: added.exchangeRateDate,
+        transferToAmount: added.transferToAmount,
         date: added.date,
         visibility: added.visibility,
         profileId: added.profileId,
