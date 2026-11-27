@@ -81,6 +81,7 @@ export type TandaDetailDeps = {
   addFundEntry: TandaMutation<{ tandaId: number }>;
   payFine: TandaMutation<{ tandaId: number; fineId: number }>;
   setRole: TandaMutation<{ tandaId: number; participantId: number; role: "organizador" | "tesorero" | "suplente" | "participante" }>;
+  setFixed: TandaMutation<{ tandaId: number; participantId: number; number: number | null }>;
   voteExclude: TandaMutation<{ tandaId: number; targetParticipantId: number }>;
   removePart: TandaMutation<number>;
   setCard: TandaMutation<{ id: number; cardLast4: string }>;
@@ -258,7 +259,7 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
     tandaProofReview, setTandaProofReview, mpOrders, mpOrderKey, mpClearOrder,
     copiedLink, copyLink, tandaInviteMessage, setReceiptView,
     pickTandaProof, confirmTandaProof,
-    delTanda, drawTanda, setPay, addFine, verifyPay, addFundEntry, payFine, setRole,
+    delTanda, drawTanda, setPay, addFine, verifyPay, addFundEntry, payFine, setRole, setFixed,
     voteExclude, removePart, setCard, addPart, createTandaInv, respondTandaInv, resendInv, cancelTandaInv,
     confirmDelivery, uploadProof, remindPay, createMpOrder, checkMpOrder, rateOrg,
   } = deps;
@@ -308,6 +309,16 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
             <button aria-label={`Hacer sorteo de ${td.name}`} className={btnPrimary} onClick={()=>drawTanda.mutate({id:td.id,mode:(drawSel[td.id]||td.drawMode) as "random"|"weighted"})} disabled={td.participants.length<2 || drawTanda.isPending || td.turnsLocked===1}>Hacer sorteo</button>
           </div>}
           {p.canManage && td.participants.length<2 && td.turnsLocked!==1 && <p className="text-xs text-[var(--red)] mt-1">Para el sorteo se necesitan al menos 2 participantes ({td.participants.length} de {td.participantCount} ahora). Agregue participantes en la sección de abajo.</p>}
+          {td.turnsLocked!==1 && (() => {
+            const fixed = td.participants.filter(pt => pt.fixedDrawOrder != null);
+            const hasTreasurer = td.participants.some(pt => pt.role === "tesorero");
+            return (<>
+              <p className="text-xs text-[var(--dim)] mt-2">{fixed.length>0
+                ? <>Números fijos: <b>{fixed.map(pt => `${pt.role==="organizador"?"Organizador":"Tesorero"}: n.º ${pt.fixedDrawOrder}`).join(" · ")}</b> · los demás se sortean entre los números libres.</>
+                : "Sin números fijos: todos los participantes se sortean."}</p>
+              {p.canManage && !hasTreasurer && <p className="text-xs text-[var(--dim)] mt-1">Aún no hay Tesorero asignado: solo el Organizador puede tener número fijo. Asigne el Tesorero en la lista de participantes antes de sortear.</p>}
+            </>);
+          })()}
           <span className="text-xs text-[var(--dim)]">Modo guardado: <b>{td.drawMode==="weighted"?"Por cumplimiento":"Al azar"}</b>{td.turnsLocked===1 && <> · <b>Turnos fijados, no se puede repetir el sorteo</b></>}</span>
           <p className="text-xs text-[var(--dim)] mt-2"><b>Al azar:</b> igual para todos. <b>Por cumplimiento:</b> premia la puntualidad.</p>
           {drawTanda.error && <p className="text-sm text-[var(--red)] mt-1">{String(drawTanda.error)}</p>}
@@ -386,17 +397,27 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
           <div className="flex flex-wrap gap-2 mt-2">
           {[...td.participants].sort((a,b)=>(a.drawOrder??999)-(b.drawOrder??999)).map(pt=>(
             <span key={pt.id} className="bg-[var(--surface2)] rounded-2xl px-3 py-2 text-sm">
-              <b>{pt.drawOrder?`#${pt.drawOrder} · `:""}{pt.name}</b>
+              <b>{pt.drawOrder?`#${pt.drawOrder} · `:""}{pt.name}</b>{pt.fixedDrawOrder!=null && !pt.drawOrder && <span className="text-xs"> · n.º {pt.fixedDrawOrder} fijo</span>}
               <span className="block text-xs">{pt.cardLast4?`•••• ${pt.cardLast4} registrada`:"Sin tarjeta registrada"}</span>
               <span className="block text-xs mt-0.5">Puntaje: <b>{pt.stats.score}/100</b> · {pt.stats.paidCount}/{pt.stats.dueCount} pagos · {pt.stats.onTimePct}% puntuales · Racha: <b>{pt.stats.streak}</b>{pt.excluded===1 && <> · <b className="text-[var(--red)]">Excluido por votación</b></>}</span>
               <span className="flex gap-1 mt-1 items-center">{p.canManage ? <select aria-label={`Rol de ${pt.name} en ${td.name}`} className={inputCls+" w-auto !py-1 !px-2 text-xs"} value={pt.role} onChange={e=>setRole.mutate({tandaId:td.id,participantId:pt.id,role:e.target.value as "organizador"|"tesorero"|"suplente"|"participante"})}><option value="participante">Participante</option><option value="organizador">Organizador</option><option value="tesorero">Tesorero</option><option value="suplente">Suplente</option></select> : <span className="text-xs font-bold">{pt.role==="organizador"?"Organizador":pt.role==="tesorero"?"Tesorero":pt.role==="suplente"?"Suplente":"Participante"}</span>}{pt.excluded!==1 && (p.isParticipant || p.isAdmin) && <button aria-label={`Proponer exclusión de ${pt.name} de ${td.name}`} className="text-xs underline font-bold" onClick={()=>voteExclude.mutate({tandaId:td.id,targetParticipantId:pt.id})}>Proponer exclusión</button>}</span>
+              {td.turnsLocked!==1 && (pt.role==="organizador" || pt.role==="tesorero") && p.canManage && (
+                <span className="flex gap-1 mt-1 items-center">
+                  <label htmlFor={`fixed-${pt.id}`} className="text-xs font-bold">Número fijo</label>
+                  <select id={`fixed-${pt.id}`} aria-label={`Número fijo de ${pt.name} en ${td.name}`} className={inputCls+" w-auto !py-1 !px-2 text-xs"} value={pt.fixedDrawOrder ?? ""} onChange={e=>setFixed.mutate({tandaId:td.id,participantId:pt.id,number:e.target.value===""?null:Number(e.target.value)})}>
+                    <option value="">Sin fijo</option>
+                    {Array.from({length: td.participantCount}, (_,i)=>i+1).map(n=>(<option key={n} value={n} disabled={td.participants.some(o=>o.id!==pt.id && o.fixedDrawOrder===n)}>n.º {n}</option>))}
+                  </select>
+                  {pt.fixedDrawOrder!=null && <span className="text-xs font-bold">n.º {pt.fixedDrawOrder} fijo</span>}
+                </span>
+              )}
               {td.votes.filter(v=>v.targetParticipantId===pt.id && v.vote==="excluir").length>0 && <span className="block text-xs mt-0.5">Votos para excluir: <b>{td.votes.filter(v=>v.targetParticipantId===pt.id && v.vote==="excluir").length}</b> de {td.participants.filter(p=>p.excluded!==1).length} activos (se excluye con más de la mitad).</span>}
               {!pt.cardLast4 && (p.canManage || p.isOwn(pt.id)) && <span className="flex gap-1 mt-1"><input aria-label={`Últimos 4 dígitos de la tarjeta de ${pt.name}`} maxLength={4} inputMode="numeric" placeholder="Últ. 4 dígitos" className={inputCls+" w-28"} value={cardInput[pt.id]||""} onChange={e=>setCardInput({...cardInput,[pt.id]:e.target.value.replace(/[^0-9]/g,"")})} /><button aria-label={`Registrar tarjeta simulada de ${pt.name}`} className="text-xs underline font-bold" onClick={()=>setCard.mutate({id:pt.id,cardLast4:cardInput[pt.id]||""})}>Registrar</button></span>}
               {p.canManage && <button aria-label={`Quitar a ${pt.name} de ${td.name}`} className="text-xs underline text-[var(--red)] block mt-0.5" onClick={()=>removePart.mutate(pt.id)}>Quitar</button>}
             </span>
           ))}
           </div>
-        {(setRole.error || voteExclude.error || removePart.error) && <p className="text-sm text-[var(--red)] mt-1">{String(setRole.error || voteExclude.error || removePart.error)}</p>}
+        {(setRole.error || setFixed.error || voteExclude.error || removePart.error) && <p className="text-sm text-[var(--red)] mt-1">{String(setRole.error || setFixed.error || voteExclude.error || removePart.error)}</p>}
         {setCard.error && <p className="text-sm text-[var(--red)] mt-1">{String(setCard.error)}</p>}
         {td.participants.length<td.participantCount && p.canManage && <div className="flex flex-wrap gap-2 mt-3">
           <input aria-label={`Nombre del nuevo participante en ${td.name}`} placeholder="Nombre del participante" className={inputCls+" flex-1 min-w-[160px]"} value={partName[td.id]||""} onChange={e=>setPartName({...partName,[td.id]:e.target.value})} />

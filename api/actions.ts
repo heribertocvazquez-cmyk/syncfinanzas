@@ -85,6 +85,7 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   addSubcategory: { table: "categories", idField: "categoryId" },
   removeSubcategory: { table: "categories", idField: "categoryId" },
   drawTanda: { table: "tandas", idField: "tandaId" },
+  setTandaRole: { table: "tandas", idField: "tandaId" },
   setParticipantCard: { table: "tandaParticipants", idField: "id" },
   removeTandaParticipant: { table: "tandaParticipants", idField: "id" },
   deleteCategoryRule: { table: "categoryRules", idField: "id" },

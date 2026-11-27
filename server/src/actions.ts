@@ -1418,6 +1418,46 @@ function requireTandaHousehold(acc: TandaAccess, householdId: number) {
   if (acc.tanda.householdId !== householdId) throw new Error("La tanda no pertenece a este hogar.");
 }
 
+// Número fijo elegido para el sorteo (columna fixed_draw_order,
+// supabase/add-tanda-fixed-draw-order.sql): se lee aparte con SQL directo
+// y en silencio si la columna aún no existe — igual que proof_amount y
+// mp_order_id. Sin la columna, nadie tiene número fijo y el sorteo
+// revuelve a todos como hoy.
+async function readFixedDrawOrders(db: Ctx["db"], householdId: number, tandaId?: number): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  try {
+    // Con tandaId, solo esa tanda (la unicidad del número fijo es por
+    // tanda: dos tandas distintas pueden tener el mismo número fijo).
+    const res = (tandaId == null
+      ? (await db.execute(sql`SELECT id, fixed_draw_order FROM tanda_participants WHERE household_id = ${householdId}`))
+      : (await db.execute(sql`SELECT id, fixed_draw_order FROM tanda_participants WHERE tanda_id = ${tandaId}`))) as unknown as { rows?: { id: number; fixed_draw_order: number | null }[] } | { id: number; fixed_draw_order: number | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    for (const row of rows) if (row.fixed_draw_order != null) out.set(row.id, row.fixed_draw_order);
+  } catch { /* columna aún no creada */ }
+  return out;
+}
+async function writeFixedDrawOrder(db: Ctx["db"], participantId: number, number: number | null): Promise<void> {
+  await db.execute(sql`UPDATE tanda_participants SET fixed_draw_order = ${number} WHERE id = ${participantId}`);
+}
+// Rol RESUELTO de un participante: la columna role, o el perfil designado
+// al crear la tanda (organizador/tesorero/suplente por organizerProfileId,
+// treasurerProfileId, substituteProfileId) aunque la fila diga otra cosa —
+// igual que tandaAccess resuelve el rol de quien llama. La elegibilidad
+// de número fijo sigue este rol resuelto, no solo la columna.
+async function resolvedParticipantRole(db: Ctx["db"], td: typeof schema.tandas.$inferSelect, part: typeof schema.tandaParticipants.$inferSelect): Promise<TandaRole> {
+  const col = (part.role as TandaRole) || "participante";
+  if (col === "organizador" || col === "tesorero") return col;
+  const email = (part.email || "").trim().toLowerCase();
+  if (!email) return col;
+  const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, td.householdId));
+  const pid = profs.find(x => (x.email || "").trim().toLowerCase() === email)?.id ?? null;
+  if (pid == null) return col;
+  if (td.organizerProfileId === pid) return "organizador";
+  if (td.treasurerProfileId === pid) return "tesorero";
+  if (td.substituteProfileId === pid) return "suplente";
+  return col;
+}
+
 type InviteSendResult = { emailSent: boolean; emailConfigured: boolean; inviteUrl: string; tokenId: number };
 
 async function sendInviteForToken(
@@ -1555,7 +1595,7 @@ async function householdMemberProfiles(db: Ctx["db"], householdId: number) {
 }
 
 // Esquema de la vista de una tanda (lo comparten getOverview y listMyTandas).
-const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAdmin: z.boolean(), myProfileId: z.number().nullable(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), mpOrderId: z.string().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) });
+const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAdmin: z.boolean(), myProfileId: z.number().nullable(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), fixedDrawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), mpOrderId: z.string().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) });
 
 // Esquema de una fila de movimiento (lo comparten getOverview y
 // listMovements): un movimiento es siempre el mismo objeto, venga del
@@ -1612,6 +1652,7 @@ type TandaRows = {
   tandaPaysR: (typeof schema.tandaPayments.$inferSelect)[];
   proofAmounts: Map<number, number>;
   mpOrderIds: Map<number, string>;
+  fixedDrawOrders: Map<number, number>;
   tandaFinesR: (typeof schema.tandaFines.$inferSelect)[];
   tandaVotesR: (typeof schema.tandaVotes.$inferSelect)[];
   tandaDeliveriesR: (typeof schema.tandaDeliveries.$inferSelect)[];
@@ -1730,7 +1771,7 @@ async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect
       return { participantId: pt.id, name: pt.name, status, paidDate: pay?.paidDate ?? null, proofUrl: pay?.proofUrl ?? null, proofAmount: pay?.proofAmount ?? null, verified: pay?.verified ?? 0, fineAmount: pay?.fineAmount ?? 0 };
     }),
   };
-  return { id: td.id, householdId: td.householdId, isAdmin: opts.isAdmin, myProfileId: opts.myProfileId, name: td.name, participantCount: td.participantCount, amountPerQuincena: td.amountPerQuincena, startDate: td.startDate, potPerQuincena: Math.round(td.amountPerQuincena*td.participantCount*100)/100, organizerName: orgName, organizerProfileId: td.organizerProfileId ?? null, frequency: td.frequency || "quincenal", cadenceDays: cadence, drawMode: td.drawMode || "random", coverageRule: (td as unknown as { coverageRule?: string }).coverageRule || "fondo", fineAmount: (td as unknown as { fineAmount?: number }).fineAmount ?? 0, meetingDay: (td as unknown as { meetingDay?: string }).meetingDay || "", treasurerProfileId: (td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId ?? null, treasurerName, substituteProfileId: (td as unknown as { substituteProfileId?: number | null }).substituteProfileId ?? null, substituteName, turnsLocked: (td as unknown as { turnsLocked?: number }).turnsLocked ?? 0, organizerRating, ratings: orgRatingsR.filter(r=>r.tandaId===td.id).map(r=>({ id: r.id, raterName: r.raterName, stars: r.stars, comment: r.comment ?? null })), invitations: tandaInvsR.filter(i=>i.tandaId===td.id).map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, status: i.status })), participants: parts.map(x=>({ id: x.id, name: x.name, email: x.email ?? null, drawOrder: x.drawOrder ?? null, cardLast4: x.cardLast4 ?? null, joinedDate: x.joinedDate ?? null, role: (x as unknown as { role?: string }).role || "participante", excluded: (x as unknown as { excluded?: number }).excluded ?? 0, stats: statsForName(x.name) })), calendar, payments: paysOut, fines: finesOut, votes: votesOut, deliveries: deliveriesOut, fundEntries: fundEntriesOut, balances, attendance };
+  return { id: td.id, householdId: td.householdId, isAdmin: opts.isAdmin, myProfileId: opts.myProfileId, name: td.name, participantCount: td.participantCount, amountPerQuincena: td.amountPerQuincena, startDate: td.startDate, potPerQuincena: Math.round(td.amountPerQuincena*td.participantCount*100)/100, organizerName: orgName, organizerProfileId: td.organizerProfileId ?? null, frequency: td.frequency || "quincenal", cadenceDays: cadence, drawMode: td.drawMode || "random", coverageRule: (td as unknown as { coverageRule?: string }).coverageRule || "fondo", fineAmount: (td as unknown as { fineAmount?: number }).fineAmount ?? 0, meetingDay: (td as unknown as { meetingDay?: string }).meetingDay || "", treasurerProfileId: (td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId ?? null, treasurerName, substituteProfileId: (td as unknown as { substituteProfileId?: number | null }).substituteProfileId ?? null, substituteName, turnsLocked: (td as unknown as { turnsLocked?: number }).turnsLocked ?? 0, organizerRating, ratings: orgRatingsR.filter(r=>r.tandaId===td.id).map(r=>({ id: r.id, raterName: r.raterName, stars: r.stars, comment: r.comment ?? null })), invitations: tandaInvsR.filter(i=>i.tandaId===td.id).map(i=>({ id: i.id, email: i.email, invitedName: i.invitedName ?? null, status: i.status })), participants: parts.map(x=>({ id: x.id, name: x.name, email: x.email ?? null, drawOrder: x.drawOrder ?? null, fixedDrawOrder: rows.fixedDrawOrders.get(x.id) ?? null, cardLast4: x.cardLast4 ?? null, joinedDate: x.joinedDate ?? null, role: (x as unknown as { role?: string }).role || "participante", excluded: (x as unknown as { excluded?: number }).excluded ?? 0, stats: statsForName(x.name) })), calendar, payments: paysOut, fines: finesOut, votes: votesOut, deliveries: deliveriesOut, fundEntries: fundEntriesOut, balances, attendance };
 }
 
 // El organizador de una tanda también participa en ella: paga cada
@@ -2059,6 +2100,10 @@ export const Actions = {
         const rows = Array.isArray(res) ? res : (res.rows ?? []);
         for (const row of rows) if (row.mp_order_id != null) mpOrderIds.set(row.id, row.mp_order_id);
       } catch { /* columna aún no creada */ }
+      // Número fijo elegido para el sorteo (columna fixed_draw_order,
+      // supabase/add-tanda-fixed-draw-order.sql): se lee igual de
+      // tolerante; sin la columna, nadie tiene número fijo.
+      const fixedDrawOrders = await readFixedDrawOrders(db, hid);
       // Importancia 1–5 de cada meta (columna goals.importance,
       // supabase/add-goals-importance.sql): se lee aparte con SQL directo
       // y en silencio si la columna aún no existe, para que getOverview no
@@ -2370,7 +2415,7 @@ export const Actions = {
       const personal = { salary: Math.round(salary*100)/100, monthSpent: Math.round(monthSpentP*100)/100, remaining: Math.round((salary-monthSpentP)*100)/100, todaySpent: Math.round(todayMovs.reduce((s,m)=>s+m.amount,0)*100)/100, todayCount: todayMovs.length, byCategory, todayMovements: todayMovs.filter(canSeeMovement).map(m=>({ id:m.id, concept:m.concept, amount:m.amount, categoryId:m.categoryId??null, date:m.date })) };
 
       // ---- Tandas v2: organizador con estrellas, invitados, comprobantes y cumplimiento ----
-      const tandas = await Promise.all(tandasR.map(td => assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: ctx.userRole === "admin", myProfileId })));
+      const tandas = await Promise.all(tandasR.map(td => assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, fixedDrawOrders, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: ctx.userRole === "admin", myProfileId })));
 
       // ---- Plan de ahorro por meta: avance y ritmo, calculados del fondo ligado ----
       // Los avisos del plan se revisan en cada carga; si toca avisar, el aviso
@@ -2621,6 +2666,9 @@ export const Actions = {
           const rows = Array.isArray(res) ? res : (res.rows ?? []);
           for (const row of rows) if (row.mp_order_id != null) mpOrderIds.set(row.id, row.mp_order_id);
         } catch { /* columna aún no creada */ }
+        // Número fijo elegido para el sorteo (columna fixed_draw_order):
+        // se lee igual de tolerante; sin la columna, nadie tiene número fijo.
+        const fixedDrawOrders = await readFixedDrawOrders(db, hid);
         const tandaInvsR = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.householdId, hid)).orderBy(desc(schema.tandaInvitations.id));
         const orgRatingsR = await db.select().from(schema.organizerRatings).where(eq(schema.organizerRatings.householdId, hid)).orderBy(desc(schema.organizerRatings.id));
         const safeRows = async <T>(fn: () => Promise<T[]>): Promise<T[]> => { try { return await fn(); } catch { return []; } };
@@ -2630,7 +2678,7 @@ export const Actions = {
         const tandaFundEntriesR = await safeRows(() => db.select().from(schema.tandaFundEntries).where(eq(schema.tandaFundEntries.householdId, hid)));
         const myProfileId = profilesR.find(p => p.userId === ctx.user.id)?.id ?? null;
         for (const td of htds) {
-          out.push(await assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: false, myProfileId }));
+          out.push(await assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, fixedDrawOrders, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: false, myProfileId }));
         }
       }
       return { tandas: out };
@@ -4255,7 +4303,28 @@ export const Actions = {
         for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const tmp = shuffled[i]!; shuffled[i] = shuffled[j]!; shuffled[j] = tmp; }
         orderedParts = shuffled;
       }
-      for (let idx = 0; idx < orderedParts.length; idx++) { const part = orderedParts[idx]; if (part) await db.update(schema.tandaParticipants).set({ drawOrder: idx + 1 }).where(eq(schema.tandaParticipants.id, part.id)); }
+      // Números fijos elegibles (2026-11-26): los que el Organizador fijó
+      // antes del sorteo se asignan tal cual; los demás se ordenan como
+      // hoy (azar o ponderado) y reciben los números libres en ese orden.
+      // El resultado sigue siendo drawOrder 1..N sin huecos ni repetidos
+      // entre los participantes presentes. Si no hay Tesorero asignado,
+      // solo el Organizador queda fijo y el sorteo no se bloquea.
+      const fixedAll = await readFixedDrawOrders(db, td.householdId);
+      const fixedHere = new Map<number, number>();
+      for (const p of parts) {
+        const n = fixedAll.get(p.id);
+        if (n == null) continue;
+        const role = await resolvedParticipantRole(db, td, p);
+        if (role !== "organizador" && role !== "tesorero") throw new Error(`El número fijo de ${p.name} ya no aplica: ya no es Organizador ni Tesorero. Quítelo antes de sortear.`);
+        if (n < 1 || n > td.participantCount) throw new Error(`El número fijo de ${p.name} está fuera de rango (1 a ${td.participantCount}).`);
+        if ([...fixedHere.values()].includes(n)) throw new Error(`El n.º ${n} está fijo para dos participantes.`);
+        fixedHere.set(p.id, n);
+      }
+      const freeNumbers: number[] = [];
+      for (let i = 1; i <= td.participantCount; i++) if (![...fixedHere.values()].includes(i)) freeNumbers.push(i);
+      const rest = orderedParts.filter(x => !fixedHere.has(x.id));
+      for (const [pid, n] of fixedHere) { await db.update(schema.tandaParticipants).set({ drawOrder: n }).where(eq(schema.tandaParticipants.id, pid)); }
+      for (let idx = 0; idx < rest.length; idx++) { const part = rest[idx]; const n = freeNumbers[idx]; if (part && n != null) await db.update(schema.tandaParticipants).set({ drawOrder: n }).where(eq(schema.tandaParticipants.id, part.id)); }
       await db.update(schema.tandas).set({ drawMode: mode, turnsLocked: 1 }).where(eq(schema.tandas.id, args.tandaId));
       ctx.invalidateQueries(); return { ok: true, id: args.tandaId };
     },
@@ -4631,10 +4700,53 @@ export const Actions = {
       };
       if (args.role === "tesorero" || args.role === "suplente") {
         const others = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
-        for (const o of others) { if (o.id !== args.participantId && o.role === args.role) { await db.update(schema.tandaParticipants).set({ role: "participante" }).where(eq(schema.tandaParticipants.id, o.id)); await syncRoleField(o.id, "participante"); } }
+        for (const o of others) { if (o.id !== args.participantId && o.role === args.role) { await db.update(schema.tandaParticipants).set({ role: "participante" }).where(eq(schema.tandaParticipants.id, o.id)); await syncRoleField(o.id, "participante"); try { await writeFixedDrawOrder(db, o.id, null); } catch { /* columna aún no creada */ } } }
       }
       await db.update(schema.tandaParticipants).set({ role: args.role }).where(eq(schema.tandaParticipants.id, args.participantId));
       await syncRoleField(args.participantId, args.role);
+      // Al degradar a participante o suplente el número fijo deja de
+      // aplicar (solo Organizador y Tesorero pueden tenerlo): se limpia
+      // para que el sorteo no lo respete. Tolerante si la columna aún no
+      // existe.
+      if (args.role === "participante" || args.role === "suplente") { try { await writeFixedDrawOrder(db, args.participantId, null); } catch { /* columna aún no creada */ } }
+      ctx.invalidateQueries(); return { ok: true, id: args.participantId };
+    },
+  }),
+
+  // Números fijos elegibles para el sorteo (decisión de Heriberto
+  // 2026-11-26): el Organizador elige, antes del sorteo, un número fijo
+  // para el Organizador y otro para el Tesorero — cualquiera del 1 al N,
+  // no solo 1 o 10. El sorteo asigna primero esos números y revuelve
+  // solo a los demás entre los libres. Solo rango 3 y solo antes de que
+  // los turnos queden fijados. Pasa por la rama genérica del despachador
+  // (householdId → membresía real del hogar): el Organizador es admin
+  // del hogar.
+  setTandaFixedNumber: defineAction({
+    description: "Sets or clears a fixed draw number for the Organizador or Tesorero of a tanda, chosen by the Organizador before the draw. The draw then assigns that number to them and shuffles only the rest.",
+    request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), number: z.number().int().min(1).nullable() }),
+    response: okRes,
+    async handler(ctx, args): Promise<Ok> {
+      const db = ctx.db;
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaRank(acc, 3);
+      const td = acc.tanda;
+      if ((td as unknown as { turnsLocked?: number }).turnsLocked === 1) throw new Error("Los turnos ya están fijados. El número fijo ya no se puede cambiar.");
+      const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
+      const part = parts.find(p => p.id === args.participantId);
+      if (!part) throw new Error("Participante no encontrado en esta tanda.");
+      if ((part as unknown as { excluded?: number }).excluded === 1) throw new Error("El participante está excluido de la tanda.");
+      const role = await resolvedParticipantRole(db, td, part);
+      if (role !== "organizador" && role !== "tesorero") throw new Error("Solo el Organizador y el Tesorero pueden tener número fijo.");
+      if (args.number != null) {
+        if (args.number > td.participantCount) throw new Error(`El número fijo debe estar entre 1 y ${td.participantCount}.`);
+        const fixed = await readFixedDrawOrders(db, args.householdId, args.tandaId);
+        for (const [pid, n] of fixed) {
+          if (pid !== args.participantId && n === args.number) {
+            const other = parts.find(p => p.id === pid);
+            throw new Error(`El n.º ${args.number} ya está fijo para ${other ? other.name : "otro participante"}.`);
+          }
+        }
+      }
+      await writeFixedDrawOrder(db, args.participantId, args.number);
       ctx.invalidateQueries(); return { ok: true, id: args.participantId };
     },
   }),

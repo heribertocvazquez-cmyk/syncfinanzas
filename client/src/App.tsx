@@ -1437,6 +1437,7 @@ export function App(){
   const [rateName,setRateName]=useState<Record<number,string>>({}); const [rateStars,setRateStars]=useState<Record<number,string>>({}); const [rateComment,setRateComment]=useState<Record<number,string>>({});
   const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined,coverageRule:tandaCoverage,fineAmount:Number(tandaFine)||0,meetingDay:tandaMeeting,treasurerProfileId:tandaTreasurer?Number(tandaTreasurer):null,substituteProfileId:tandaSubstitute?Number(tandaSubstitute):null}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");setTandaFine("");setTandaMeeting("");setTandaTreasurer("");setTandaSubstitute("");}});
   const setRole=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;role:"organizador"|"tesorero"|"suplente"|"participante"})=>await api.setTandaRole(v),onSuccess:inv});
+  const setFixed=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;number:number|null})=>await api.setTandaFixedNumber({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   const addFine=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;reason:"retardo"|"falta"})=>await api.addTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   const payFine=useMutation({mutationFn:async(v:{tandaId:number;fineId:number})=>await api.payTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   const voteExclude=useMutation({mutationFn:async(v:{tandaId:number;targetParticipantId:number})=>await api.voteExcludeParticipant({householdId:tandaHouseholdId(v.tandaId),...v,voterName:me?fullName(me):"Organizador"}),onSuccess:inv});
@@ -1521,7 +1522,7 @@ export function App(){
     tandaProofReview, setTandaProofReview, mpOrders, mpOrderKey, mpClearOrder,
     copiedLink, copyLink, tandaInviteMessage, setReceiptView,
     pickTandaProof, confirmTandaProof,
-    delTanda, drawTanda, setPay, addFine, verifyPay, addFundEntry, payFine, setRole,
+    delTanda, drawTanda, setPay, addFine, verifyPay, addFundEntry, payFine, setRole, setFixed,
     voteExclude, removePart, setCard, addPart, createTandaInv, respondTandaInv, resendInv, cancelTandaInv,
     confirmDelivery, uploadProof, remindPay, createMpOrder, checkMpOrder, rateOrg,
   };
