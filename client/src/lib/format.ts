@@ -31,3 +31,33 @@ export function todayISO() {
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
 }
+
+// Fecha en formato corto de México (dd/mm/aaaa) para campos que se teclean
+// directo: el input nativo type="date" no acepta teclear «01/12/2026»
+// (verificado en pantalla 2026-11-26/27) y en el teléfono abre el
+// selector. Se teclea el texto y se guarda en ISO.
+export function isoToDMY(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!m) return "";
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+function isValidYMD(y: number, m: number, d: number): boolean {
+  if (y < 1900 || y > 2100 || m < 1 || m > 12 || d < 1) return false;
+  return d <= new Date(y, m, 0).getDate();
+}
+export function parseDMYToISO(text: string): string | null {
+  const t = (text || "").trim();
+  let m = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/.exec(t);
+  if (m) {
+    const d = Number(m[1]), mo = Number(m[2]), y = Number(m[3]);
+    if (isValidYMD(y, mo, d)) return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    return null;
+  }
+  m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (m) {
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    if (isValidYMD(y, mo, d)) return t;
+    return null;
+  }
+  return null;
+}

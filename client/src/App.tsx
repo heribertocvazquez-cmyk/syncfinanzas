@@ -1457,7 +1457,7 @@ export function App(){
   },[tandaDetailId, data?.household?.id]);
   const [tInvEmail,setTInvEmail]=useState<Record<number,string>>({}); const [tInvName,setTInvName]=useState<Record<number,string>>({}); const [tJoinName,setTJoinName]=useState<Record<number,string>>({});
   const [rateName,setRateName]=useState<Record<number,string>>({}); const [rateStars,setRateStars]=useState<Record<number,string>>({}); const [rateComment,setRateComment]=useState<Record<number,string>>({});
-  const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined,coverageRule:tandaCoverage,fineAmount:Number(tandaFine)||0,meetingDay:tandaMeeting,treasurerProfileId:tandaTreasurer?Number(tandaTreasurer):null,substituteProfileId:tandaSubstitute?Number(tandaSubstitute):null,kind:tandaKind}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");setTandaFine("");setTandaMeeting("");setTandaTreasurer("");setTandaSubstitute("");setTandaKind("ordinaria");}});
+  const saveTanda=useMutation({mutationFn:async (fv: TandaFormValues)=>await api.saveTanda({householdId:data!.household!.id,name:fv.name,participantCount:Number(fv.count)||10,amountPerQuincena:Number(fv.amount)||0,startDate:fv.start,frequency:fv.freq,drawMode:fv.drawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined,coverageRule:fv.coverage,fineAmount:Number(fv.fine)||0,meetingDay:fv.meeting,treasurerProfileId:fv.treasurer?Number(fv.treasurer):null,substituteProfileId:fv.substitute?Number(fv.substitute):null,kind:fv.kind}),onSuccess:()=>{inv();setTandaName("");setTandaCount("10");setTandaAmount("");setTandaStart(todayISO());setTandaFreq("quincenal");setTandaDrawMode("random");setTandaCoverage("fondo");setTandaFine("");setTandaMeeting("");setTandaTreasurer("");setTandaSubstitute("");setTandaKind("ordinaria");}});
   const setRole=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;role:"organizador"|"tesorero"|"suplente"|"participante"})=>await api.setTandaRole(v),onSuccess:inv});
   const setFixed=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;number:number|null})=>await api.setTandaFixedNumber({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   const addFine=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;reason:"retardo"|"falta"})=>await api.addTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
@@ -1962,7 +1962,13 @@ export function App(){
   // solo; lo abre a mano con «Crear mi hogar». Mientras listMyTandas no
   // resuelve, no se pinta nada en su lugar para no mostrarle el asistente
   // por error.
-  const showHouseholdWizard = !myTandasQuery.isPending && (!isTandaGuest || showHouseholdForm);
+  // Invitación de tanda pendiente (por correo o por enlace): antes de
+  // aceptarla el invitado solo ve la tarjeta de invitación; el asistente
+  // «Cree su hogar» no se pinta (verificado en pantalla 2026-11-27,
+  // 9e6ed0c). Tras aceptar, isTandaGuest ya lo oculta y sale la tarjeta
+  // «¿Quiere su propio hogar?».
+  const hasPendingTandaInvite = invFound.some(iv=>iv.kind==="tanda") || (tokenInvite?.kind==="tanda" && !tokenDone);
+  const showHouseholdWizard = !myTandasQuery.isPending && !hasPendingTandaInvite && (!isTandaGuest || showHouseholdForm);
   if(!data.household){
     return (
       <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
@@ -2120,7 +2126,7 @@ export function App(){
               </div>
             )}
           </form>
-          ) : !myTandasQuery.isPending ? (
+          ) : !myTandasQuery.isPending && isTandaGuest ? (
           <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-2">
             <h2 className="font-display font-bold text-lg">¿Quiere su propio hogar?</h2>
             <p className="text-sm text-[var(--dim)]">Usted participa en la tanda como invitado, sin hogar. Su participación sigue siendo solo de la tanda. Si quiere un hogar propio, es un perfil aparte: su tanda no se mezcla con él.</p>
@@ -3803,7 +3809,7 @@ export function App(){
             onDetailChange={setTandaDetailId}
             formValues={tandaFormValues}
             onFormChange={onTandaFormChange}
-            onFormSubmit={()=>saveTanda.mutate()}
+            onFormSubmit={(fv)=>saveTanda.mutate(fv)}
             formPending={saveTanda.isPending}
             organizerName={me?fullName(me):"usted"}
             adultProfiles={data.profiles.filter(p=>p.kind==="adult").map(p=>({id:p.id,name:fullName(p)}))}
