@@ -921,7 +921,26 @@ export function App(){
   // correo, en cuyo caso se entra al hogar invitado sin crear uno nuevo;
   // el enlace para probar la app no entra a ningún hogar).
   const [modeModalOpen,setModeModalOpen]=useState(false); const [modeModalShown,setModeModalShown]=useState(false);
-  useEffect(()=>{ if(data && !data.household && (!tokenInvite || tokenDone) && !tokenPending && !modeModalShown){ setModeModalOpen(true); setModeModalShown(true); } },[data,tokenInvite,tokenPending,tokenDone,modeModalShown]);
+  // Invitado solo de tanda (2026-11-26): su espacio es Personal y su
+  // tanda, sin hogar. La invitación de tanda es SOLO modo Personal: ni
+  // el diálogo de modo ni el asistente «Cree su hogar» se le muestran
+  // solos. Si después quiere un hogar, lo abre a mano («Crear mi hogar»)
+  // y es OTRO perfil/hogar, por el flujo normal, sin mezclarlo con su
+  // participación de invitado. El diálogo solo se abre solo cuando ya se
+  // sabe que NO es invitado: listMyTandas resuelto, sin tandas y sin
+  // invitación de tanda pendiente.
+  const isTandaGuest = guestTandas.length>0;
+  const [showHouseholdForm,setShowHouseholdForm]=useState(false);
+  const [guestLanded,setGuestLanded]=useState(false);
+  useEffect(()=>{
+    if(data && !data.household && modeModalShown && invFound.some(iv=>iv.kind==="tanda")){ setModeModalOpen(false); return; }
+    if(data && !data.household && (!tokenInvite || tokenDone) && !tokenPending && !modeModalShown && !myTandasQuery.isPending && !myTandasQuery.isFetching && !isTandaGuest && !invFound.some(iv=>iv.kind==="tanda")){ setModeModalOpen(true); setModeModalShown(true); }
+  },[data,tokenInvite,tokenPending,tokenDone,modeModalShown,myTandasQuery.isPending,myTandasQuery.isFetching,isTandaGuest,invFound]);
+  // Al entrar, el invitado cae directo en sus tandas (una sola vez por
+  // sesión; «‹ Volver» lo deja en Inicio sin rebotarlo). No se mueve
+  // mientras haya un enlace de invitación por resolver o aceptar: el
+  // banner vive en Inicio y ahí debe verse.
+  useEffect(()=>{ if(data && !data.household && isTandaGuest && !guestLanded && (tokenRaw==null || tokenDone)){ setTab("tandas"); setGuestLanded(true); } },[data,isTandaGuest,guestLanded,tokenRaw,tokenDone]);
   // Aviso de invitación por enlace: se muestra CON hogar y SIN hogar, e
   // incluso si el resumen no cargó (la pantalla de error lo incluye
   // arriba): antes solo existía en la pantalla sin hogar, así que quien ya
@@ -1333,7 +1352,7 @@ export function App(){
   const demo=useMutation({mutationFn:async()=>await api.loadDemo({householdId:data!.household!.id}),onSuccess:inv});
   // Reinicio completo de la aplicación (botón dentro del menú desplegable de módulos)
   const [resetStep,setResetStep]=useState(0); const [resetWord,setResetWord]=useState(""); const [resetDone,setResetDone]=useState(false);
-  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTab("inicio"); pickProfile(null); clearStoredHousehold(); setActiveHouseholdId(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); localStorage.removeItem("sf-pin-hash"); sessionStorage.removeItem("sf-pin-unlocked"); localStorage.removeItem("sf-periodic-alerts-date"); }catch{} }});
+  const resetAll=useMutation({mutationFn:async()=>await api.resetAllData({householdId:data!.household!.id}),onSuccess:()=>{ inv(); setResetDone(true); setResetStep(0); setResetWord(""); setMenuOpen(false); setTab("inicio"); pickProfile(null); clearStoredHousehold(); setActiveHouseholdId(null); setObStep(0); setObError(""); setHhName("Mi hogar"); setOwnerName(""); setOwnerLast(""); setOwnerIncome(""); setModeModalShown(false); setModeModalOpen(false); setGuestLanded(false); setShowHouseholdForm(false); setFirstGuideOpen(false); setChartsSeen(false); try{ localStorage.removeItem("sf-install-dismissed"); localStorage.removeItem("sf-first-guide-pending"); localStorage.removeItem("sf-guide-charts-seen"); localStorage.removeItem("sf-pin-hash"); sessionStorage.removeItem("sf-pin-unlocked"); localStorage.removeItem("sf-periodic-alerts-date"); }catch{} }});
   // personal
   const [salaryInput,setSalaryInput]=useState(""); const [persAmt,setPersAmt]=useState(""); const [persConcept,setPersConcept]=useState(""); const [persCat,setPersCat]=useState(""); const [persAccount,setPersAccount]=useState(""); const [persAccountError,setPersAccountError]=useState(""); const [persStep,setPersStep]=useState(1);
   const saveSalary=useMutation({mutationFn:async()=>await api.updatePersonalSalary({householdId:data!.household!.id,salary:Number(salaryInput)||0}),onSuccess:inv});
@@ -1488,7 +1507,10 @@ export function App(){
   };
   const verifyPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;verified:boolean})=>await api.verifyTandaPayment({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   const createTandaInv=useMutation({mutationFn:async(v:{tandaId:number})=>await api.createTandaInvitation({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,email:tInvEmail[v.tandaId]||"",invitedName:tInvName[v.tandaId]||undefined}),onSuccess:(r,v)=>{inv();setTInvResult(p=>({...p,[v.tandaId]:{emailSent:r.emailSent,emailConfigured:r.emailConfigured,inviteUrl:r.inviteUrl}}));setTInvEmail(p=>({...p,[v.tandaId]:""}));setTInvName(p=>({...p,[v.tandaId]:""}));}});
-  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:()=>{ inv(); }});
+  // Al aceptar una invitación de tanda por correo, el invitado va directo
+  // al detalle de su tanda (igual que por enlace): su espacio es Personal
+  // y su tanda, sin el diálogo de modo ni el asistente «Cree su hogar».
+  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:(r,v)=>{ inv(); if(v.accept){ const tid=(r && typeof r==="object" && "tandaId" in r)?(r as {tandaId?:unknown}).tandaId:undefined; void qc.invalidateQueries({queryKey:["myTandas"]}).then(()=>{ if(typeof tid==="number"){ setTandaDetailId(tid); setTab("tandas"); } }); } }});
   const cancelTandaInv=useMutation({mutationFn:async(id:number)=>await api.cancelTandaInvitation({id}),onSuccess:inv});
   const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
   const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
@@ -1936,6 +1958,11 @@ export function App(){
       return next;
     });
   };
+  // Asistente «Cree su hogar»: al invitado solo de tanda no se le muestra
+  // solo; lo abre a mano con «Crear mi hogar». Mientras listMyTandas no
+  // resuelve, no se pinta nada en su lugar para no mostrarle el asistente
+  // por error.
+  const showHouseholdWizard = !myTandasQuery.isPending && (!isTandaGuest || showHouseholdForm);
   if(!data.household){
     return (
       <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
@@ -2035,6 +2062,7 @@ export function App(){
               </div>
             </div>
           )}
+          {showHouseholdWizard ? (
           <form className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();createHh.mutate();}}>
             <div className="flex items-center justify-between gap-2">
               <h2 className="font-display font-bold text-lg">{planMode==="personal"?"Su espacio personal":"Cree su hogar"}</h2>
@@ -2092,6 +2120,13 @@ export function App(){
               </div>
             )}
           </form>
+          ) : !myTandasQuery.isPending ? (
+          <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-2">
+            <h2 className="font-display font-bold text-lg">¿Quiere su propio hogar?</h2>
+            <p className="text-sm text-[var(--dim)]">Usted participa en la tanda como invitado, sin hogar. Su participación sigue siendo solo de la tanda. Si quiere un hogar propio, es un perfil aparte: su tanda no se mezcla con él.</p>
+            <button type="button" className={btnPrimary} onClick={()=>setShowHouseholdForm(true)}>Crear mi hogar</button>
+          </div>
+          ) : null}
           <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
           <HelpAssistant />
           </>)}
