@@ -857,6 +857,12 @@ export function App(){
   const [tokenRaw,setTokenRaw]=useState<string|null>(()=>readInviteToken());
   const [tokenInvite,setTokenInvite]=useState<InvitePreviewFull|null>(null);
   const [tokenDone,setTokenDone]=useState(false);
+  // Aceptación de tanda en curso: tras aceptar, la invitación ya no está
+  // pendiente pero listMyTandas aún no trae la tanda; en esa ventana el
+  // asistente «Cree su hogar» (y el diálogo de modo) no deben aparecer
+  // (verificado en pantalla 2026-11-27, 00297d1). Se levanta al aceptar
+  // y se baja al caer en el detalle, al resolverse la lista o si falla.
+  const [tandaAccepting,setTandaAccepting]=useState(false);
   // El enlace ya no vale (reemplazado, vencido o inexistente): se avisa
   // en claro en lugar de caer en silencio al espacio propio.
   const [tokenError,setTokenError]=useState(false);
@@ -884,14 +890,14 @@ export function App(){
     if (tokenInvite.kind==="household" && tokenInvite.invitationId) return await api.respondInvitation({id: tokenInvite.invitationId, accept: true, firstName: joinFirst||undefined, lastName: joinLast||undefined});
     if (tokenInvite.kind==="tanda" && tokenInvite.tandaInvitationId) return await api.respondTandaInvitation({id: tokenInvite.tandaInvitationId, accept: true, name: [joinFirst, joinLast].filter(Boolean).join(" ")||undefined});
     throw new Error("No se pudo identificar la invitación del enlace.");
-  },onSuccess:(r)=>{ if(tokenInvite?.kind==="tanda"){
+  },onMutate:()=>{ if(tokenInvite?.kind==="tanda") setTandaAccepting(true); },onSuccess:(r)=>{ if(tokenInvite?.kind==="tanda"){
     // Invitación de tanda: el invitado NO se hace miembro del hogar del
     // invitador y el hogar activo NO cambia: la tanda se habilita en su
     // propio espacio Personal (listMyTandas) y se abre su detalle cuando
     // la lista ya la trae.
     const tid = (r && typeof r === "object" && "tandaId" in r) ? (r as { tandaId?: unknown }).tandaId : undefined;
     setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv();
-    void qc.invalidateQueries({queryKey:["myTandas"]}).then(()=>{ if(typeof tid === "number"){ setTandaDetailId(tid); setTab("tandas"); } });
+    void qc.invalidateQueries({queryKey:["myTandas"]}).then(()=>{ setTandaAccepting(false); if(typeof tid === "number"){ setTandaDetailId(tid); setTab("tandas"); } });
     return;
   }
   const pid = (r && typeof r === "object" && "profileId" in r) ? (r as { profileId?: unknown }).profileId : undefined; if(typeof pid === "number") pickProfile(pid);
@@ -901,7 +907,7 @@ export function App(){
     const hid = (r && typeof r === "object" && "householdId" in r) ? (r as { householdId?: unknown }).householdId : undefined;
     if(typeof hid === "number"){ setActiveHouseholdId(hid); writeStoredHousehold(hid, myEmail); }
     if(typeof hid === "number"){ setTab("inicio"); }
-    setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); }});
+    setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv(); },onError:()=>{ setTandaAccepting(false); }});
   const rejectTokenInvite=useMutation({mutationFn:async()=>{
     if (!tokenInvite) throw new Error("No hay invitación por enlace.");
     // La invitación general no crea nada: rechazarla es simplemente descartarla.
@@ -934,13 +940,14 @@ export function App(){
   const [guestLanded,setGuestLanded]=useState(false);
   useEffect(()=>{
     if(data && !data.household && modeModalShown && invFound.some(iv=>iv.kind==="tanda")){ setModeModalOpen(false); return; }
-    if(data && !data.household && (!tokenInvite || tokenDone) && !tokenPending && !modeModalShown && !myTandasQuery.isPending && !myTandasQuery.isFetching && !isTandaGuest && !invFound.some(iv=>iv.kind==="tanda")){ setModeModalOpen(true); setModeModalShown(true); }
-  },[data,tokenInvite,tokenPending,tokenDone,modeModalShown,myTandasQuery.isPending,myTandasQuery.isFetching,isTandaGuest,invFound]);
+    if(data && !data.household && (!tokenInvite || tokenDone) && !tokenPending && !modeModalShown && !myTandasQuery.isPending && !myTandasQuery.isFetching && !isTandaGuest && !invFound.some(iv=>iv.kind==="tanda") && !tandaAccepting){ setModeModalOpen(true); setModeModalShown(true); }
+  },[data,tokenInvite,tokenPending,tokenDone,modeModalShown,myTandasQuery.isPending,myTandasQuery.isFetching,isTandaGuest,invFound,tandaAccepting]);
   // Al entrar, el invitado cae directo en sus tandas (una sola vez por
   // sesión; «‹ Volver» lo deja en Inicio sin rebotarlo). No se mueve
   // mientras haya un enlace de invitación por resolver o aceptar: el
   // banner vive en Inicio y ahí debe verse.
-  useEffect(()=>{ if(data && !data.household && isTandaGuest && !guestLanded && (tokenRaw==null || tokenDone)){ setTab("tandas"); setGuestLanded(true); } },[data,isTandaGuest,guestLanded,tokenRaw,tokenDone]);
+  useEffect(()=>{ if(data && !data.household && isTandaGuest && !guestLanded && (tokenRaw==null || tokenDone)){ setTandaAccepting(false); setTab("tandas"); setGuestLanded(true); } },[data,isTandaGuest,guestLanded,tokenRaw,tokenDone]);
+  useEffect(()=>{ if(isTandaGuest) setTandaAccepting(false); },[isTandaGuest]);
   // Aviso de invitación por enlace: se muestra CON hogar y SIN hogar, e
   // incluso si el resumen no cargó (la pantalla de error lo incluye
   // arriba): antes solo existía en la pantalla sin hogar, así que quien ya
@@ -1510,7 +1517,7 @@ export function App(){
   // Al aceptar una invitación de tanda por correo, el invitado va directo
   // al detalle de su tanda (igual que por enlace): su espacio es Personal
   // y su tanda, sin el diálogo de modo ni el asistente «Cree su hogar».
-  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onSuccess:(r,v)=>{ inv(); if(v.accept){ const tid=(r && typeof r==="object" && "tandaId" in r)?(r as {tandaId?:unknown}).tandaId:undefined; void qc.invalidateQueries({queryKey:["myTandas"]}).then(()=>{ if(typeof tid==="number"){ setTandaDetailId(tid); setTab("tandas"); } }); } }});
+  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onMutate:(v)=>{ if(v.accept) setTandaAccepting(true); },onSuccess:(r,v)=>{ inv(); if(v.accept){ const tid=(r && typeof r==="object" && "tandaId" in r)?(r as {tandaId?:unknown}).tandaId:undefined; void qc.invalidateQueries({queryKey:["myTandas"]}).then(()=>{ setTandaAccepting(false); if(typeof tid==="number"){ setTandaDetailId(tid); setTab("tandas"); } }); } },onError:()=>{ setTandaAccepting(false); }});
   const cancelTandaInv=useMutation({mutationFn:async(id:number)=>await api.cancelTandaInvitation({id}),onSuccess:inv});
   const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
   const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
@@ -1965,10 +1972,13 @@ export function App(){
   // Invitación de tanda pendiente (por correo o por enlace): antes de
   // aceptarla el invitado solo ve la tarjeta de invitación; el asistente
   // «Cree su hogar» no se pinta (verificado en pantalla 2026-11-27,
-  // 9e6ed0c). Tras aceptar, isTandaGuest ya lo oculta y sale la tarjeta
-  // «¿Quiere su propio hogar?».
+  // 9e6ed0c). Tras aceptar tampoco: la bandera tandaAccepting lo oculta
+  // durante la ventana en que la invitación ya no está pendiente pero
+  // listMyTandas aún no trae la tanda (verificado en pantalla
+  // 2026-11-27, 00297d1). Tras aceptar, isTandaGuest ya lo oculta y
+  // sale la tarjeta «¿Quiere su propio hogar?».
   const hasPendingTandaInvite = invFound.some(iv=>iv.kind==="tanda") || (tokenInvite?.kind==="tanda" && !tokenDone);
-  const showHouseholdWizard = !myTandasQuery.isPending && !hasPendingTandaInvite && (!isTandaGuest || showHouseholdForm);
+  const showHouseholdWizard = !myTandasQuery.isPending && !hasPendingTandaInvite && !tandaAccepting && (!isTandaGuest || showHouseholdForm);
   if(!data.household){
     return (
       <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
