@@ -7,7 +7,7 @@
 // Si la persona ya tiene sesión, muestra la aplicación. También gestiona
 // el restablecimiento de contraseña (enlace por correo) y el cierre de sesión.
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { supabase, initialRecoverySignal } from "../supabase";
+import { supabase, initialRecoverySignal, parseRecoveryHash } from "../supabase";
 import { fetchSession } from "../api";
 import { WelcomeVidaFinanciera } from "./WelcomeVidaFinanciera";
 
@@ -142,6 +142,35 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // Red 4: el enlace puede llegar DESPUÉS de la carga. Si la app ya
+  // estaba abierta (p. ej. en el inicio de sesión) y se toca un enlace
+  // de restablecimiento en la misma ventana, la redirección de Supabase
+  // solo cambia el hash del mismo documento: la página NO se recarga y
+  // ninguna de las tres redes se vuelve a correr (verificado por
+  // Heriberto en su teléfono 2026-11-27: el segundo enlace cayó en el
+  // inicio de sesión sin formulario). Se escucha `hashchange`, se
+  // establece la sesión desde el hash y se pasa a recuperación. Un hash
+  // sin «type=recovery» se ignora, así que el borrado del hash por la
+  // librería (o por el propio envío del formulario, con replaceState)
+  // no re-dispara nada.
+  useEffect(() => {
+    const onHashChange = () => {
+      const credentials = parseRecoveryHash(window.location.hash);
+      if (!credentials) return;
+      void supabase.auth.setSession(credentials).then(({ error }) => {
+        if (error) {
+          setError("No se pudo restablecer la contraseña. Solicite un enlace nuevo.");
+          setMode("login");
+          return;
+        }
+        setError("");
+        setMode("recovery");
+      });
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
   if (session === null) {

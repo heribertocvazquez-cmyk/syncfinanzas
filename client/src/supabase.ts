@@ -37,6 +37,25 @@ export const initialRecoverySignal: boolean = (() => {
   }
 })();
 
+/** Lee las credenciales de recuperación de un hash de URL
+ *  («#access_token=...&refresh_token=...&type=recovery»). Devuelve null
+ *  si el hash no es de recuperación o le faltan las credenciales: un
+ *  cambio de hash normal nunca debe cambiar de modo. Se usa en el
+ *  listener de `hashchange` de AuthGate (red 4): el enlace puede llegar
+ *  después de la carga, cuando la app ya está abierta. */
+export function parseRecoveryHash(hash: string): { access_token: string; refresh_token: string } | null {
+  try {
+    const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+    if (params.get("type") !== "recovery") return null;
+    const access_token = params.get("access_token");
+    const refresh_token = params.get("refresh_token");
+    if (!access_token || !refresh_token) return null;
+    return { access_token, refresh_token };
+  } catch {
+    return null;
+  }
+}
+
 export const supabase = createClient(url, anonKey, {
   auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: true },
 });
