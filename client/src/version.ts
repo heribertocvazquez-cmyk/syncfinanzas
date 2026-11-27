@@ -8,4 +8,4 @@
 // commit que solo actualiza esta línea no cambia el número.
 // Redespliegue 2026-11-24: Vercel no tomó el commit de versión bedcf0f;
 // este cambio mínimo fuerza un despliegue nuevo.
-export const APP_VERSION = "65f85e0";
+export const APP_VERSION = "3cf0091";
