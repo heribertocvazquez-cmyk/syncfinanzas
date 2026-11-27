@@ -579,6 +579,7 @@ export function App(){
   // evaluación en Desarrollador. Solo el dueño evalúa; el servidor lo
   // vuelve a verificar en cada guardado.
   const [feedbackOpen,setFeedbackOpen]=useState(false);
+  const [feedbackShowMessages,setFeedbackShowMessages]=useState(false);
   // Error del último guardado de evaluación que falló ({id, message}):
   // solo esa fila muestra el aviso y su botón sigue habilitado para
   // reintentar. Se limpia al guardar bien o al intentar de nuevo.
@@ -708,7 +709,7 @@ export function App(){
   const snoozeMut=useMutation({mutationFn:async(v:{categoryId:number;month:string;nextThreshold:number})=>await api.snoozeBudgetSuggestion({householdId:data!.household!.id,...v}),onSuccess:(r)=>{ if(!r.saved){ setSnoozePendingSql(true); return; } qc.invalidateQueries({queryKey:["notifications"]}); qc.invalidateQueries({queryKey:["budgetSnoozes"]}); setSnoozeNotifId(null); }});
   const snoozesQuery=useQuery({queryKey:["budgetSnoozes",data?.household?.id,monthNow()],queryFn:()=>api.listBudgetSnoozes({householdId:data!.household!.id,month:monthNow()}),enabled:!!data?.household});
   const snoozeMap=new Map((snoozesQuery.data?.snoozes ?? []).map((x)=>[x.categoryId,x.nextThreshold]));
-  const openNotif=(n:{id:number;target:string;type:string;body:string;amount?:number|null;createdAt:string})=>{ if(n.type!=="presupuesto_sugerido") void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); if(n.type==="presupuesto_sugerido"){ const t=budgetSuggestionTarget(n); if(t?.cat){ openBudgetForm(t.cat.id,t.month,t.amount); } else { goTab("presupuestos"); } return; } if(n.type==="respuesta_opinion"){ setFeedbackOpen(true); return; } const tandaId=findTandaForNotification(n, allTandas); if(tandaId!=null){ openTandaDetail(tandaId); return; } goTab(n.target as Tab); };
+  const openNotif=(n:{id:number;target:string;type:string;body:string;amount?:number|null;createdAt:string})=>{ if(n.type!=="presupuesto_sugerido") void markNotifRead.mutateAsync(n.id).catch(()=>{}); setNotifOpen(false); if(n.type==="presupuesto_sugerido"){ const t=budgetSuggestionTarget(n); if(t?.cat){ openBudgetForm(t.cat.id,t.month,t.amount); } else { goTab("presupuestos"); } return; } if(n.type==="respuesta_opinion"){ setFeedbackShowMessages(true); setFeedbackOpen(true); return; } const tandaId=findTandaForNotification(n, allTandas); if(tandaId!=null){ openTandaDetail(tandaId); return; } goTab(n.target as Tab); };
   // Reglas de auto-categorización: si el concepto contiene la palabra, la
   // app pone sola esa categoría. Si la tabla aún no existe (falta correr
   // supabase/category-rules.sql), la lista sale vacía.
@@ -3975,7 +3976,7 @@ export function App(){
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
       <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} hidden={menuOpen} dynamicFaqs={dynamicFaqs} overview={data} nudge={activeNudge} />
       {feedbackOpen && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Enviar comentarios">
-        <TesterFeedbackForm embedded initialNombre={meEarly ? fullName(meEarly) : ""} initialCorreo={myEmail} onClose={()=>setFeedbackOpen(false)} />
+        <TesterFeedbackForm embedded initialNombre={meEarly ? fullName(meEarly) : ""} initialCorreo={myEmail} showMyMessages={feedbackShowMessages} onClose={()=>{ setFeedbackShowMessages(false); setFeedbackOpen(false); }} />
       </div>}
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
         <div className="bg-[var(--surface)] text-[var(--text)] rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">

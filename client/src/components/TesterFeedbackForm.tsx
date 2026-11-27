@@ -6,7 +6,7 @@
 // «Enviar comentarios», con el nombre y el correo ya llenos si hay sesión.
 // El tester puede consultar el estado y la respuesta de sus mensajes con su
 // correo (sin envío de correos: Resend no está configurado).
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import { Label, inputCls, btnPrimary, btnGhost } from "../lib/uiShared";
 import {
   FEEDBACK_TYPES,
@@ -32,19 +32,33 @@ function StarInput({label, value, onChange}:{label:string; value:number; onChang
   </div>;
 }
 
-function LookupSection(){
-  const [correo,setCorreo]=useState("");
+function LookupSection(p: { initialCorreo?: string; autoSearch?: boolean }){
+  const [correo,setCorreo]=useState(p.initialCorreo ?? "");
   const [results,setResults]=useState<MyFeedbackMessage[]|null>(null);
   const [searched,setSearched]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
-  const search=async(e:FormEvent)=>{
-    e.preventDefault(); setError(""); setSearched(false);
-    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo.trim())){ setError("Escriba un correo válido."); return; }
+  const autoDone=useRef(false);
+  const doSearch=async(email:string)=>{
+    setError(""); setSearched(false);
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){ setError("Escriba un correo válido."); return; }
     setBusy(true);
-    try{ const r=await fetchMyFeedback(correo); setResults(r); setSearched(true); }
+    try{ const r=await fetchMyFeedback(email); setResults(r); setSearched(true); }
     catch(err){ setError(err instanceof Error?err.message:"No se pudo consultar sus mensajes."); }
     finally{ setBusy(false); }
+  };
+  useEffect(()=>{
+    // Al abrir desde el aviso, la consulta corre sola una vez con el correo
+    // de la cuenta: el tester ve la respuesta sin escribir nada.
+    if(p.autoSearch && !autoDone.current && p.initialCorreo && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.initialCorreo.trim())){
+      autoDone.current=true;
+      void doSearch(p.initialCorreo);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[p.autoSearch, p.initialCorreo]);
+  const search=async(e:FormEvent)=>{
+    e.preventDefault();
+    await doSearch(correo);
   };
   return (
     <div className="mt-5 pt-4 border-t border-[var(--border)]">
@@ -54,6 +68,7 @@ function LookupSection(){
         <input aria-label="Correo para consultar sus mensajes" type="email" className={inputCls+" flex-1 min-w-0"} value={correo} onChange={e=>setCorreo(e.target.value)} placeholder="usted@correo.com" autoComplete="email" />
         <button type="submit" className={btnGhost+" shrink-0"} disabled={busy}>{busy?"Buscando…":"Consultar"}</button>
       </form>
+      {busy && <p className="text-sm text-[var(--dim)] mt-2">Buscando sus mensajes…</p>}
       {error && <p className="text-sm text-[var(--red)] mt-2" role="alert">{error}</p>}
       {searched && results !== null && (
         results.length===0
@@ -76,7 +91,7 @@ function LookupSection(){
   );
 }
 
-export function TesterFeedbackForm(p: { embedded?: boolean; initialNombre?: string; initialCorreo?: string; onClose?: () => void }){
+export function TesterFeedbackForm(p: { embedded?: boolean; initialNombre?: string; initialCorreo?: string; showMyMessages?: boolean; onClose?: () => void }){
   const [nombre,setNombre]=useState(p.initialNombre ?? "");
   const [correo,setCorreo]=useState(p.initialCorreo ?? "");
   const [tipo,setTipo]=useState<FeedbackType | "">("");
@@ -98,6 +113,7 @@ export function TesterFeedbackForm(p: { embedded?: boolean; initialNombre?: stri
     finally{ setBusy(false); }
   };
   const reset=()=>{ setSent(false); setTipo(""); setDescripcion(""); setRating(0); setEase(0); };
+  const lookupSection=<LookupSection initialCorreo={p.initialCorreo} autoSearch={p.showMyMessages ?? false} />;
   const body = sent ? (
     <div className="text-center">
       <p className="text-sm mt-3">Gracias por su mensaje. El dueño de la app lo revisa y le responde aquí mismo.</p>
@@ -106,10 +122,11 @@ export function TesterFeedbackForm(p: { embedded?: boolean; initialNombre?: stri
         <button type="button" className={btnPrimary} onClick={reset}>Enviar otro mensaje</button>
         {p.embedded && p.onClose && <button type="button" className={btnGhost} onClick={p.onClose}>Cerrar</button>}
       </div>
-      <div className="text-left"><LookupSection /></div>
+      <div className="text-left">{lookupSection}</div>
     </div>
   ) : (
     <>
+    {p.showMyMessages && lookupSection}
     <form className="mt-4 space-y-3" onSubmit={submit}>
       <div>
         <span className="text-xs font-semibold tracking-wide text-[var(--dim)] block mb-1">Tipo de mensaje</span>
@@ -129,15 +146,15 @@ export function TesterFeedbackForm(p: { embedded?: boolean; initialNombre?: stri
       {error && <p className="text-sm text-[var(--red)]" role="alert">{error}</p>}
       <button type="submit" className={btnPrimary+" w-full"} disabled={busy}>{busy?"Enviando…":"Enviar mensaje"}</button>
     </form>
-    <LookupSection />
+    {!p.showMyMessages && lookupSection}
     </>
   );
   if(p.embedded) return (
     <div className="w-full max-w-md bg-[var(--surface)] border border-[var(--border)] rounded-3xl p-6 text-[var(--text)] max-h-[92vh] overflow-y-auto">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="font-display font-bold text-lg">Enviar comentarios</h2>
-          <p className="text-sm text-[var(--dim)] mt-0.5">Dudas, errores o mejoras. El dueño de la app los revisa antes de hacer cambios.</p>
+          <h2 className="font-display font-bold text-lg">{p.showMyMessages ? "Respuesta a tu comentario" : "Enviar comentarios"}</h2>
+          <p className="text-sm text-[var(--dim)] mt-0.5">{p.showMyMessages ? "Aquí está la respuesta del dueño a su mensaje." : "Dudas, errores o mejoras. El dueño de la app los revisa antes de hacer cambios."}</p>
         </div>
         {p.onClose && <button type="button" aria-label="Cerrar el formulario de comentarios" onClick={p.onClose} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>}
       </div>
