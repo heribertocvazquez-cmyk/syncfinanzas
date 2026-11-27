@@ -2127,6 +2127,7 @@ export function App(){
                   <div><Label htmlFor="approval-rule">Aprobación</Label><select id="approval-rule" aria-label="Aprobación" className={inputCls} value={approvalRule} onChange={e=>setApprovalRule(e.target.value as "unanimous"|"majority")}><option value="unanimous">Unánime</option><option value="majority">Mayoría</option></select></div>
                 </div>
                 <Help><b>Corte:</b> cierra su mes. <b>Umbral:</b> los gastos mayores requieren un Acuerdo.</Help>
+                <p className="text-sm text-[var(--dim)]">Al entrar, agregue su primera cuenta: sin cuenta no se puede registrar ningún gasto.</p>
                 {createHh.error && <p className="text-sm text-[var(--red)]">{String(createHh.error)}</p>}
                 <div className="flex gap-2">
                   <button type="button" className={btnGhost+" flex-1"} onClick={()=>setObStep(1)}>Atrás</button>
@@ -2234,10 +2235,17 @@ export function App(){
   // se desplaza sola hasta arriba de la tarjeta (scroll-mt-28 evita que el
   // encabezado fijo la tape) para seguir llenando sin tener que buscarla.
   const scrollFormTop=(id:string)=>{ window.setTimeout(()=>{ document.getElementById(id)?.scrollIntoView({behavior:"smooth",block:"start"}); },60); };
-  const openNewMovement=(t:"income"|"expense")=>{ setEditingMv(null); setMvType(t); setMvCat(""); setMvSub(""); setMvStep(1); goToForm("movimientos","mv-amount"); };
-  const guideStep1 = hh.mode==="personal" ? data.personal.salary>0 : data.accounts.length>0;
-  const guideStep2 = data.totalMovements>0;
-  const guideStep3 = chartsSeen;
+  // «Nuevo» sin cuentas (A1, 2026-11-27): sin cuenta no se puede
+  // registrar ningún gasto, así que «Nuevo» abre Cuentas en lugar del
+  // formulario, donde el bloqueo solo se descubriría al final.
+  const openNewMovement=(t:"income"|"expense")=>{ if(data.accounts.length===0){ goToForm("cuentas","acc-name"); return; } setEditingMv(null); setMvType(t); setMvCat(""); setMvSub(""); setMvStep(1); goToForm("movimientos","mv-amount"); };
+  // Guía «Empiece aquí» (2026-11-27): el paso 1 es la cuenta en los dos
+  // modos — sin cuenta no se puede registrar ningún gasto. Personal tiene
+  // 4 pasos (cuenta, sueldo, gasto, gráficas); Familiar, 3.
+  const guideStep1 = data.accounts.length>0;
+  const guideStep2 = hh.mode==="personal" ? data.personal.salary>0 : data.totalMovements>0;
+  const guideStep3 = hh.mode==="personal" ? data.totalMovements>0 : chartsSeen;
+  const guideStep4 = chartsSeen;
   const isAdmin = !me || me.role==="admin";
   // Permisos de tanda del perfil actual (me): la interfaz solo muestra los
   // botones que corresponden a su rol; el servidor es la autoridad y rechaza
@@ -2829,15 +2837,16 @@ export function App(){
           <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--gold)] rounded-2xl p-4 sm:p-5 sm:p-3.5" role="status">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="font-display font-bold text-lg">Empiece en 3 pasos</h2>
+                <h2 className="font-display font-bold text-lg">Empiece aquí</h2>
                 
               </div>
               <button type="button" aria-label="Cerrar la guía de inicio" onClick={dismissFirstGuide} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button>
             </div>
             <ol className="mt-3 space-y-2">
-              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep1?"bg-[var(--green)] text-[var(--bg)]":"bg-[var(--accent)] text-[var(--accent-text)]"} font-bold flex items-center justify-center text-sm`}>{guideStep1?"✓":"1"}</span><div className="flex-1"><p className="text-sm font-bold">{hh.mode==="personal"?"Registre su sueldo":"Abra su cuenta inicial"}</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Escriba su sueldo en Personal.":"Pulse Nueva cuenta en Cuentas."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab(hh.mode==="personal"?"personal":"cuentas")}>{hh.mode==="personal"?"Ir a Personal":"Ir a Cuentas"}</button></li>
-              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep2?"bg-[var(--green)] text-[var(--bg)]":"bg-[var(--accent)] text-[var(--accent-text)]"} font-bold flex items-center justify-center text-sm`}>{guideStep2?"✓":"2"}</span><div className="flex-1"><p className="text-sm font-bold">Registre su primer gasto</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Registre su gasto del día en Personal.":"Escriba el importe en Movimientos."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>{ if(hh.mode==="personal"){ setPersStep(1); goToForm("personal","pers-amt"); } else { openNewMovement("expense"); } }}>{hh.mode==="personal"?"Ir a Personal":"Ir a Movimientos"}</button></li>
-              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep3?"bg-[var(--green)] text-[var(--bg)]":"bg-[var(--accent)] text-[var(--accent-text)]"} font-bold flex items-center justify-center text-sm`}>{guideStep3?"✓":"3"}</span><div className="flex-1"><p className="text-sm font-bold">Revise sus gráficas</p><p className="text-sm text-[var(--dim)]">Vea su gasto por categoría en Inicio.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("inicio")}>Ir a Inicio</button></li>
+              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep1?"bg-[var(--green)] text-[var(--bg)]":"bg-[var(--accent)] text-[var(--accent-text)]"} font-bold flex items-center justify-center text-sm`}>{guideStep1?"✓":"1"}</span><div className="flex-1"><p className="text-sm font-bold">Agregue su primera cuenta</p><p className="text-sm text-[var(--dim)]">Sin cuenta no se puede registrar ningún gasto.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goToForm("cuentas","acc-name")}>Ir a Cuentas</button></li>
+              {hh.mode==="personal" && <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep2?"bg-[var(--green)] text-[var(--bg)]":"bg-[var(--accent)] text-[var(--accent-text)]"} font-bold flex items-center justify-center text-sm`}>{guideStep2?"✓":"2"}</span><div className="flex-1"><p className="text-sm font-bold">Registre su sueldo</p><p className="text-sm text-[var(--dim)]">Escriba su sueldo en Personal.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("personal")}>Ir a Personal</button></li>}
+              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep3?"bg-[var(--green)] text-[var(--bg)]":"bg-[var(--accent)] text-[var(--accent-text)]"} font-bold flex items-center justify-center text-sm`}>{guideStep3?"✓":hh.mode==="personal"?"3":"2"}</span><div className="flex-1"><p className="text-sm font-bold">Registre su primer gasto</p><p className="text-sm text-[var(--dim)]">{hh.mode==="personal"?"Registre su gasto del día en Personal.":"Escriba el importe en Movimientos."}</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>{ if(hh.mode==="personal"){ setPersStep(1); goToForm("personal","pers-amt"); } else { openNewMovement("expense"); } }}>{hh.mode==="personal"?"Ir a Personal":"Ir a Movimientos"}</button></li>
+              <li className="flex gap-2 items-start"><span className={`shrink-0 w-7 h-7 rounded-full ${guideStep4?"bg-[var(--green)] text-[var(--bg)]":"bg-[var(--accent)] text-[var(--accent-text)]"} font-bold flex items-center justify-center text-sm`}>{guideStep4?"✓":hh.mode==="personal"?"4":"3"}</span><div className="flex-1"><p className="text-sm font-bold">Revise sus gráficas</p><p className="text-sm text-[var(--dim)]">Vea su gasto por categoría en Inicio.</p></div><button type="button" className={btnGhost+" shrink-0"} onClick={()=>goTab("inicio")}>Ir a Inicio</button></li>
             </ol>
             <button type="button" className={btnPrimary+" mt-3"} onClick={dismissFirstGuide}>Entendido</button>
           </div>
@@ -2845,6 +2854,16 @@ export function App(){
         {!appInstalled && !installDismissed && <div className="mb-3"><InstallCard installed={appInstalled} onInstall={handleInstallClick} onDismiss={dismissInstall} /></div>}
         {effTab==="inicio" && (
           <section>
+            {/* Sin cuentas no se puede registrar ningún gasto (2026-11-27):
+                tarjeta persistente, sin botón de cierre, hasta crear la
+                primera cuenta. */}
+            {data.accounts.length===0 && (
+              <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-4 sm:p-5 mb-4 md:mb-6">
+                <h2 className="font-display font-bold text-lg">Agregue su primera cuenta</h2>
+                <p className="text-sm text-[var(--dim)] mt-1">Sin cuenta no se puede registrar ningún gasto.</p>
+                <button type="button" className={btnPrimary+" mt-3"} onClick={()=>goToForm("cuentas","acc-name")}>Agregar cuenta</button>
+              </div>
+            )}
             {/* Meta fijada por importancia 5 (variante A): lo primero de
                 Inicio, arriba del total del ingreso, como tarjeta plegable
                 estilo app con su resumen de una línea; se abre dentro de

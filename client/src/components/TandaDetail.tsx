@@ -1,6 +1,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { warmUpOcr } from "../lib/ocr";
 import { CollapsibleCard } from "./CollapsibleCard";
+import { ComprobanteVerificado } from "./ComprobanteVerificado";
 import { OcrDetail } from "./OcrDetail";
 import { fmtDate, money, money2, todayISO } from "../lib/format";
 import { Stars, Label, inputCls, btnPrimary, btnGhost } from "../lib/uiShared";
@@ -307,6 +308,14 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
   // Confirmación en línea para quitar una tarjeta simulada (mismo patrón
   // que eliminar una invitación): solo se ejecuta al confirmar.
   const [confirmRemoveCardId, setConfirmRemoveCardId] = useState<number|null>(null);
+  // Tarjeta «Comprobante Verificado» (2026-11-27): se abre al tocar el
+  // chip de un pago verificado, en «Pagos por participante» o en la lista
+  // de asistencia. Solo pagos de turno, no multas.
+  const [verifiedCard, setVerifiedCard] = useState<{ participantId: number; participantName: string; quincenaIndex: number } | null>(null);
+  const openVerifiedCard = (participantId: number, participantName: string, quincenaIndex: number) => {
+    const pay = td.payments.find(x=>x.participantId===participantId && x.quincenaIndex===quincenaIndex);
+    if (pay?.verified===1) setVerifiedCard({ participantId, participantName, quincenaIndex });
+  };
   // Destino del turno de un excluido (D1): a quién se reasigna el turno y
   // los datos del reemplazo nuevo. Estado local por participante excluido.
   const [reassignTo, setReassignTo] = useState<Record<number, string>>({});
@@ -377,7 +386,7 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
             {meetingItems.map(it=>{
               return (
               <div key={it.participantId} className="flex flex-wrap items-center gap-2 bg-[var(--surface)] border border-[var(--border)] rounded-2xl px-3 py-2">
-                <span className="text-sm flex-1 min-w-[120px]"><b>{it.name}</b> <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${it.status==="paid"?(it.verified===1?"bg-green-100 text-green-900":"bg-amber-100 text-amber-900"):it.status==="late"?"bg-red-100 text-red-900":"bg-amber-100 text-amber-900"}`}>{it.status==="paid"?(it.verified===1?"Pagado":"En revisión"):it.status==="late"?"Atrasado":"Pendiente"}</span>{it.paidDate && <span className="text-xs text-[var(--dim)]"> · pagó el {fmtDate(it.paidDate)}</span>}{it.verified===1 && <span className="text-xs text-[var(--green)]"> · Verificado</span>}{it.fineAmount>0 && <span className="text-xs text-[var(--red)]"> · Multa {money(it.fineAmount)}</span>}{it.status==="paid" && it.proofAmount!=null && <span className="text-xs text-[var(--dim)]"> · Comprobante {money2(it.proofAmount)} · Tanda {money(td.amountPerQuincena)}{Math.abs(it.proofAmount-td.amountPerQuincena)>0.51?" · No coincide":""}</span>}</span>
+                <span className="text-sm flex-1 min-w-[120px]"><b>{it.name}</b> <span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${it.status==="paid"?(it.verified===1?"bg-green-100 text-green-900":"bg-amber-100 text-amber-900"):it.status==="late"?"bg-red-100 text-red-900":"bg-amber-100 text-amber-900"}`}>{it.status==="paid"?(it.verified===1?"Pagado":"En revisión"):it.status==="late"?"Atrasado":"Pendiente"}</span>{it.paidDate && <span className="text-xs text-[var(--dim)]"> · pagó el {fmtDate(it.paidDate)}</span>}{it.verified===1 && <button type="button" aria-label={`Ver comprobante verificado de ${it.name} en la ronda ${td.attendance.index+1}`} className="text-xs text-[var(--green)] underline font-bold" onClick={()=>openVerifiedCard(it.participantId, it.name, td.attendance.index)}> · Verificado</button>}{it.fineAmount>0 && <span className="text-xs text-[var(--red)]"> · Multa {money(it.fineAmount)}</span>}{it.status==="paid" && it.proofAmount!=null && <span className="text-xs text-[var(--dim)]"> · Comprobante {money2(it.proofAmount)} · Tanda {money(td.amountPerQuincena)}{Math.abs(it.proofAmount-td.amountPerQuincena)>0.51?" · No coincide":""}</span>}</span>
                 <span className="flex flex-wrap gap-1">
                   {it.status==="pending" && p.canTreasury && <button aria-label={`Marcar atrasado a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>setPay.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,status:"late"})}>Marcar atrasado</button>}
                   {it.status==="late" && td.kind==="compartamos" && td.fineAmount>0 && p.canTreasury && <button aria-label={`Aplicar multa a ${it.name} en la ronda ${td.attendance.index+1}`} className="bg-[var(--surface)] rounded-full px-2 py-1 text-xs font-bold border border-[var(--border)]" onClick={()=>addFine.mutate({tandaId:td.id,participantId:it.participantId,quincenaIndex:td.attendance.index,reason:"retardo"})}>Aplicar multa {money(td.fineAmount)}</button>}
@@ -630,7 +639,7 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
                   const verified = paid && pay?.verified===1;
                   return (
                     <span key={pt.id} className={`rounded-2xl px-3 py-2 text-xs font-semibold ${verified?"bg-green-100 text-green-900":paid?"bg-amber-100 text-amber-900":"bg-[var(--surface2)]"}`}>
-                      <span className="block">{pt.name}: {verified?`Pago verificado${pay?.paidDate?` · pagó el ${fmtDate(pay.paidDate)}`:""}`:paid?`En revisión${pay?.proofUrl?" (con comprobante)":" (sin comprobante)"}${pay?.paidDate?` · ${fmtDate(pay.paidDate)}`:""}`:"Pendiente"}</span>
+                      {verified ? <button type="button" aria-label={`Ver comprobante verificado de ${pt.name} periodo ${c.index+1}`} className="block text-left underline font-bold" onClick={()=>openVerifiedCard(pt.id, pt.name, c.index)}>{pt.name}: Pago verificado{pay?.paidDate?` · pagó el ${fmtDate(pay.paidDate)}`:""}</button> : <span className="block">{pt.name}: {paid?`En revisión${pay?.proofUrl?" (con comprobante)":" (sin comprobante)"}${pay?.paidDate?` · ${fmtDate(pay.paidDate)}`:""}`:"Pendiente"}</span>}
                       {paid && pay?.proofUrl && pay.proofAmount != null && <span className="block">Comprobante {money2(pay.proofAmount)} · Tanda {money(td.amountPerQuincena)}{Math.abs(pay.proofAmount-td.amountPerQuincena)>0.51?" · No coincide con el monto":" · Coincide con el monto"}</span>}
                       <span className="flex flex-wrap gap-1 mt-1.5">
                         {pay?.proofUrl && <span className="flex items-center gap-1"><img loading="lazy" decoding="async" src={pay.proofUrl} alt={`Comprobante de pago de ${pt.name} periodo ${c.index+1}`} className="w-8 h-8 object-cover rounded-md border border-[var(--border)]" /><button aria-label={`Ver comprobante de ${pt.name} periodo ${c.index+1} de ${td.name}`} className="bg-[var(--surface)] rounded-full px-2 py-1 font-bold border border-[var(--border)]" onClick={()=>setReceiptView(pay.proofUrl)}>Ver comprobante</button></span>}
@@ -667,6 +676,7 @@ export function TandaDetail({ td, p, deps }: { td: Tanda; p: TandaPerms; deps: T
         {rateOrg.error && <p className="text-sm text-[var(--red)] mt-1">{String(rateOrg.error)}</p>}
         {td.ratings.length>0 && <div className="mt-2 space-y-1">{td.ratings.map(r=><p key={r.id} className="text-sm"><Stars value={r.stars} size="text-sm" /> <b>{r.raterName}</b>{r.comment?` — “${r.comment}”`:""}</p>)}</div>}
       </CollapsibleCard>
+      {verifiedCard && (()=>{ const pay = td.payments.find(x=>x.participantId===verifiedCard.participantId && x.quincenaIndex===verifiedCard.quincenaIndex); if (!pay || pay.verified!==1) return null; return <ComprobanteVerificado data={{ tandaName: td.name, participantName: verifiedCard.participantName, quincenaIndex: verifiedCard.quincenaIndex, amountPerQuincena: td.amountPerQuincena, paidDate: pay.paidDate ?? null, reference: pay.reference, verifiedByName: pay.verifiedByName ?? null, verifiedAt: pay.verifiedAt ?? null, proofUrl: pay.proofUrl ?? null, proofAmount: pay.proofAmount ?? null }} onClose={()=>setVerifiedCard(null)} onViewPhoto={(url)=>setReceiptView(url)} />; })()}
     </div>
   );
 }

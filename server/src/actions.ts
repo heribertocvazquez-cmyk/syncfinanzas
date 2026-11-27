@@ -1515,6 +1515,21 @@ async function readFineExtra(db: Ctx["db"], fineId: number): Promise<{ proofBlob
     return { proofBlobKey: row.proof_blob_key ?? null, verified: row.verified ?? 0, fundEntryId: row.fund_entry_id ?? null };
   } catch { /* columnas aún no creadas */ return null; }
 }
+// Quién verificó un pago de tanda y cuándo (columnas
+// verified_by_profile_id / verified_at,
+// supabase/add-tanda-payment-verified-by.sql): se lee aparte con SQL
+// directo y en silencio si las columnas aún no existen — igual que
+// proof_amount y fixed_draw_order. Sin las columnas, la tarjeta muestra
+// «Verificado por: No registrado» y la fecha de pago.
+async function readPaymentVerifiedBy(db: Ctx["db"], householdId: number): Promise<Map<number, { by: number | null; at: string | null }>> {
+  const out = new Map<number, { by: number | null; at: string | null }>();
+  try {
+    const res = (await db.execute(sql`SELECT id, verified_by_profile_id, verified_at FROM tanda_payments WHERE household_id = ${householdId}`)) as unknown as { rows?: { id: number; verified_by_profile_id: number | null; verified_at: string | null }[] } | { id: number; verified_by_profile_id: number | null; verified_at: string | null }[];
+    const rows = Array.isArray(res) ? res : (res.rows ?? []);
+    for (const row of rows) out.set(row.id, { by: row.verified_by_profile_id ?? null, at: row.verified_at ?? null });
+  } catch { /* columnas aún no creadas */ }
+  return out;
+}
 // Identidad por id de quien votó una exclusión (no por nombre).
 async function readVoteIdentities(db: Ctx["db"], tandaId: number): Promise<Map<number, { voterParticipantId: number | null; voterUserId: string | null }>> {
   const out = new Map<number, { voterParticipantId: number | null; voterUserId: string | null }>();
@@ -1719,7 +1734,7 @@ async function householdMemberProfiles(db: Ctx["db"], householdId: number) {
 }
 
 // Esquema de la vista de una tanda (lo comparten getOverview y listMyTandas).
-const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAdmin: z.boolean(), myProfileId: z.number().nullable(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), kind: z.string(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), fixedDrawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), extraDrawOrder: z.number().nullable(), replacesParticipantId: z.number().nullable(), replacementPending: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), turnNote: z.string().nullable() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), mpOrderId: z.string().nullable(), verified: z.number(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string(), proofUrl: z.string().nullable(), verified: z.number() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), fineAmount: z.number() })) }) });
+const tandaViewSchema = z.object({ id: z.number(), householdId: z.number(), isAdmin: z.boolean(), myProfileId: z.number().nullable(), name: z.string(), participantCount: z.number(), amountPerQuincena: z.number(), startDate: z.string(), potPerQuincena: z.number(), organizerName: z.string().nullable(), organizerProfileId: z.number().nullable(), frequency: z.string(), cadenceDays: z.number(), drawMode: z.string(), coverageRule: z.string(), fineAmount: z.number(), meetingDay: z.string(), treasurerProfileId: z.number().nullable(), treasurerName: z.string().nullable(), substituteProfileId: z.number().nullable(), substituteName: z.string().nullable(), turnsLocked: z.number(), kind: z.string(), organizerRating: z.object({ avg: z.number(), count: z.number() }), ratings: z.array(z.object({ id: z.number(), raterName: z.string(), stars: z.number(), comment: z.string().nullable() })), invitations: z.array(z.object({ id: z.number(), email: z.string(), invitedName: z.string().nullable(), status: z.string() })), participants: z.array(z.object({ id: z.number(), name: z.string(), email: z.string().nullable(), drawOrder: z.number().nullable(), fixedDrawOrder: z.number().nullable(), cardLast4: z.string().nullable(), joinedDate: z.string().nullable(), role: z.string(), excluded: z.number(), extraDrawOrder: z.number().nullable(), replacesParticipantId: z.number().nullable(), replacementPending: z.number(), stats: z.object({ paidCount: z.number(), dueCount: z.number(), onTimePct: z.number(), avgDaysEarly: z.number(), seniorityDays: z.number(), score: z.number(), streak: z.number() }) })), calendar: z.array(z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), turnNote: z.string().nullable() })), payments: z.array(z.object({ participantId: z.number(), quincenaIndex: z.number(), status: z.string(), reminderSent: z.number(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), mpOrderId: z.string().nullable(), verified: z.number(), reference: z.string(), verifiedByName: z.string().nullable(), verifiedAt: z.string().nullable(), fineAmount: z.number() })), fines: z.array(z.object({ id: z.number(), participantId: z.number(), quincenaIndex: z.number(), amount: z.number(), reason: z.string(), status: z.string(), proofUrl: z.string().nullable(), verified: z.number() })), votes: z.array(z.object({ id: z.number(), targetParticipantId: z.number(), voterName: z.string(), vote: z.string(), reason: z.string().nullable() })), deliveries: z.array(z.object({ quincenaIndex: z.number(), receiverId: z.number().nullable(), organizerConfirmed: z.number(), receiverConfirmed: z.number() })), fundEntries: z.array(z.object({ id: z.number(), participantId: z.number().nullable(), kind: z.string(), amount: z.number(), note: z.string().nullable() })), balances: z.object({ aportacion: z.number(), fondo: z.number(), multasPendientes: z.number(), multasCobradas: z.number() }), attendance: z.object({ index: z.number(), date: z.string(), receiverName: z.string().nullable(), receiverId: z.number().nullable(), amount: z.number(), items: z.array(z.object({ participantId: z.number(), name: z.string(), status: z.string(), paidDate: z.string().nullable(), proofUrl: z.string().nullable(), proofAmount: z.number().nullable(), verified: z.number(), reference: z.string().nullable(), verifiedByName: z.string().nullable(), verifiedAt: z.string().nullable(), fineAmount: z.number() })) }) });
 
 // Esquema de una fila de movimiento (lo comparten getOverview y
 // listMovements): un movimiento es siempre el mismo objeto, venga del
@@ -1780,6 +1795,7 @@ type TandaRows = {
   tandaKinds: Map<number, string>;
   participantExtras: Map<number, { extraDrawOrder: number | null; replacesParticipantId: number | null }>;
   fineProofs: Map<number, { proofBlobKey: string | null; verified: number; fundEntryId: number | null }>;
+  paymentVerifiedBy: Map<number, { by: number | null; at: string | null }>;
   tandaFinesR: (typeof schema.tandaFines.$inferSelect)[];
   tandaVotesR: (typeof schema.tandaVotes.$inferSelect)[];
   tandaDeliveriesR: (typeof schema.tandaDeliveries.$inferSelect)[];
@@ -1790,7 +1806,7 @@ type TandaRows = {
 };
 async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect, rows: TandaRows, opts: { isAdmin: boolean; myProfileId: number | null }) {
   const { profilesR, tandasR, tandaPartsR: partsFromRows, tandaPaysR, proofAmounts, mpOrderIds, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr } = rows;
-  const { tandaKinds, participantExtras, fineProofs } = rows;
+  const { tandaKinds, participantExtras, fineProofs, paymentVerifiedBy } = rows;
   let tandaPartsR = partsFromRows;
   // Reparación de la fila del organizador (reporte 2026-11-19 16:02):
   // las tandas creadas antes de 026e882 no tienen la fila del
@@ -1876,10 +1892,10 @@ async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect
   const orgTandaIds = new Set(tandasR.filter(x=>((x.organizerName || profilesR.find(p=>p.id===x.organizerProfileId)?.name || profilesR.find(p=>p.role==="admin")?.name || "").trim().toLowerCase())===orgKey).map(x=>x.id));
   const ratingsAll = orgRatingsR.filter(r=>orgTandaIds.has(r.tandaId));
   const organizerRating = { avg: ratingsAll.length? Math.round(ratingsAll.reduce((s,r)=>s+r.stars,0)/ratingsAll.length*10)/10 : 0, count: ratingsAll.length };
-  const paysOut: {participantId:number;quincenaIndex:number;status:string;reminderSent:number;paidDate:string|null;proofUrl:string|null;proofAmount:number|null;mpOrderId:string|null;verified:number;fineAmount:number}[] = [];
+  const paysOut: {participantId:number;quincenaIndex:number;status:string;reminderSent:number;paidDate:string|null;proofUrl:string|null;proofAmount:number|null;mpOrderId:string|null;verified:number;reference:string;verifiedByName:string|null;verifiedAt:string|null;fineAmount:number}[] = [];
   const paysForTanda = tandaPaysR.filter(x=>x.tandaId===td.id);
   const paysUrls = await signedUrls(ctx, paysForTanda.map(x=>x.proofBlobKey));
-  for (let pi=0; pi<paysForTanda.length; pi++) { const x = paysForTanda[pi]!; paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: paysUrls[pi] ?? null, proofAmount: proofAmounts.get(x.id) ?? null, mpOrderId: mpOrderIds.get(x.id) ?? null, verified: x.verified ?? 0, fineAmount: x.fineAmount ?? 0 }); }
+  for (let pi=0; pi<paysForTanda.length; pi++) { const x = paysForTanda[pi]!; const vb = paymentVerifiedBy.get(x.id); const vbProfile = vb?.by != null ? profilesR.find(pr=>pr.id===vb.by) : null; const vbName = vbProfile ? `${vbProfile.name} ${vbProfile.lastName || ""}`.trim() : null; paysOut.push({ participantId: x.participantId, quincenaIndex: x.quincenaIndex, status: x.status, reminderSent: x.reminderSent, paidDate: x.paidDate ?? null, proofUrl: paysUrls[pi] ?? null, proofAmount: proofAmounts.get(x.id) ?? null, mpOrderId: mpOrderIds.get(x.id) ?? null, verified: x.verified ?? 0, reference: `#SF-${String(td.id).padStart(4,"0")}-${String(x.id).padStart(4,"0")}`, verifiedByName: vbName, verifiedAt: vb?.at ?? null, fineAmount: x.fineAmount ?? 0 }); }
   // ---- Tandas v3: roles, saldos separados, multas, votos, entregas y pase de lista ----
   const treasurerName = profilesR.find(p=>p.id===(td as unknown as { treasurerProfileId?: number | null }).treasurerProfileId)?.name ?? null;
   const substituteName = profilesR.find(p=>p.id===(td as unknown as { substituteProfileId?: number | null }).substituteProfileId)?.name ?? null;
@@ -1909,7 +1925,7 @@ async function assembleTandaView(ctx: Ctx, td: typeof schema.tandas.$inferSelect
       const pay = paysOut.find(x=>x.participantId===pt.id && x.quincenaIndex===attIndex);
       let status = pay?.status || "pending";
       if (status === "pending" && attCal.date < todayStr) status = "late";
-      return { participantId: pt.id, name: pt.name, status, paidDate: pay?.paidDate ?? null, proofUrl: pay?.proofUrl ?? null, proofAmount: pay?.proofAmount ?? null, verified: pay?.verified ?? 0, fineAmount: pay?.fineAmount ?? 0 };
+      return { participantId: pt.id, name: pt.name, status, paidDate: pay?.paidDate ?? null, proofUrl: pay?.proofUrl ?? null, proofAmount: pay?.proofAmount ?? null, verified: pay?.verified ?? 0, reference: pay?.reference ?? null, verifiedByName: pay?.verifiedByName ?? null, verifiedAt: pay?.verifiedAt ?? null, fineAmount: pay?.fineAmount ?? 0 };
     }),
   };
   const replacementPendingById = replacementPendingMap(td, parts, paysForTanda, participantExtras, todayStr);
@@ -2257,6 +2273,7 @@ export const Actions = {
       const tandaKinds = await readTandaKinds(db, hid);
       const participantExtras = await readParticipantExtras(db, hid);
       const fineProofs = await readFineProofs(db, hid);
+      const paymentVerifiedBy = await readPaymentVerifiedBy(db, hid);
       // Importancia 1–5 de cada meta (columna goals.importance,
       // supabase/add-goals-importance.sql): se lee aparte con SQL directo
       // y en silencio si la columna aún no existe, para que getOverview no
@@ -2568,7 +2585,7 @@ export const Actions = {
       const personal = { salary: Math.round(salary*100)/100, monthSpent: Math.round(monthSpentP*100)/100, remaining: Math.round((salary-monthSpentP)*100)/100, todaySpent: Math.round(todayMovs.reduce((s,m)=>s+m.amount,0)*100)/100, todayCount: todayMovs.length, byCategory, todayMovements: todayMovs.filter(canSeeMovement).map(m=>({ id:m.id, concept:m.concept, amount:m.amount, categoryId:m.categoryId??null, date:m.date })) };
 
       // ---- Tandas v2: organizador con estrellas, invitados, comprobantes y cumplimiento ----
-      const tandas = await Promise.all(tandasR.map(td => assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, fixedDrawOrders, tandaKinds, participantExtras, fineProofs, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: ctx.userRole === "admin", myProfileId })));
+      const tandas = await Promise.all(tandasR.map(td => assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, fixedDrawOrders, tandaKinds, participantExtras, fineProofs, paymentVerifiedBy, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: ctx.userRole === "admin", myProfileId })));
 
       // ---- Plan de ahorro por meta: avance y ritmo, calculados del fondo ligado ----
       // Los avisos del plan se revisan en cada carga; si toca avisar, el aviso
@@ -2827,6 +2844,7 @@ export const Actions = {
         const tandaKinds = await readTandaKinds(db, hid);
         const participantExtras = await readParticipantExtras(db, hid);
         const fineProofs = await readFineProofs(db, hid);
+        const paymentVerifiedBy = await readPaymentVerifiedBy(db, hid);
         const tandaInvsR = await db.select().from(schema.tandaInvitations).where(eq(schema.tandaInvitations.householdId, hid)).orderBy(desc(schema.tandaInvitations.id));
         const orgRatingsR = await db.select().from(schema.organizerRatings).where(eq(schema.organizerRatings.householdId, hid)).orderBy(desc(schema.organizerRatings.id));
         const safeRows = async <T>(fn: () => Promise<T[]>): Promise<T[]> => { try { return await fn(); } catch { return []; } };
@@ -2836,7 +2854,7 @@ export const Actions = {
         const tandaFundEntriesR = await safeRows(() => db.select().from(schema.tandaFundEntries).where(eq(schema.tandaFundEntries.householdId, hid)));
         const myProfileId = profilesR.find(p => p.userId === ctx.user.id)?.id ?? null;
         for (const td of htds) {
-          out.push(await assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, fixedDrawOrders, tandaKinds, participantExtras, fineProofs, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: false, myProfileId }));
+          out.push(await assembleTandaView(ctx, td, { profilesR, tandasR, tandaPartsR, tandaPaysR, proofAmounts, mpOrderIds, fixedDrawOrders, tandaKinds, participantExtras, fineProofs, paymentVerifiedBy, tandaFinesR, tandaVotesR, tandaDeliveriesR, tandaFundEntriesR, orgRatingsR, tandaInvsR, todayStr }, { isAdmin: false, myProfileId }));
         }
       }
       return { tandas: out };
@@ -4658,7 +4676,15 @@ export const Actions = {
         throw new Error("Ese pago no tiene comprobante para verificar.");
       }
       if (args.verified && !mine.proofBlobKey) throw new Error("Ese pago no tiene comprobante para verificar.");
-      { await db.update(schema.tandaPayments).set({ verified: args.verified?1:0, ...(args.verified?{ status: "paid" as const, paidDate: mine.paidDate || todayStr }:{}) }).where(eq(schema.tandaPayments.id, mine.id)); await logActivity(ctx, args.householdId, args.verified?"Pago de tanda verificado":"Verificación de pago retirada", `Tanda ${args.tandaId} · periodo ${args.quincenaIndex+1}`); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
+      { await db.update(schema.tandaPayments).set({ verified: args.verified?1:0, ...(args.verified?{ status: "paid" as const, paidDate: mine.paidDate || todayStr }:{}) }).where(eq(schema.tandaPayments.id, mine.id));
+        // Quién verificó y cuándo (columnas verified_by_profile_id /
+        // verified_at, supabase/add-tanda-payment-verified-by.sql): se
+        // escribe con SQL directo, como las demás columnas de tandas
+        // fuera del esquema Drizzle. Si las columnas aún no existen (el
+        // SQL va antes del despliegue), la verificación sigue valiendo y
+        // la tarjeta muestra «Verificado por: No registrado».
+        try { await db.execute(sql`UPDATE tanda_payments SET verified_by_profile_id = ${args.verified ? acc.profileId : null}, verified_at = ${args.verified ? todayStr : null} WHERE id = ${mine.id}`); } catch { /* columnas aún no creadas */ }
+        await logActivity(ctx, args.householdId, args.verified?"Pago de tanda verificado":"Verificación de pago retirada", `Tanda ${args.tandaId} · periodo ${args.quincenaIndex+1}`); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
     },
   }),
   createTandaInvitation: defineAction({
