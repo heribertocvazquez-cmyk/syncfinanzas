@@ -1711,6 +1711,21 @@ export async function isTandaOnlyMember(db: Ctx["db"], userId: string, userEmail
   return true;
 }
 
+// REGLA (2026-11-27, decisión de Heriberto): para estar en una tanda hay
+// que tener al menos la cuenta Personal (hogar propio). Un hogar Familiar
+// propio también vale (es más que el mínimo). Sin hogar propio, el
+// participante no puede leer los avisos de la tanda en su campanilla:
+// listNotifications se acota al hogar activo y el despachador exige
+// membresía real (hallazgo verificado por API 2026-11-27 ~09:02, tanda
+// 30). Solo cuenta ser DUEÑO de un hogar: ser miembro del hogar de otro
+// no es tener cuenta propia. Mensaje en español formal, el mismo al
+// aceptar y al agregar directo.
+export const TANDA_REQUIRES_PERSONAL_MSG = "Para estar en la tanda necesita al menos su cuenta Personal. Cree su hogar Personal primero.";
+async function userHasOwnHousehold(db: Ctx["db"], userId: string): Promise<boolean> {
+  const owned = await db.select({ id: schema.households.id }).from(schema.households).where(eq(schema.households.ownerUserId, userId)).limit(1);
+  return owned.length > 0;
+}
+
 // ---- Perfiles de MIEMBROS del hogar (sin invitados solo de tanda) ----
 // REGLA PERMANENTE: «Un invitado solo de tanda solo aparece en la tanda
 // — en su propio perfil ve la pestaña de la tanda, y para el organizador
@@ -4418,7 +4433,7 @@ export const Actions = {
     await db.delete(schema.invitationTokens).where(eq(schema.invitationTokens.tandaId,args.id)); for (const iv of tinvs) await db.delete(schema.invitationTokens).where(eq(schema.invitationTokens.tandaInvitationId,iv.id)); await db.delete(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId,args.id)); await db.delete(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId,args.id)); await db.delete(schema.tandaInvitations).where(eq(schema.tandaInvitations.tandaId,args.id)); await db.delete(schema.organizerRatings).where(eq(schema.organizerRatings.tandaId,args.id)); try { await db.delete(schema.tandaFines).where(eq(schema.tandaFines.tandaId,args.id)); await db.delete(schema.tandaVotes).where(eq(schema.tandaVotes.tandaId,args.id)); await db.delete(schema.tandaDeliveries).where(eq(schema.tandaDeliveries.tandaId,args.id)); await db.delete(schema.tandaFundEntries).where(eq(schema.tandaFundEntries.tandaId,args.id)); } catch { /* tablas v3 aún no creadas */ } await db.delete(schema.tandas).where(eq(schema.tandas.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
   addTandaParticipant: defineAction({
-    description: "Adds a participant to a tanda, optionally registering a SIMULATED card requirement as last-4-digits only. No real card data is accepted or stored.",
+    description: "Adds a participant to a tanda, optionally registering a SIMULATED card requirement as last-4-digits only. No real card data is accepted or stored. Since 2026-11-27, adding a person whose email belongs to an existing account requires that account to own at least a Personal household; without an account yet, the email invitation goes on as before and the rule applies when accepting.",
     request: z.object({ householdId: z.number(), tandaId: z.number(), name: z.string().min(1), email: z.string().email().optional(), cardLast4: z.string().regex(/^\d{4}$/, "Deben ser exactamente los últimos 4 dígitos").optional() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
@@ -4427,6 +4442,19 @@ export const Actions = {
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, args.tandaId)); const td = tdRows[0]; if (!td) throw new Error("Tanda no encontrada");
       const existing = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
       if (existing.length >= td.participantCount) throw new Error(`La tanda ya tiene sus ${td.participantCount} participantes.`);
+      // REGLA (2026-11-27): agregar directo también exige hogar propio
+      // del destinatario. Solo se puede comprobar cuando el correo
+      // pertenece a una cuenta existente (perfil con userId): sin cuenta
+      // todavía, la invitación por correo sigue como hoy y la regla se
+      // aplica al aceptar.
+      if (args.email) {
+        const mail = args.email.trim().toLowerCase();
+        const owners = await db.select().from(schema.profiles).where(sql`lower(${schema.profiles.email}) = ${mail}`);
+        const userIds = [...new Set(owners.map(pr => pr.userId).filter((u): u is string => !!u))];
+        for (const uid of userIds) {
+          if (!(await userHasOwnHousehold(db, uid))) throw new Error(TANDA_REQUIRES_PERSONAL_MSG);
+        }
+      }
       const nowD = new Date(); const joined = `${nowD.getFullYear()}-${String(nowD.getMonth()+1).padStart(2,"0")}-${String(nowD.getDate()).padStart(2,"0")}`;
       const [r] = await db.insert(schema.tandaParticipants).values({ householdId: args.householdId, tandaId: args.tandaId, name: args.name, email: args.email?.trim().toLowerCase() || null, cardLast4: args.cardLast4 || null, joinedDate: joined }).returning({ id: schema.tandaParticipants.id });
       ctx.invalidateQueries(); return { ok: true, id: r?.id };
@@ -4718,7 +4746,7 @@ export const Actions = {
     },
   }),
   respondTandaInvitation: defineAction({
-    description: "Accepts or rejects a tanda invitation. Accepting adds the person as a visible participant of that tanda with the name they choose (never taken from their email), and gives them a profile in the tanda's household so the organizer can see them and their rank can be resolved — but it does NOT make them a member of that household: they cannot read anything else of the inviter's household (overview, movements, accounts, budgets). The tanda is shown in their own Personal space. The invitation link (token) is the credential: the person may accept with any account email; when it differs from the invited email, the organizer is notified with both emails.",
+    description: "Accepts or rejects a tanda invitation. Accepting adds the person as a visible participant of that tanda with the name they choose (never taken from their email), and gives them a profile in the tanda's household so the organizer can see them and their rank can be resolved — but it does NOT make them a member of that household: they cannot read anything else of the inviter's household (overview, movements, accounts, budgets). The tanda is shown in their own Personal space. Since 2026-11-27, accepting requires the user to own at least a Personal household (an own Familiar household also counts); without one, acceptance is rejected and the client offers to create the Personal household first, then completes the acceptance. The invitation link (token) is the credential: the person may accept with any account email; when it differs from the invited email, the organizer is notified with both emails.",
     request: z.object({ id: z.number(), accept: z.boolean(), name: z.string().optional() }),
     response: z.object({ ok: z.literal(true), participantId: z.number().optional(), profileId: z.number().optional(), tandaId: z.number().optional(), householdId: z.number().optional() }),
     async handler(ctx, args): Promise<{ ok: true; participantId?: number; profileId?: number; tandaId?: number; householdId?: number }> {
@@ -4733,6 +4761,9 @@ export const Actions = {
       const realEmail = ctx.user.email;
       const emailMismatch = inv.email.toLowerCase() !== realEmail.toLowerCase();
       if (!args.accept) { await db.update(schema.tandaInvitations).set({ status: "rejected" }).where(eq(schema.tandaInvitations.id, args.id)); await markTokensForInvitation(db, null, inv.id, "rejected"); ctx.invalidateQueries(); return { ok: true, tandaId: inv.tandaId }; }
+      // REGLA (2026-11-27): sin hogar propio no se entra a la tanda. El
+      // rechazo (arriba) no necesita hogar; la aceptación sí.
+      if (!(await userHasOwnHousehold(db, ctx.user.id))) throw new Error(TANDA_REQUIRES_PERSONAL_MSG);
       const name = (args.name || inv.invitedName || "").trim();
       if (!name) throw new Error("Escriba el nombre con el que participará en la tanda.");
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, inv.tandaId)); const td = tdRows[0]; if (!td) throw new Error("Tanda no encontrada");

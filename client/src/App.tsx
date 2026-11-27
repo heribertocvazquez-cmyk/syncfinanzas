@@ -825,7 +825,15 @@ export function App(){
   const [planMode,setPlanMode]=useState<"personal"|"familiar">("familiar"); const [hhName,setHhName]=useState("Mi hogar"); const [ownerName,setOwnerName]=useState(""); const [ownerLast,setOwnerLast]=useState(""); const [invEmail,setInvEmail]=useState(""); const [invFound,setInvFound]=useState<{id:number;email:string;householdName:string;invitedName:string|null;kind:"household"|"tanda";tandaId:number|null;tandaName:string|null}[]>([]); const [invSearched,setInvSearched]=useState(false); const [joinFirst,setJoinFirst]=useState(""); const [joinLast,setJoinLast]=useState(""); const [ownerIncome,setOwnerIncome]=useState(""); const [cutoff,setCutoff]=useState("1"); const [contribRule,setContribRule]=useState<"equal"|"proportional">("equal"); const [approvalRule,setApprovalRule]=useState<"unanimous"|"majority">("unanimous"); const [threshold,setThreshold]=useState("1500"); const [hhCurrencySuggestion]=useState(suggestCurrency); const [hhCurrency,setHhCurrency]=useState<HouseholdCurrency>(hhCurrencySuggestion.currency);
   const findInv=useMutation({mutationFn:async()=>await api.findInvitations({email:invEmail}),onSuccess:(r)=>{setInvFound(r.invitations);setInvSearched(true);}});
   const respondInv=useMutation({mutationFn:async(v:{id:number;accept:boolean})=>await api.respondInvitation({id:v.id,accept:v.accept,firstName:joinFirst||undefined,lastName:joinLast||undefined}),onSuccess:(r)=>{ inv(); if(r.profileId) pickProfile(r.profileId); }});
-  const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero":hhName):hhName,currency:hhCurrency,cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:()=>{ inv(); setChartsSeen(false); try{ localStorage.setItem("sf-first-guide-pending","1"); localStorage.removeItem("sf-guide-charts-seen"); }catch{} }});
+  // Aceptación de tanda pendiente de crear la cuenta Personal (regla
+  // 2026-11-27): al crear el hogar, la aceptación se completa sola con
+  // estos datos. `via` distingue la tarjeta (por correo) del enlace.
+  const [pendingTandaAccept,setPendingTandaAccept]=useState<{id:number;name?:string;via:"card"|"token"}|null>(null);
+  const createHh=useMutation({mutationFn:async()=>await api.createHousehold({mode:planMode,name:planMode==="personal"?(hhName==="Mi hogar"?"Mi dinero":hhName):hhName,currency:hhCurrency,cutoffDay:Number(cutoff)||1,contributionRule:contribRule,approvalRule,approvalThreshold:Number(threshold)||0,ownerName:ownerName||"Yo",ownerLastName:ownerLast,ownerIncome:Number(ownerIncome)||0}),onSuccess:()=>{ inv(); setChartsSeen(false); try{ localStorage.setItem("sf-first-guide-pending","1"); localStorage.removeItem("sf-guide-charts-seen"); }catch{}
+    // Regla 2026-11-27: si el hogar se creó para aceptar una tanda, la
+    // aceptación se completa sola con los datos guardados.
+    if(pendingTandaAccept){ if(pendingTandaAccept.via==="token") acceptTokenInvite.mutate({}); else respondTandaInv.mutate({id:pendingTandaAccept.id,accept:true,name:pendingTandaAccept.name}); }
+  }});
   // Asistente de creación del espacio (paso a paso), secciones plegables de
   // registro y guía de primer uso tras crear el hogar.
   const [obStep,setObStep]=useState(0); const [obError,setObError]=useState("");
@@ -896,7 +904,7 @@ export function App(){
     // propio espacio Personal (listMyTandas) y se abre su detalle cuando
     // la lista ya la trae.
     const tid = (r && typeof r === "object" && "tandaId" in r) ? (r as { tandaId?: unknown }).tandaId : undefined;
-    setTokenDone(true); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv();
+    setTokenDone(true); setPendingTandaAccept(null); try{ sessionStorage.removeItem("sf-invite-token"); }catch{} inv();
     void qc.invalidateQueries({queryKey:["myTandas"]}).then(()=>{ setTandaAccepting(false); if(typeof tid === "number"){ setTandaDetailId(tid); setTab("tandas"); } });
     return;
   }
@@ -958,6 +966,9 @@ export function App(){
   // la sesión y se avisa al organizador (en el hogar, el correo distinto
   // sigue bloqueado). Si el enlace ya no vale, también se avisa.
   const tokenEmailMismatch = !!tokenInvite && tokenInvite.email !== "" && myEmail !== "" && tokenInvite.email.trim().toLowerCase() !== myEmail.trim().toLowerCase();
+  // Regla 2026-11-27: sin hogar cargado y sin hogar, la invitación de
+  // tanda por enlace también pide crear la cuenta Personal primero.
+  const tokenNoHousehold = !!data && !data.household;
   const renderTokenInviteBanner = () => (
     <>
       {tokenInvite && !tokenDone && (
@@ -966,6 +977,7 @@ export function App(){
           {tokenInvite.kind==="household" && tokenInvite.generic && <p className="text-sm">Le invitan a probar SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Cree su cuenta y empiece con su propio espacio; este enlace no le da acceso al hogar de quien le invitó ni genera ninguna solicitud.</p>}
           {tokenInvite.kind==="household" && !tokenInvite.generic && <p className="text-sm">Usted fue invitado al hogar <b>“{tokenInvite.householdName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, entrará a ese hogar.</p>}
           {tokenInvite.kind==="tanda" && <p className="text-sm">Usted fue invitado a la tanda <b>“{tokenInvite.tandaName}”</b>{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}. Al aceptar, se incorporará como participante. La tanda se habilitará en su perfil Personal, sin acceso al resto del hogar de quien le invitó.</p>}
+          {tokenInvite.kind==="tanda" && tokenNoHousehold && <p className="text-sm">Para estar en la tanda necesita al menos su cuenta Personal. Escriba su nombre arriba y cree su cuenta Personal; la aceptación se completa sola.</p>}
           {tokenInvite.kind==="general" && <p className="text-sm">Usted fue invitado a crear su cuenta personal en SyncFinanzas{tokenInvite.inviterName?` · le invitó ${tokenInvite.inviterName}`:""}.</p>}
           {!tokenInvite.usable && <p className="text-sm text-[var(--red)]">Ya se usó o venció. Solicite una nueva.</p>}
           {tokenInvite.usable && tokenEmailMismatch && tokenInvite.kind==="tanda" && <p className="text-sm text-[var(--red)]">Esta invitación fue enviada a <b>{tokenInvite.email}</b>. Usted entró con <b>{myEmail}</b>. Si acepta, se incorporará a la tanda con <b>{myEmail}</b> y {tokenInvite.inviterName ? <><b>{tokenInvite.inviterName}</b> será avisado</> : "el organizador será avisado"}.</p>}
@@ -982,7 +994,11 @@ export function App(){
                 <input aria-label="Su apellido al aceptar la invitación del enlace" placeholder="Apellido" className={inputCls} value={joinLast} onChange={e=>setJoinLast(e.target.value)} />
               </div>
               <div className="flex gap-2">
-                <button type="button" className={btnPrimary} onClick={()=>acceptTokenInvite.mutate({})} disabled={acceptTokenInvite.isPending}>{tokenInvite.kind==="general"?"Aceptar y crear mi cuenta":"Aceptar invitación"}</button>
+                {tokenInvite.kind==="tanda" && tokenNoHousehold ? (
+                  <button type="button" aria-label="Crear mi cuenta Personal para aceptar la tanda" className={btnPrimary} onClick={()=>{ setPlanMode("personal"); setPendingTandaAccept({id: tokenInvite.tandaInvitationId as number, name: [joinFirst, joinLast].filter(Boolean).join(" ")||undefined, via:"token"}); }} disabled={acceptTokenInvite.isPending || !([joinFirst, joinLast].filter(Boolean).join(" "))}>Crear mi cuenta Personal</button>
+                ) : (
+                  <button type="button" className={btnPrimary} onClick={()=>acceptTokenInvite.mutate({})} disabled={acceptTokenInvite.isPending}>{tokenInvite.kind==="general"?"Aceptar y crear mi cuenta":"Aceptar invitación"}</button>
+                )}
                 <button type="button" className={btnGhost} onClick={()=>rejectTokenInvite.mutate()} disabled={rejectTokenInvite.isPending}>Rechazar</button>
               </div>
               {(acceptTokenInvite.error || rejectTokenInvite.error) && <p className="text-sm text-[var(--red)]">{String(acceptTokenInvite.error || rejectTokenInvite.error)}</p>}
@@ -1517,7 +1533,7 @@ export function App(){
   // Al aceptar una invitación de tanda por correo, el invitado va directo
   // al detalle de su tanda (igual que por enlace): su espacio es Personal
   // y su tanda, sin el diálogo de modo ni el asistente «Cree su hogar».
-  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onMutate:(v)=>{ if(v.accept) setTandaAccepting(true); },onSuccess:(r,v)=>{ inv(); if(v.accept){ const tid=(r && typeof r==="object" && "tandaId" in r)?(r as {tandaId?:unknown}).tandaId:undefined; void qc.invalidateQueries({queryKey:["myTandas"]}).then(()=>{ setTandaAccepting(false); if(typeof tid==="number"){ setTandaDetailId(tid); setTab("tandas"); } }); } },onError:()=>{ setTandaAccepting(false); }});
+  const respondTandaInv=useMutation({mutationFn:async(v:{id:number;accept:boolean;name?:string})=>await api.respondTandaInvitation({id:v.id,accept:v.accept,name:v.name ?? (tJoinName[v.id]||undefined)}),onMutate:(v)=>{ if(v.accept) setTandaAccepting(true); },onSuccess:(r,v)=>{ inv(); setPendingTandaAccept(null); if(v.accept){ const tid=(r && typeof r==="object" && "tandaId" in r)?(r as {tandaId?:unknown}).tandaId:undefined; void qc.invalidateQueries({queryKey:["myTandas"]}).then(()=>{ setTandaAccepting(false); if(typeof tid==="number"){ setTandaDetailId(tid); setTab("tandas"); } }); } },onError:()=>{ setTandaAccepting(false); }});
   const cancelTandaInv=useMutation({mutationFn:async(id:number)=>await api.cancelTandaInvitation({id}),onSuccess:inv});
   const rateOrg=useMutation({mutationFn:async(v:{tandaId:number})=>await api.rateOrganizer({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,raterName:rateName[v.tandaId]||"",stars:Number(rateStars[v.tandaId]||5),comment:rateComment[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setRateComment(p=>({...p,[v.tandaId]:""}));}});
   const remindPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number})=>await api.sendTandaReminder({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
@@ -1978,7 +1994,10 @@ export function App(){
   // 2026-11-27, 00297d1). Tras aceptar, isTandaGuest ya lo oculta y
   // sale la tarjeta «¿Quiere su propio hogar?».
   const hasPendingTandaInvite = invFound.some(iv=>iv.kind==="tanda") || (tokenInvite?.kind==="tanda" && !tokenDone);
-  const showHouseholdWizard = !myTandasQuery.isPending && !hasPendingTandaInvite && !tandaAccepting && (!isTandaGuest || showHouseholdForm);
+  // Regla 2026-11-27: con una aceptación de tanda pendiente de crear la
+  // cuenta Personal, el asistente SÍ se pinta (para crearla y completar
+  // la aceptación); sin eso, la invitación pendiente lo sigue ocultando.
+  const showHouseholdWizard = !myTandasQuery.isPending && (!hasPendingTandaInvite || pendingTandaAccept!=null) && !tandaAccepting && (!isTandaGuest || showHouseholdForm || pendingTandaAccept!=null);
   if(!data.household){
     return (
       <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
@@ -2024,10 +2043,11 @@ export function App(){
                   <input aria-label="Tu nombre al aceptar la invitación" placeholder="Nombre" className={inputCls} value={joinFirst} onChange={e=>setJoinFirst(e.target.value)} />
                   <input aria-label="Tu apellido al aceptar la invitación" placeholder="Apellido" className={inputCls} value={joinLast} onChange={e=>setJoinLast(e.target.value)} />
                 </div>
+                {iv.kind==="tanda" && <p className="text-sm">Para estar en la tanda necesita al menos su cuenta Personal. Escriba su nombre arriba y cree su cuenta Personal; la aceptación se completa sola.</p>}
                 <div className="flex gap-2">
                   {iv.kind==="tanda" ? (
                     <>
-                      <button type="button" aria-label={`Aceptar invitación a la tanda ${iv.tandaName}`} className={btnPrimary} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:true,name:[joinFirst, joinLast].filter(Boolean).join(" ")||undefined})} disabled={respondTandaInv.isPending}>Aceptar y participar</button>
+                      <button type="button" aria-label="Crear mi cuenta Personal para aceptar la tanda" className={btnPrimary} onClick={()=>{ setPlanMode("personal"); setPendingTandaAccept({id:iv.id,name:[joinFirst, joinLast].filter(Boolean).join(" ")||iv.invitedName||undefined,via:"card"}); }} disabled={!([joinFirst, joinLast].filter(Boolean).join(" ")||iv.invitedName)}>Crear mi cuenta Personal</button>
                       <button type="button" aria-label={`Rechazar invitación a la tanda ${iv.tandaName}`} className={btnGhost} onClick={()=>respondTandaInv.mutate({id:iv.id,accept:false})} disabled={respondTandaInv.isPending}>Rechazar</button>
                     </>
                   ) : (
@@ -2140,8 +2160,8 @@ export function App(){
           ) : !myTandasQuery.isPending && isTandaGuest ? (
           <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-2">
             <h2 className="font-display font-bold text-lg">¿Quiere su propio hogar?</h2>
-            <p className="text-sm text-[var(--dim)]">Usted participa en la tanda como invitado, sin hogar. Su participación sigue siendo solo de la tanda. Si quiere un hogar propio, es un perfil aparte: su tanda no se mezcla con él.</p>
-            <button type="button" className={btnPrimary} onClick={()=>setShowHouseholdForm(true)}>Crear mi hogar</button>
+            <p className="text-sm text-[var(--dim)]">Usted participa en la tanda como invitado, sin hogar. Para seguir viendo sus tandas y sus avisos necesita al menos su cuenta Personal. Su participación sigue siendo solo de la tanda: si crea su hogar, es un perfil aparte y su tanda no se mezcla con él.</p>
+            <button type="button" className={btnPrimary} onClick={()=>{ setPlanMode("personal"); setShowHouseholdForm(true); }}>Crear mi cuenta Personal</button>
           </div>
           ) : null}
           <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
