@@ -165,7 +165,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
         if (!check.ok) throw new Error(check.message);
         const { error: err } = await supabase.auth.updateUser({ password });
         if (err) throw new Error("No se pudo restablecer la contraseña. Solicite un enlace nuevo.");
-        setInfo("Su contraseña se restableció. Ya puede iniciar sesión.");
+        // La contraseña nueva ya quedó guardada: se deja el correo listo
+        // en el inicio de sesión y el aviso dice explícito que se entra
+        // con la contraseña nueva que se acaba de elegir (en el teléfono
+        // de Heriberto, 2026-11-27, el aviso anterior no dejaba claro
+        // cuál contraseña usar al volver a entrar).
+        try {
+          const { data } = await supabase.auth.getUser();
+          if (data.user?.email) setEmail(data.user.email);
+        } catch {
+          // Sin correo disponible: el inicio de sesión lo pide igual.
+        }
+        setInfo("Su contraseña se restableció. Inicie sesión con la contraseña nueva que acaba de elegir.");
         // El token de recuperación ya se usó: se quita del enlace para que
         // al recargar no se vuelva a entrar en modo de recuperación con un
         // token consumido.
@@ -280,7 +291,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           )}
           {mode !== "forgot" && (
             <label className="block text-sm font-semibold">
-              Contraseña
+              {mode === "recovery" ? "Contraseña nueva" : "Contraseña"}
               <input
                 type={showPassword ? "text" : "password"}
                 required
@@ -288,14 +299,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
                 className="mt-1 w-full rounded-xl border px-3 py-2.5 font-normal"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Mínimo 12 caracteres"
+                placeholder={mode === "recovery" ? "Escriba su contraseña nueva" : "Mínimo 12 caracteres"}
               />
             </label>
           )}
           {(mode === "signup" || mode === "recovery") && password.length > 0 && (
             <p className={`text-xs ${check.ok ? "text-[var(--green)]" : "text-[var(--red)]"}`}>{check.message}</p>
           )}
-          {mode === "signup" && (
+          {(mode === "signup" || mode === "recovery") && (
             // El ejemplo debe cumplir la regla (12 caracteres, mayúscula,
             // minúscula, número y símbolo): «Casa2026!» solo tiene 9 y
             // fallaría la validación, así que se usa su extensión válida.
