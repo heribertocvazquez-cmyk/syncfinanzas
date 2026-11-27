@@ -2066,6 +2066,24 @@ export function App(){
       }
     }
     const myParticipantId = !excluded && myPart ? myPart.id : null;
+    // Rol RESUELTO de «me» (misma resolución que el servidor): la fila de
+    // participante, o el perfil designado al crear la tanda. El candado de
+    // pago (2026-11-26) solo deja verificar al Organizador y al Tesorero;
+    // el Suplente tiene rango 2 pero no verifica.
+    const rowRole = myPart?.role ?? null;
+    let myRole: string | null = null;
+    if (!excluded) {
+      if (rowRole === "organizador" || rowRole === "tesorero") myRole = rowRole;
+      else {
+        const myTandaProfileId = td.myProfileId ?? me?.id ?? null;
+        if (myTandaProfileId != null) {
+          if (td.organizerProfileId === myTandaProfileId) myRole = "organizador";
+          else if (td.treasurerProfileId === myTandaProfileId) myRole = "tesorero";
+          else if (td.substituteProfileId === myTandaProfileId) myRole = "suplente";
+          else myRole = rowRole;
+        } else myRole = rowRole;
+      }
+    }
     // isAdmin es POR TANDA (lo calcula el servidor): en una tanda invitada
     // es falso aunque el usuario sea administrador de su propio espacio
     // Personal; si no, vería botones de organizador que no le corresponden.
@@ -2076,6 +2094,7 @@ export function App(){
       isParticipant: myParticipantId != null,
       canManage: tandaAdmin || rank >= 3,
       canTreasury: tandaAdmin || rank >= 2,
+      canVerify: myRole === "organizador" || myRole === "tesorero",
       isOwn: (participantId: number) => myParticipantId === participantId,
     };
   };

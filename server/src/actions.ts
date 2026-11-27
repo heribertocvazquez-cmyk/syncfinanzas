@@ -1418,6 +1418,31 @@ function requireTandaHousehold(acc: TandaAccess, householdId: number) {
   if (acc.tanda.householdId !== householdId) throw new Error("La tanda no pertenece a este hogar.");
 }
 
+// Rol RESUELTO de quien llama en la tanda (candado de pago 2026-11-26):
+// la fila de participante por correo, o el perfil designado al crear la
+// tanda — la misma resolución que resolvedParticipantRole. Solo el
+// Organizador y el Tesorero verifican pagos; el Suplente tiene rango 2
+// pero no verifica. Un participante excluido no verifica aunque su
+// perfil esté designado.
+async function callerTandaRole(ctx: Ctx, acc: TandaAccess): Promise<TandaRole> {
+  const db = ctx.db;
+  const parts = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, acc.tanda.id));
+  const email = ctx.user.email.trim().toLowerCase();
+  const mine = email.length > 0 ? parts.find(p => (p.email || "").trim().toLowerCase() === email) ?? null : null;
+  if (mine) {
+    if ((mine as unknown as { excluded?: number }).excluded === 1) return "participante";
+    return resolvedParticipantRole(db, acc.tanda, mine);
+  }
+  if (acc.profileId != null) {
+    if (acc.tanda.organizerProfileId === acc.profileId) return "organizador";
+    if (acc.tanda.treasurerProfileId === acc.profileId) return "tesorero";
+    if (acc.tanda.substituteProfileId === acc.profileId) return "suplente";
+  }
+  return "participante";
+}
+function requireTandaVerifier(role: TandaRole) {
+  if (role !== "organizador" && role !== "tesorero") throw new Error("Solo el Organizador y el Tesorero pueden verificar pagos.");
+}
 // Número fijo elegido para el sorteo (columna fixed_draw_order,
 // supabase/add-tanda-fixed-draw-order.sql): se lee aparte con SQL directo
 // y en silencio si la columna aún no existe — igual que proof_amount y
@@ -4331,7 +4356,7 @@ export const Actions = {
   }),
 
   setTandaPayment: defineAction({
-    description: "Marks a participant's payment for one period as paid or pending, optionally attaching the deposit/transfer proof photo (stored as a blob, key only in DB). Marking paid with a proof still requires organizer verification before it displays as verified. When a proof is uploaded, the organizer (owner of the tanda) gets a bell notification with the amount read from the proof and whether it matches the tanda amount. No real charge is made.",
+    description: "Registers a participant's payment for one period. CANDADO (2026-11-26): marking paid REQUIRES the deposit/transfer proof photo — without proof only pending/late are allowed, so a payment closes only through (guest sends proof → Organizador or Tesorero reviews it). A paid payment stays unverified (shown as 'En revisión') until verified. When a proof is uploaded, the organizer (owner of the tanda) gets a bell notification with the amount read from the proof and whether it matches the tanda amount. No real charge is made.",
     request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), quincenaIndex: z.number().int().min(0), status: z.enum(["paid","pending","late"]), paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), readAmount: z.number().nullable().optional(), proof: z.object({ dataBase64: z.string(), mimeType: z.string() }).optional() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
@@ -4340,6 +4365,10 @@ export const Actions = {
       // Su propio pago lo marca el participante; el pago de otro solo lo
       // registra el tesorero, el suplente, el organizador o el administrador.
       if (!acc.isAdmin && acc.rank < 2 && acc.participantId !== args.participantId) throw new Error("No tiene permiso para esta acción.");
+      // Candado de pago (2026-11-26): pagado exige comprobante. Sin foto
+      // solo se puede dejar pendiente o atrasado; el botón «Marcar pagado
+      // sin comprobante» ya no existe en la pantalla.
+      if (args.status === "paid" && !args.proof) throw new Error("El pago requiere el comprobante.");
       let proofBlobKey: string | undefined = undefined;
       if (args.proof) { if (args.proof.dataBase64.length > 16_000_000) throw new Error("El comprobante es demasiado grande (máximo aproximado de 12 MB)."); const okTypes=["image/jpeg","image/png","image/webp"]; if (!okTypes.includes(args.proof.mimeType)) throw new Error("El comprobante debe ser JPG, PNG o WebP."); const key=`tanda-proofs/${args.householdId}/${Date.now()}-${Math.floor(Math.random()*1e9)}`; const bytes=Buffer.from(args.proof.dataBase64,"base64"); await ctx.blobs.put(key, bytes, { contentType: args.proof.mimeType }); proofBlobKey=key; }
       const rows = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId, args.tandaId));
@@ -4455,19 +4484,27 @@ export const Actions = {
     },
   }),
   verifyTandaPayment: defineAction({
-    description: "Organizer verifies (or removes verification of) a tanda payment after reviewing its proof: verified=1 marks the payment as verified in the interface.",
+    description: "Organizador or Tesorero verifies (or removes verification of) a tanda payment after reviewing its proof photo. CANDADO (2026-11-26): verifying requires an existing payment WITH proof — it never creates a payment out of nothing — and only Organizador and Tesorero verify; the Suplente cannot. verified=1 marks the payment as verified in the interface.",
     request: z.object({ householdId: z.number(), tandaId: z.number(), participantId: z.number(), quincenaIndex: z.number().int().min(0), verified: z.boolean() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
-      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId); requireTandaRank(acc, 2);
+      const acc = await tandaAccess(ctx, args.tandaId); requireTandaHousehold(acc, args.householdId);
+      // Candado de pago (2026-11-26): solo Organizador y Tesorero por rol
+      // resuelto — el Suplente tiene rango 2 pero no verifica.
+      requireTandaVerifier(await callerTandaRole(ctx, acc));
       const rows = await db.select().from(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId, args.tandaId));
       const mine = rows.find(r=>r.participantId===args.participantId && r.quincenaIndex===args.quincenaIndex);
       const today = new Date(); const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
-      if (mine) { await db.update(schema.tandaPayments).set({ verified: args.verified?1:0, ...(args.verified?{ status: "paid" as const, paidDate: mine.paidDate || todayStr }:{}) }).where(eq(schema.tandaPayments.id, mine.id)); await logActivity(ctx, args.householdId, args.verified?"Pago de tanda verificado":"Verificación de pago retirada", `Tanda ${args.tandaId} · periodo ${args.quincenaIndex+1}`); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
-      if (!args.verified) throw new Error("Ese pago aún no ha sido registrado.");
-      const [r] = await db.insert(schema.tandaPayments).values({ householdId: args.householdId, tandaId: args.tandaId, participantId: args.participantId, quincenaIndex: args.quincenaIndex, status: "paid", paidDate: todayStr, verified: 1 }).returning({ id: schema.tandaPayments.id });
-      ctx.invalidateQueries(); return { ok: true, id: r?.id };
+      // Candado de pago (2026-11-26): verificar exige un pago existente
+      // CON comprobante. Sin fila no hay nada que verificar y sin foto no
+      // se verifica: nunca se inventa un pago pagado+verificado.
+      if (!mine) {
+        if (!args.verified) throw new Error("Ese pago aún no ha sido registrado.");
+        throw new Error("Ese pago no tiene comprobante para verificar.");
+      }
+      if (args.verified && !mine.proofBlobKey) throw new Error("Ese pago no tiene comprobante para verificar.");
+      { await db.update(schema.tandaPayments).set({ verified: args.verified?1:0, ...(args.verified?{ status: "paid" as const, paidDate: mine.paidDate || todayStr }:{}) }).where(eq(schema.tandaPayments.id, mine.id)); await logActivity(ctx, args.householdId, args.verified?"Pago de tanda verificado":"Verificación de pago retirada", `Tanda ${args.tandaId} · periodo ${args.quincenaIndex+1}`); ctx.invalidateQueries(); return { ok: true, id: mine.id }; }
     },
   }),
   createTandaInvitation: defineAction({
