@@ -233,14 +233,16 @@ export function DrawerMenu(p: {
           </button>
           {p.configOpen && (
             <ul className="mt-1 space-y-0.5">
+              <li>
+                {/* Enviar comentarios: abre el formulario de dudas y mejoras
+                    dentro de la app (sin salir al enlace público). Va
+                    primero en Configuración (decisión de Heriberto
+                    2026-11-26) para que sea lo primero que se vea. */}
+                <button type="button" aria-label="Enviar comentarios sobre la app" onClick={()=>{p.onFeedback?.();}} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold text-[var(--text)]">{tabIcon(<><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>)}<span className="flex-1">Enviar comentarios</span></button>
+              </li>
               <NavRow {...navRowProps("guia", "Guía de uso", "Ir a Guía de uso", TAB_ICONS.guia, p.currentTab === "guia", () => { p.onNavigate("guia"); })} />
               <NavRow {...navRowProps("seguridad", "Seguridad", "Ir a Seguridad", TAB_ICONS.seguridad, p.currentTab === "seguridad", () => { p.onNavigate("seguridad"); })} />
               <NavRow {...navRowProps("legales", "Documentos legales", "Ir a Documentos legales", TAB_ICONS.legales, p.currentTab === "legales", () => { p.onNavigate("legales"); })} />
-              <li>
-                {/* Enviar comentarios: abre el formulario de dudas y mejoras
-                    dentro de la app (sin salir al enlace público). */}
-                <button type="button" aria-label="Enviar comentarios sobre la app" onClick={()=>{p.onFeedback?.();}} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold text-[var(--text)]">{tabIcon(<><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>)}<span className="flex-1">Enviar comentarios</span></button>
-              </li>
               <li>
                 {/* Vista: abre la elección de tema (Claro / Oscuro). */}
                 <button type="button" aria-expanded={p.vistaOpen} onClick={()=>p.onToggleVista()} className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold">

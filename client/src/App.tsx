@@ -3975,7 +3975,7 @@ export function App(){
       </main>
       <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
       <HelpAssistant onGo={goTab} open={helpOpen} onOpenChange={setHelpOpen} hidden={menuOpen} dynamicFaqs={dynamicFaqs} overview={data} nudge={activeNudge} />
-      {feedbackOpen && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Enviar comentarios">
+      {feedbackOpen && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={feedbackShowMessages ? "Respuesta a tu comentario" : "Enviar comentarios"}>
         <TesterFeedbackForm embedded initialNombre={meEarly ? fullName(meEarly) : ""} initialCorreo={myEmail} showMyMessages={feedbackShowMessages} onClose={()=>{ setFeedbackShowMessages(false); setFeedbackOpen(false); }} />
       </div>}
       {guidePdf && <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label={`Guía en PDF: ${guidePdf.title}`}>
