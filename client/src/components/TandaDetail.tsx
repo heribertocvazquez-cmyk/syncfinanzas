@@ -3,7 +3,7 @@ import { warmUpOcr } from "../lib/ocr";
 import { CollapsibleCard } from "./CollapsibleCard";
 import { ComprobanteVerificado } from "./ComprobanteVerificado";
 import { OcrDetail } from "./OcrDetail";
-import { fmtDate, money, money2, todayISO } from "../lib/format";
+import { fmtDate, isoToDMY, money, money2, parseDMYToISO, todayISO } from "../lib/format";
 import { Stars, Label, inputCls, btnPrimary, btnGhost } from "../lib/uiShared";
 import { tandaCalendarSummary, tandaFinesSummary, tandaMeetingSummary, tandaPaymentsSummary } from "../lib/cardSummaries";
 import type { ReceiptDateCheck, ReceiptRead } from "../lib/smart";
@@ -245,6 +245,29 @@ function TandaProofReviewPanel({ td, review, setReview, uploadProof, confirm }: 
   // El título del panel («Revisar comprobante · nombre · Periodo n ·
   // fecha») lo lleva la tarjeta plegable que lo envuelve; aquí solo
   // queda el contenido de la revisión.
+  // Fecha del pago tecleable (2026-11-27): el input nativo type="date" no
+  // acepta teclear «01/12/2026» (verificado en pantalla en cc6ff27) y la
+  // tarjeta «Comprobante Verificado» mostraba la fecha de hoy aunque el
+  // comprobante fuera de otra fecha. Mismo patrón que «Fecha de inicio»
+  // del formulario de tanda (00297d1): el texto vive en estado local y
+  // solo una fecha completa y válida actualiza paidDate en ISO; una
+  // inválida vuelve a la fecha válida al salir del campo.
+  const [dateText, setDateText] = useState(() => isoToDMY(review.paidDate));
+  useEffect(() => {
+    if (parseDMYToISO(dateText) !== review.paidDate) setDateText(isoToDMY(review.paidDate));
+    // Solo interesa el cambio externo (botones «Usar la fecha leída» /
+    // «Usar hoy», nueva revisión); el tecleo parcial no se toca mientras
+    // no sea una fecha válida distinta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review.paidDate]);
+  const onDateChange = (raw: string) => {
+    setDateText(raw);
+    const iso = parseDMYToISO(raw);
+    if (iso) setReview(r => r ? { ...r, paidDate: iso, dateCheck: null } : r);
+  };
+  const onDateBlur = () => {
+    if (!parseDMYToISO(dateText)) setDateText(isoToDMY(review.paidDate));
+  };
   return (
     <div className="border border-[var(--gold)] rounded-2xl p-4 bg-[var(--surface2)] space-y-2">
       <div className="flex items-center gap-2">
@@ -270,7 +293,7 @@ function TandaProofReviewPanel({ td, review, setReview, uploadProof, confirm }: 
           : <p className="text-xs text-[var(--green)]">El importe leído coincide con el pago de la tanda.</p>}
         <OcrDetail detail={review.detail} />
       </>}
-      <div><Label htmlFor="tanda-proof-date">Fecha del pago</Label><input id="tanda-proof-date" aria-label="Fecha del pago de tanda" type="date" required className={inputCls} value={review.paidDate} onChange={e=>setReview(r=>r?{...r,paidDate:e.target.value,dateCheck:null}:r)} /></div>
+      <div><Label htmlFor="tanda-proof-date">Fecha del pago</Label><input id="tanda-proof-date" name="paidDate" aria-label="Fecha del pago de tanda" type="text" inputMode="numeric" autoComplete="off" placeholder="dd/mm/aaaa" required className={inputCls} value={dateText} onChange={e=>onDateChange(e.target.value)} onBlur={onDateBlur} /></div>
       <div className="flex gap-2">
         <button type="button" className={btnPrimary+" flex-1"} disabled={uploadProof.isPending || review.busy || !!review.dateCheck} onClick={confirm}>{uploadProof.isPending?"Guardando…":"Confirmar pago"}</button>
         <button type="button" className={btnGhost} onClick={()=>setReview(null)}>Cancelar</button>
