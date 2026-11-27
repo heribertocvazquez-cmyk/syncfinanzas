@@ -23,6 +23,9 @@ export function TandasModule(p: {
   adultProfiles: TandaAdultProfile[];
   detailDeps: TandaDetailDeps;
   permsFor: (td: Tanda) => TandaPerms;
+  // Invitado sin hogar (2026-11-26): ve sus tandas pero no crea una nueva
+  // (crear tanda exige hogar). Sin el formulario, el estado vacío cambia.
+  hideForm?: boolean;
 }) {
   const detailTd = p.detailId == null ? null : p.tandas.find((td) => td.id === p.detailId) ?? null;
   return (
@@ -54,6 +57,7 @@ export function TandasModule(p: {
               ))}
             </div>
           )}
+          {!p.hideForm && (
           <CollapsibleCard
             title={<h2 className="font-display font-bold text-lg">Nueva tanda</h2>}
             above={
@@ -75,7 +79,8 @@ export function TandasModule(p: {
               />
             </div>
           </CollapsibleCard>
-          {p.tandas.length === 0 && <Empty title="Sin tandas" body="Cree la primera." />}
+          )}
+          {p.tandas.length === 0 && <Empty title="Sin tandas" body={p.hideForm ? "Aún no tiene tandas." : "Cree la primera."} />}
         </>
       )}
     </section>

@@ -59,7 +59,7 @@ async function firstMembership(db: ReturnType<typeof getDb>, userId: string, use
 // después la propia acción con tandaAccess. Las acciones de organizador
 // (rango 3: eliminar, sorteo, invitar, roles) NO están aquí: esas exigen
 // membresía del hogar.
-const TANDA_PARTICIPANT_ACTIONS = new Set(["setTandaPayment", "verifyTandaPayment", "rateOrganizer", "setParticipantCard", "createMercadoPagoOrder", "checkMercadoPagoOrder", "sendTandaReminder", "addTandaFine", "payTandaFine", "voteExcludeParticipant", "confirmTandaDelivery", "addTandaFundEntry", "markTandaParticipantNotificationsRead"]);
+const TANDA_PARTICIPANT_ACTIONS = new Set(["setTandaPayment", "verifyTandaPayment", "rateOrganizer", "setParticipantCard", "createMercadoPagoOrder", "checkMercadoPagoOrder", "sendTandaReminder", "addTandaFine", "payTandaFine", "verifyTandaFine", "voteExcludeParticipant", "confirmTandaDelivery", "addTandaFundEntry", "markTandaParticipantNotificationsRead"]);
 
 // Acciones que se identifican solo por id: el hogar se resuelve desde la
 // fila correspondiente antes de ejecutarlas.

@@ -173,6 +173,10 @@ export function DrawerMenu(p: {
   pinned?: QuickShortcutId[];
   onTogglePin?: (id: QuickShortcutId) => void;
   onNewExpense?: () => void;
+  // Cerrar sesión (2026-11-26): al final del cajón y visible, también
+  // para el invitado sin hogar (que hoy no tenía forma de salir). Es la
+  // misma acción que Seguridad → «Cerrar sesión en este dispositivo».
+  onSignOut?: () => void;
 }) {
   const [textoGrandeLocal, setTextoGrandeLocal] = useState<boolean>(() => readTextoGrande());
   const textoGrandeActivo = p.textoGrande ?? textoGrandeLocal;
@@ -295,6 +299,19 @@ export function DrawerMenu(p: {
           )}
         </div>
       ); })}
+      {p.onSignOut && (
+        <div className="mt-2 border-t border-[var(--border)] pt-2">
+          <button
+            type="button"
+            aria-label="Cerrar sesión"
+            onClick={() => { p.onSignOut?.(); }}
+            className="w-full flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[15px] font-bold text-[var(--text)]"
+          >
+            {tabIcon(<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></>)}
+            <span className="flex-1">Cerrar sesión</span>
+          </button>
+        </div>
+      )}
     </nav>
   );
 }

@@ -102,6 +102,63 @@ export async function notifyTandaOrganizer(
   }
 }
 
+// Aviso al organizador de una tanda cuando alguien sube el comprobante
+// de una multa (candado de multas, espejo del de pagos, 2026-11-26). El
+// aviso va SOLO al organizador — nunca a todo el hogar — igual que el de
+// comprobante de pago, porque es él quien verifica la multa. Nunca
+// bloquea el pago de la multa.
+export type TandaFineProofNotif = {
+  type: "pago_tanda";
+  title: string;
+  body: string;
+  amount: number | null;
+  target: "tandas";
+};
+
+export function buildTandaFineProofNotification(args: {
+  finedName: string;
+  tandaName: string;
+  quincenaIndex: number;
+  fineAmount: number;
+}): TandaFineProofNotif {
+  return {
+    type: "pago_tanda",
+    title: "Comprobante de multa de tanda",
+    body: `${args.finedName} subió el comprobante de su multa de la tanda ${args.tandaName}, periodo ${args.quincenaIndex + 1}, por ${money2(args.fineAmount)}. Revise el comprobante antes de verificar.`,
+    amount: args.fineAmount,
+    target: "tandas",
+  };
+}
+
+export async function notifyTandaOrganizerFine(
+  db: Pick<Db, "select" | "insert">,
+  args: {
+    householdId: number;
+    organizerProfileId: number | null;
+    finedName: string;
+    tandaName: string;
+    quincenaIndex: number;
+    fineAmount: number;
+    excludeUserId?: string | null;
+  },
+): Promise<{ notifiedUserId: string | null }> {
+  try {
+    const profs = await db.select().from(schema.profiles).where(eq(schema.profiles.householdId, args.householdId));
+    const org = args.organizerProfileId != null ? profs.find((p) => p.id === args.organizerProfileId) : null;
+    const admin = profs.find((p) => p.role === "admin");
+    const targetUserId: string | null = org?.userId ?? admin?.userId ?? null;
+    if (!targetUserId) return { notifiedUserId: null };
+    if (args.excludeUserId && targetUserId === args.excludeUserId) return { notifiedUserId: null };
+    const n = buildTandaFineProofNotification(args);
+    await db
+      .insert(schema.notifications)
+      .values([{ householdId: args.householdId, userId: targetUserId, type: n.type, title: n.title, body: n.body, amount: n.amount, target: n.target, isRead: 0 }]);
+    return { notifiedUserId: targetUserId };
+  } catch {
+    return { notifiedUserId: null };
+  }
+}
+
 // Aviso al organizador de una tanda cuando alguien acepta su invitación
 // con otro correo distinto al invitado. El enlace (token) es la
 // credencial: quien lo tiene puede aceptar con el correo de su cuenta, y

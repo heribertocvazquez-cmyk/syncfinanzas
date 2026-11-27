@@ -34,6 +34,7 @@ import { Label, inputCls, btnPrimary, btnGold, btnGhost, btnDanger, Empty } from
 import { OcrDetail } from "./components/OcrDetail";
 import { LoadingSplash } from "./components/LoadingSplash";
 import { TandasModule } from "./components/TandasModule";
+import type { TandaFormValues, TandaKind } from "./components/TandaForm";
 import { HomeTandasCard } from "./components/HomeTandasCard";
 import { GenericHouseholdInvite } from "./components/GenericHouseholdInvite";
 import { HouseholdCode } from "./components/HouseholdCode";
@@ -1310,10 +1311,10 @@ export function App(){
   const rejectAdj=useMutation({mutationFn:async(id:number)=>await api.rejectSpendingAdjustment({id}),onSuccess:()=>{inv();},onError:(e:Error)=>{setAdjError(e.message);}});
 
   // agreement
-  const [agTitle,setAgTitle]=useState(""); const [agDesc,setAgDesc]=useState(""); const [showAgPreview,setShowAgPreview]=useState(false); const [voteProfile,setVoteProfile]=useState("");
+  const [agTitle,setAgTitle]=useState(""); const [agDesc,setAgDesc]=useState(""); const [showAgPreview,setShowAgPreview]=useState(false);
   const saveAg=useMutation({mutationFn:async()=>await api.saveAgreement({householdId:data!.household!.id,title:agTitle,description:agDesc}),onSuccess:()=>{inv();setAgTitle("");setAgDesc("");setShowAgPreview(false);}});
   const [rejectAgreementPreviewId,setRejectAgreementPreviewId]=useState<number|null>(null); const [deleteAgreementPreviewId,setDeleteAgreementPreviewId]=useState<number|null>(null);
-  const voteAg=useMutation({mutationFn:async(v:{agreementId:number;vote:"approve"|"reject"})=>await api.voteAgreement({agreementId:v.agreementId,profileId:Number(voteProfile),vote:v.vote,householdId:data!.household!.id}),onSuccess:()=>{inv();setRejectAgreementPreviewId(null);}});
+  const voteAg=useMutation({mutationFn:async(v:{agreementId:number;vote:"approve"|"reject"})=>{ const ownAdult=data!.profiles.find(p=>p.id===(data!.myProfileId ?? null) && p.kind==="adult") ?? (me && me.kind==="adult" ? me : null); if(!ownAdult) throw new Error("No tiene un perfil adulto para votar."); return await api.voteAgreement({agreementId:v.agreementId,profileId:ownAdult.id,vote:v.vote,householdId:data!.household!.id}); },onSuccess:()=>{inv();setRejectAgreementPreviewId(null);}});
   const delAg=useMutation({mutationFn:async(id:number)=>await api.deleteAgreement({id}),onSuccess:()=>{inv();setDeleteAgreementPreviewId(null);}});
 
   // patrimony
@@ -1415,6 +1416,7 @@ export function App(){
   const [tandaFreq,setTandaFreq]=useState<"semanal"|"quincenal"|"mensual">("quincenal"); const [tandaDrawMode,setTandaDrawMode]=useState<"random"|"weighted">("random");
   const [tandaCoverage,setTandaCoverage]=useState<"fondo"|"prorroga"|"reparto">("fondo"); const [tandaFine,setTandaFine]=useState(""); const [tandaMeeting,setTandaMeeting]=useState("");
   const [tandaTreasurer,setTandaTreasurer]=useState(""); const [tandaSubstitute,setTandaSubstitute]=useState("");
+  const [tandaKind,setTandaKind]=useState<TandaKind>("ordinaria");
   const [fundKind,setFundKind]=useState<Record<number,string>>({}); const [fundAmount,setFundAmount]=useState<Record<number,string>>({}); const [fundNote,setFundNote]=useState<Record<number,string>>({});
   const [partName,setPartName]=useState<Record<number,string>>({}); const [partCard,setPartCard]=useState<Record<number,string>>({}); const [cardInput,setCardInput]=useState<Record<number,string>>({});
   const [drawSel,setDrawSel]=useState<Record<number,"random"|"weighted">>({});
@@ -1436,18 +1438,21 @@ export function App(){
   },[tandaDetailId, data?.household?.id]);
   const [tInvEmail,setTInvEmail]=useState<Record<number,string>>({}); const [tInvName,setTInvName]=useState<Record<number,string>>({}); const [tJoinName,setTJoinName]=useState<Record<number,string>>({});
   const [rateName,setRateName]=useState<Record<number,string>>({}); const [rateStars,setRateStars]=useState<Record<number,string>>({}); const [rateComment,setRateComment]=useState<Record<number,string>>({});
-  const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined,coverageRule:tandaCoverage,fineAmount:Number(tandaFine)||0,meetingDay:tandaMeeting,treasurerProfileId:tandaTreasurer?Number(tandaTreasurer):null,substituteProfileId:tandaSubstitute?Number(tandaSubstitute):null}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");setTandaFine("");setTandaMeeting("");setTandaTreasurer("");setTandaSubstitute("");}});
+  const saveTanda=useMutation({mutationFn:async()=>await api.saveTanda({householdId:data!.household!.id,name:tandaName,participantCount:Number(tandaCount)||10,amountPerQuincena:Number(tandaAmount)||0,startDate:tandaStart,frequency:tandaFreq,drawMode:tandaDrawMode,organizerProfileId:me?me.id:null,organizerName:me?fullName(me):undefined,coverageRule:tandaCoverage,fineAmount:Number(tandaFine)||0,meetingDay:tandaMeeting,treasurerProfileId:tandaTreasurer?Number(tandaTreasurer):null,substituteProfileId:tandaSubstitute?Number(tandaSubstitute):null,kind:tandaKind}),onSuccess:()=>{inv();setTandaName("");setTandaAmount("");setTandaFine("");setTandaMeeting("");setTandaTreasurer("");setTandaSubstitute("");setTandaKind("ordinaria");}});
   const setRole=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;role:"organizador"|"tesorero"|"suplente"|"participante"})=>await api.setTandaRole(v),onSuccess:inv});
   const setFixed=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;number:number|null})=>await api.setTandaFixedNumber({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   const addFine=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;reason:"retardo"|"falta"})=>await api.addTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
-  const payFine=useMutation({mutationFn:async(v:{tandaId:number;fineId:number})=>await api.payTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
-  const voteExclude=useMutation({mutationFn:async(v:{tandaId:number;targetParticipantId:number})=>await api.voteExcludeParticipant({householdId:tandaHouseholdId(v.tandaId),...v,voterName:me?fullName(me):"Organizador"}),onSuccess:inv});
+  const payFine=useMutation({mutationFn:async(v:{tandaId:number;fineId:number;file:File})=>{ let proof:{dataBase64:string;mimeType:string}; try{ const jpeg=await imageFileToJpeg(v.file); proof={dataBase64:jpeg.dataBase64,mimeType:jpeg.mimeType}; }catch{ proof=await fileToBase64(v.file); } return await api.payTandaFine({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,fineId:v.fineId,proof}); },onSuccess:inv});
+  const verifyFine=useMutation({mutationFn:async(v:{tandaId:number;fineId:number;verified:boolean})=>await api.verifyTandaFine({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
+  const reassignTurn=useMutation({mutationFn:async(v:{tandaId:number;excludedParticipantId:number;newParticipantId:number})=>await api.reassignExcludedTurn({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
+  const addReplacement=useMutation({mutationFn:async(v:{tandaId:number;excludedParticipantId:number;name:string;email?:string;cardLast4?:string})=>await api.addReplacementParticipant({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
+  const voteExclude=useMutation({mutationFn:async(v:{tandaId:number;targetParticipantId:number;vote?:"excluir"|"no"})=>await api.voteExcludeParticipant({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,targetParticipantId:v.targetParticipantId,vote:v.vote ?? "excluir"}),onSuccess:inv});
   const confirmDelivery=useMutation({mutationFn:async(v:{tandaId:number;quincenaIndex:number;receiverId:number|null;by:"organizador"|"receptor"})=>await api.confirmTandaDelivery({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
-  const addFundEntry=useMutation({mutationFn:async(v:{tandaId:number})=>await api.addTandaFundEntry({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,kind:(fundKind[v.tandaId]||"fondo") as "aportacion"|"fondo"|"multa",amount:Number(fundAmount[v.tandaId])||0,note:fundNote[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setFundAmount(p=>({...p,[v.tandaId]:""}));setFundNote(p=>({...p,[v.tandaId]:""}));}});
+  const addFundEntry=useMutation({mutationFn:async(v:{tandaId:number})=>await api.addTandaFundEntry({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,kind:(fundKind[v.tandaId]||"fondo") as "aportacion"|"fondo",amount:Number(fundAmount[v.tandaId])||0,note:fundNote[v.tandaId]||undefined}),onSuccess:(_r,v)=>{inv();setFundAmount(p=>({...p,[v.tandaId]:""}));setFundNote(p=>({...p,[v.tandaId]:""}));}});
   const delTanda=useMutation({mutationFn:async(id:number)=>await api.deleteTanda({id}),onSuccess:inv});
   const addPart=useMutation({mutationFn:async(v:{tandaId:number;name:string;cardLast4?:string})=>await api.addTandaParticipant({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,name:v.name,cardLast4:v.cardLast4||undefined}),onSuccess:inv});
   const removePart=useMutation({mutationFn:async(id:number)=>await api.removeTandaParticipant({id}),onSuccess:inv});
-  const setCard=useMutation({mutationFn:async(v:{id:number;cardLast4:string})=>await api.setParticipantCard(v),onSuccess:inv});
+  const setCard=useMutation({mutationFn:async(v:{id:number;cardLast4:string|null})=>await api.setParticipantCard(v),onSuccess:inv});
   const drawTanda=useMutation({mutationFn:async(v:{id:number;mode:"random"|"weighted"})=>await api.drawTanda({tandaId:v.id,mode:v.mode}),onSuccess:inv});
   const setPay=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;status:"paid"|"pending"|"late"})=>await api.setTandaPayment({householdId:tandaHouseholdId(v.tandaId),...v}),onSuccess:inv});
   const uploadProof=useMutation({mutationFn:async(v:{tandaId:number;participantId:number;quincenaIndex:number;file:File;paidDate?:string;readAmount?:number|null})=>{ let proof:{dataBase64:string;mimeType:string}; try{ const jpeg=await imageFileToJpeg(v.file); proof={dataBase64:jpeg.dataBase64,mimeType:jpeg.mimeType}; }catch{ proof=await fileToBase64(v.file); } return await api.setTandaPayment({householdId:tandaHouseholdId(v.tandaId),tandaId:v.tandaId,participantId:v.participantId,quincenaIndex:v.quincenaIndex,status:"paid",paidDate:v.paidDate,readAmount:v.readAmount ?? undefined,proof}); },onSuccess:inv});
@@ -1523,7 +1528,7 @@ export function App(){
     tandaProofReview, setTandaProofReview, mpOrders, mpOrderKey, mpClearOrder,
     copiedLink, copyLink, tandaInviteMessage, setReceiptView,
     pickTandaProof, confirmTandaProof,
-    delTanda, drawTanda, setPay, addFine, verifyPay, addFundEntry, payFine, setRole, setFixed,
+    delTanda, drawTanda, setPay, addFine, verifyPay, addFundEntry, payFine, verifyFine, reassignTurn, addReplacement, setRole, setFixed,
     voteExclude, removePart, setCard, addPart, createTandaInv, respondTandaInv, resendInv, cancelTandaInv,
     confirmDelivery, uploadProof, remindPay, createMpOrder, checkMpOrder, rateOrg,
   };
@@ -1846,11 +1851,117 @@ export function App(){
   if(!data) return null;
 
   // ---- ONBOARDING ----
+  const fullName=(pr:{name:string;lastName?:string|null})=>`${pr.name} ${pr.lastName||""}`.trim();
+  const me = meEarly;
+  const tabLabel = (tid:Tab)=> TABS.find(x=>x.id===tid)?.label ?? tid;
+  // Permisos de tanda del perfil actual (me): la interfaz solo muestra los
+  // botones que corresponden a su rol; el servidor es la autoridad y rechaza
+  // lo no permitido. El rol sale de la fila de participante (por correo o
+  // por nombre) o de los campos organizador/tesorero/suplente de la tanda.
+  const tandaPerms = (td: (typeof allTandas)[number]) => {
+    const meName = me ? fullName(me).trim().toLowerCase() : "";
+    // Sin hogar no hay perfil «me»: la fila se busca por el correo de
+    // la sesión (invitado solo de tanda). Con hogar, me.email manda.
+    const meEmail = (me?.email || myEmail || "").trim().toLowerCase();
+    const myPart = td.participants.find(p => (p.email && meEmail !== "" && p.email.trim().toLowerCase() === meEmail) || (meName !== "" && p.name.trim().toLowerCase() === meName)) ?? null;
+    const excluded = myPart?.excluded === 1;
+    const rankOf = (r: string | null | undefined) => r === "organizador" ? 3 : (r === "tesorero" || r === "suplente") ? 2 : r === "participante" ? 1 : 0;
+    let rank = 0;
+    if (!excluded) {
+      if (myPart) rank = Math.max(rank, rankOf(myPart.role));
+      // El rango por perfil designado (organizador/tesorero/suplente) se
+      // resuelve con el perfil DEL HOGAR DE LA TANDA (td.myProfileId): en
+      // una tanda invitada, el perfil activo es el del espacio Personal
+      // y su id no coincide con el del hogar del invitador.
+      const myTandaProfileId = td.myProfileId ?? me?.id ?? null;
+      if (myTandaProfileId != null) {
+        if (td.organizerProfileId === myTandaProfileId) rank = Math.max(rank, 3);
+        else if (td.treasurerProfileId === myTandaProfileId) rank = Math.max(rank, 2);
+        else if (td.substituteProfileId === myTandaProfileId) rank = Math.max(rank, 2);
+      }
+    }
+    const myParticipantId = !excluded && myPart ? myPart.id : null;
+    // Rol RESUELTO de «me» (misma resolución que el servidor): la fila de
+    // participante, o el perfil designado al crear la tanda. El candado de
+    // pago (2026-11-26) solo deja verificar al Organizador y al Tesorero;
+    // el Suplente tiene rango 2 pero no verifica.
+    const rowRole = myPart?.role ?? null;
+    let myRole: string | null = null;
+    if (!excluded) {
+      if (rowRole === "organizador" || rowRole === "tesorero") myRole = rowRole;
+      else {
+        const myTandaProfileId = td.myProfileId ?? me?.id ?? null;
+        if (myTandaProfileId != null) {
+          if (td.organizerProfileId === myTandaProfileId) myRole = "organizador";
+          else if (td.treasurerProfileId === myTandaProfileId) myRole = "tesorero";
+          else if (td.substituteProfileId === myTandaProfileId) myRole = "suplente";
+          else myRole = rowRole;
+        } else myRole = rowRole;
+      }
+    }
+    // isAdmin es POR TANDA (lo calcula el servidor): en una tanda invitada
+    // es falso aunque el usuario sea administrador de su propio espacio
+    // Personal; si no, vería botones de organizador que no le corresponden.
+    const tandaAdmin = td.isAdmin;
+    return {
+      isAdmin: tandaAdmin,
+      myParticipantId,
+      isParticipant: myParticipantId != null,
+      canManage: tandaAdmin || rank >= 3,
+      canTreasury: tandaAdmin || rank >= 2,
+      canVerify: myRole === "organizador" || myRole === "tesorero",
+      isOwn: (participantId: number) => myParticipantId === participantId,
+    };
+  };
+  // Valores del formulario de tanda, compartidos por la pestaña Tandas y
+  // por la vista «Mis tandas» del invitado sin hogar (que no crea tandas:
+  // el formulario no se pinta, pero el módulo exige los valores).
+  const tandaFormValues: TandaFormValues = {name:tandaName,count:tandaCount,amount:tandaAmount,start:tandaStart,freq:tandaFreq,drawMode:tandaDrawMode,coverage:tandaCoverage,fine:tandaFine,meeting:tandaMeeting,treasurer:tandaTreasurer,substitute:tandaSubstitute,kind:tandaKind};
+  const onTandaFormChange = (patch: Partial<TandaFormValues>) => { if(patch.name!==undefined)setTandaName(patch.name); if(patch.count!==undefined)setTandaCount(patch.count); if(patch.amount!==undefined)setTandaAmount(patch.amount); if(patch.start!==undefined)setTandaStart(patch.start); if(patch.freq!==undefined)setTandaFreq(patch.freq); if(patch.drawMode!==undefined)setTandaDrawMode(patch.drawMode); if(patch.coverage!==undefined)setTandaCoverage(patch.coverage); if(patch.fine!==undefined)setTandaFine(patch.fine); if(patch.meeting!==undefined)setTandaMeeting(patch.meeting); if(patch.treasurer!==undefined)setTandaTreasurer(patch.treasurer); if(patch.substitute!==undefined)setTandaSubstitute(patch.substitute); if(patch.kind!==undefined)setTandaKind(patch.kind); };
+  // Cajón del invitado sin hogar (2026-11-26): solo «Mis tandas»; al
+  // final y visible va «Cerrar sesión» (prop onSignOut del cajón).
+  const guestDrawerSections: DrawerMenuSection[] = [
+    { title: "Planes y tandas", tabs: [{ id: "tandas", label: "Mis tandas" }] },
+  ];
+  // Cerrar sesión: la misma acción que Seguridad → «Cerrar sesión en este
+  // dispositivo». Va al final del cajón para todos (con hogar y sin él).
+  const handleSignOut = () => { void signOut().then(()=>window.location.reload()); };
+  // Atajos del menú rápido (estrellas del cajón, 2026-11-24): tocar la
+  // estrella fija o quita el atajo en el acto, sin pop-up ni aviso; si la
+  // barra está llena (4), no cabe más y no cambia nada.
+  const togglePin = (id:QuickShortcutId)=>{
+    setQuickShortcuts((prev)=>{
+      const next = toggleQuickShortcut(prev, id);
+      writeQuickShortcuts(next);
+      return next;
+    });
+  };
   if(!data.household){
     return (
       <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
         <SafeAreaTopScrim backgroundColor="var(--bg)" />
-        <main className="max-w-xl mx-auto px-3 pb-6 pt-4">
+        <main className="max-w-xl mx-auto px-3 pb-28 pt-4">
+          {tab === "tandas" ? (
+            <div className="space-y-4">
+              <div>
+                <button type="button" aria-label="Volver" className="rounded-full border border-[var(--border)] px-3 py-2 text-sm font-semibold" onClick={() => { setTab("inicio"); setTandaDetailId(null); }}>‹ Volver</button>
+              </div>
+              <TandasModule
+                tandas={guestTandas}
+                detailId={tandaDetailId}
+                onDetailChange={setTandaDetailId}
+                formValues={tandaFormValues}
+                onFormChange={onTandaFormChange}
+                onFormSubmit={()=>{}}
+                formPending={false}
+                organizerName={me?fullName(me):"usted"}
+                adultProfiles={[]}
+                detailDeps={tandaDetailDeps}
+                permsFor={tandaPerms}
+                hideForm
+              />
+            </div>
+          ) : (<>
           {resetDone && <div className="mb-3 bg-[var(--surface)] border-2 border-[var(--green)] rounded-2xl p-4 sm:p-5 flex items-start gap-2" role="status"><p className="text-sm flex-1"><b>Datos eliminados.</b> Empiece de nuevo.</p><button type="button" aria-label="Cerrar el aviso de reinicio completado" onClick={()=>setResetDone(false)} className="shrink-0 w-8 h-8 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-xl leading-none font-bold">×</button></div>}
           <p className="text-[var(--gold-text)] font-display font-extrabold tracking-wide text-sm">SYNCFINANZAS · VERSIÓN GRANDE</p>
           <h1 className="font-display text-2xl font-extrabold mt-2 leading-tight">Un solo hogar,<br/>cuentas claras.</h1>
@@ -1983,7 +2094,52 @@ export function App(){
           </form>
           <InstallStepsDialog open={installStepsOpen} onClose={()=>setInstallStepsOpen(false)} />
           <HelpAssistant />
+          </>)}
         </main>
+        {/* Menú del invitado sin hogar (2026-11-26): el mismo cajón de
+            hamburguesa, con «Mis tandas» y «Cerrar sesión» al final. Sin
+            él, el invitado no tenía forma de llegar a su tanda ni de salir. */}
+        {menuOpen && (
+          <div aria-hidden="true" onClick={()=>setMenuOpen(false)} className="fixed inset-0 z-30 bg-black/60" />
+        )}
+        <div aria-hidden={!menuOpen} inert={!menuOpen} className={`fixed inset-y-0 left-0 z-50 w-[min(82vw,22rem)] bg-[var(--surface)] border-r-2 border-r-[var(--gold)] shadow-2xl flex flex-col transition-transform duration-300 ease-out ${menuOpen?"translate-x-0":"-translate-x-full"}`}>
+          <div className="px-4 pt-safe pb-3 border-b border-[var(--border)]">
+            <div className="flex items-start justify-between gap-2 pt-3">
+              <div className="min-w-0">
+                <p className="font-display font-extrabold leading-tight truncate text-[var(--text)]">SyncFinanzas</p>
+                <p className="text-xs font-semibold text-[var(--text)] mt-0.5">INVITADO · SIN HOGAR</p>
+              </div>
+              <button type="button" aria-label="Cerrar menú" onClick={()=>setMenuOpen(false)} className="shrink-0 w-9 h-9 rounded-full bg-[var(--surface2)] border border-[var(--border)] text-[var(--text)] text-xl leading-none font-bold">×</button>
+            </div>
+          </div>
+          <DrawerMenu
+            sections={guestDrawerSections}
+            currentTab={tab}
+            onNavigate={(t)=>{ setTab(t); setMenuOpen(false); }}
+            pinned={quickShortcuts}
+            onTogglePin={togglePin}
+            openGroups={openDrawerGroups}
+            onToggleGroup={(title, open)=>setOpenDrawerGroups(prev=>({...prev,[title]:open}))}
+            configOpen={configOpen}
+            onToggleConfig={()=>setConfigOpen(o=>!o)}
+            vistaOpen={vistaOpen}
+            onToggleVista={()=>setVistaOpen(o=>!o)}
+            darkMode={darkMode}
+            onSetThemeMode={(d)=>setThemeMode(d)}
+            onSignOut={handleSignOut}
+          />
+        </div>
+        {!menuOpen && (
+          <QuickBar
+            currentTab={tab}
+            menuOpen={menuOpen}
+            shortcuts={[]}
+            tabLabel={tabLabel}
+            onToggleMenu={() => setMenuOpen((o) => !o)}
+            onNewExpense={() => {}}
+            onGoTab={(t) => { setTab(t); setMenuOpen(false); }}
+          />
+        )}
       </div>
     );
   }
@@ -2007,17 +2163,6 @@ export function App(){
   // (Inicio, Personal, Hogar, Cuentas, Movimientos; ver orderDrawerTabs
   // en lib/drawerOrder). Configuración participa como un grupo más (Guía
   // de uso y Vista); Mike no es un grupo y sigue al pie del cajón.
-  const tabLabel = (tid:Tab)=> TABS.find(x=>x.id===tid)?.label ?? tid;
-  // Atajos del menú rápido (estrellas del cajón, 2026-11-24): tocar la
-  // estrella fija o quita el atajo en el acto, sin pop-up ni aviso; si la
-  // barra está llena (4), no cabe más y no cambia nada.
-  const togglePin = (id:QuickShortcutId)=>{
-    setQuickShortcuts((prev)=>{
-      const next = toggleQuickShortcut(prev, id);
-      writeQuickShortcuts(next);
-      return next;
-    });
-  };
   const drawerSections: DrawerMenuSection[] = [
     ...drawerGroups.map((g) => {
       const tabs = orderDrawerTabs(g.title, g.tabs, tabLabel).map((tid) => ({ id: tid, label: tabLabel(tid) }));
@@ -2039,72 +2184,13 @@ export function App(){
   // encabezado fijo la tape) para seguir llenando sin tener que buscarla.
   const scrollFormTop=(id:string)=>{ window.setTimeout(()=>{ document.getElementById(id)?.scrollIntoView({behavior:"smooth",block:"start"}); },60); };
   const openNewMovement=(t:"income"|"expense")=>{ setEditingMv(null); setMvType(t); setMvCat(""); setMvSub(""); setMvStep(1); goToForm("movimientos","mv-amount"); };
-  const fullName=(pr:{name:string;lastName?:string|null})=>`${pr.name} ${pr.lastName||""}`.trim();
-  const me = meEarly;
   const guideStep1 = hh.mode==="personal" ? data.personal.salary>0 : data.accounts.length>0;
   const guideStep2 = data.totalMovements>0;
   const guideStep3 = chartsSeen;
   const isAdmin = !me || me.role==="admin";
   // Permisos de tanda del perfil actual (me): la interfaz solo muestra los
   // botones que corresponden a su rol; el servidor es la autoridad y rechaza
-  // lo no permitido. El rol sale de la fila de participante (por correo o
-  // por nombre) o de los campos organizador/tesorero/suplente de la tanda.
-  const tandaPerms = (td: (typeof allTandas)[number]) => {
-    const meName = me ? fullName(me).trim().toLowerCase() : "";
-    const meEmail = (me?.email || "").trim().toLowerCase();
-    const myPart = td.participants.find(p => (p.email && meEmail !== "" && p.email.trim().toLowerCase() === meEmail) || (meName !== "" && p.name.trim().toLowerCase() === meName)) ?? null;
-    const excluded = myPart?.excluded === 1;
-    const rankOf = (r: string | null | undefined) => r === "organizador" ? 3 : (r === "tesorero" || r === "suplente") ? 2 : r === "participante" ? 1 : 0;
-    let rank = 0;
-    if (!excluded) {
-      if (myPart) rank = Math.max(rank, rankOf(myPart.role));
-      // El rango por perfil designado (organizador/tesorero/suplente) se
-      // resuelve con el perfil DEL HOGAR DE LA TANDA (td.myProfileId): en
-      // una tanda invitada, el perfil activo es el del espacio Personal
-      // y su id no coincide con el del hogar del invitador.
-      const myTandaProfileId = td.myProfileId ?? me?.id ?? null;
-      if (myTandaProfileId != null) {
-        if (td.organizerProfileId === myTandaProfileId) rank = Math.max(rank, 3);
-        else if (td.treasurerProfileId === myTandaProfileId) rank = Math.max(rank, 2);
-        else if (td.substituteProfileId === myTandaProfileId) rank = Math.max(rank, 2);
-      }
-    }
-    const myParticipantId = !excluded && myPart ? myPart.id : null;
-    // Rol RESUELTO de «me» (misma resolución que el servidor): la fila de
-    // participante, o el perfil designado al crear la tanda. El candado de
-    // pago (2026-11-26) solo deja verificar al Organizador y al Tesorero;
-    // el Suplente tiene rango 2 pero no verifica.
-    const rowRole = myPart?.role ?? null;
-    let myRole: string | null = null;
-    if (!excluded) {
-      if (rowRole === "organizador" || rowRole === "tesorero") myRole = rowRole;
-      else {
-        const myTandaProfileId = td.myProfileId ?? me?.id ?? null;
-        if (myTandaProfileId != null) {
-          if (td.organizerProfileId === myTandaProfileId) myRole = "organizador";
-          else if (td.treasurerProfileId === myTandaProfileId) myRole = "tesorero";
-          else if (td.substituteProfileId === myTandaProfileId) myRole = "suplente";
-          else myRole = rowRole;
-        } else myRole = rowRole;
-      }
-    }
-    // isAdmin es POR TANDA (lo calcula el servidor): en una tanda invitada
-    // es falso aunque el usuario sea administrador de su propio espacio
-    // Personal; si no, vería botones de organizador que no le corresponden.
-    const tandaAdmin = td.isAdmin;
-    return {
-      isAdmin: tandaAdmin,
-      myParticipantId,
-      isParticipant: myParticipantId != null,
-      canManage: tandaAdmin || rank >= 3,
-      canTreasury: tandaAdmin || rank >= 2,
-      canVerify: myRole === "organizador" || myRole === "tesorero",
-      isOwn: (participantId: number) => myParticipantId === participantId,
-    };
-  };
-  // Visibilidad de movimientos: en modo Familiar un integrante ve los
-  // movimientos compartidos, los suyos y (si es administrador) los sin
-  // perfil; los privados de otros integrantes no se listan. Es la misma
+  // lo no permitido. El rol sale de l se listan. Es la misma
   // regla de la lista de Movimientos. Los totales de las gráficas sí
   // incluyen todo el hogar; las ventanas de detalle solo listan lo visible
   // y avisan cuántos movimientos privados quedan fuera.
@@ -2604,6 +2690,7 @@ export function App(){
           darkMode={darkMode}
           onSetThemeMode={(d)=>setThemeMode(d)}
           onFeedback={()=>{ setMenuOpen(false); setFeedbackOpen(true); }}
+          onSignOut={handleSignOut}
         />
         <div className="px-3 pb-4 pt-2 border-t border-[var(--border)]">
           <button type="button" aria-label="Abrir a Mike" onClick={()=>{ setMenuOpen(false); setHelpOpen(true); }} className="w-full flex items-center gap-2 rounded-xl px-2 py-2 text-left">
@@ -3215,9 +3302,8 @@ export function App(){
               {showAgPreview && <div aria-label="Revisión de la propuesta del acuerdo" className="mt-3 border border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="font-bold text-sm">Revise antes de proponer</p><div className="mt-2 space-y-1 text-sm"><p className="flex justify-between gap-2"><span>Título</span><b>{agTitle}</b></p>{agDesc && <p className="text-xs text-[var(--dim)]">{agDesc}</p>}<p className="flex justify-between gap-2"><span>Regla del hogar</span><b>{(data.household?.approvalRule||"unanimous")==="unanimous"?"Unánime":"Mayoría"}</b></p></div><p className="font-bold text-sm mt-3">Qué pasa al proponer:</p><p className="text-sm mt-1">El acuerdo queda como Propuesta, pendiente de votación.</p>{(data.household?.approvalRule||"unanimous")==="unanimous"?<p className="text-sm mt-1">Se aprueba solo si todos los adultos votan Sí; un solo No lo rechaza.</p>:<p className="text-sm mt-1">Se aprueba con {Math.floor(data.profiles.filter(p=>p.kind==="adult").length/2)+1} votos Sí de {data.profiles.filter(p=>p.kind==="adult").length} adultos; con {Math.floor(data.profiles.filter(p=>p.kind==="adult").length/2)+1} votos No se rechaza.</p>}<p className="text-sm mt-1">Cada integrante adulto puede votar Sí o No.</p><div className="flex gap-2 mt-3"><button type="button" aria-label="Confirmar la propuesta del acuerdo" className={btnPrimary} disabled={saveAg.isPending} onClick={()=>saveAg.mutate()}>{saveAg.isPending?"Proponiendo…":"Proponer acuerdo"}</button><button type="button" aria-label="Corregir la propuesta del acuerdo" className={btnGhost} onClick={()=>setShowAgPreview(false)}>Corregir</button></div></div>}
               </form>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
-                <Label htmlFor="vote-profile">Voto como</Label>
-                <select id="vote-profile" aria-label="Votar como perfil" className={inputCls} value={voteProfile} onChange={e=>setVoteProfile(e.target.value)}><option value="">Seleccione su perfil…</option>{data.profiles.filter(p=>p.kind==="adult").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-                <p className="text-xs text-[var(--dim)] mt-2">Regla del hogar: <b>{hh.approvalRule==="unanimous"?"Unánime":"Mayoría"}</b>.</p>
+                <p className="text-sm">Vota como <b>{(()=>{ const ownAdult=data.profiles.find(pp=>pp.id===(data.myProfileId ?? null) && pp.kind==="adult") ?? (me && me.kind==="adult" ? me : null); return ownAdult ? fullName(ownAdult) : "—"; })()}</b>.</p>
+                <p className="text-xs text-[var(--dim)] mt-2">Regla del hogar: <b>{hh.approvalRule==="unanimous"?"Unánime":"Mayoría"}</b>. Cada quien vota con su propio perfil adulto.</p>
               </div>
               <div className="flex gap-2 text-center text-sm">
                 <div className="flex-1 bg-[var(--surface)] border border-[var(--border)] rounded-2xl py-2"><b className="font-display block text-lg">{data.agreements.filter(a=>a.status==="proposal").length}</b>Propuestas</div>
@@ -3228,10 +3314,11 @@ export function App(){
             <div className="space-y-2">
               {data.agreements.map(a=>{
                 const adults=data.profiles.filter(p=>p.kind==="adult");
-                const myVote=a.votes.find(v=>v.profileId===Number(voteProfile))?.vote;
-                const myName=data.profiles.find(p=>p.id===Number(voteProfile))?.name||"Usted";
-                const approves=a.votes.filter(v=>v.vote==="approve"&&v.profileId!==Number(voteProfile)).length;
-                const rejects=a.votes.filter(v=>v.vote==="reject"&&v.profileId!==Number(voteProfile)).length;
+                const myAdultId=(data.profiles.find(pp=>pp.id===(data.myProfileId ?? null) && pp.kind==="adult") ?? (me && me.kind==="adult" ? me : null))?.id ?? null;
+                const myVote=myAdultId==null?undefined:a.votes.find(v=>v.profileId===myAdultId)?.vote;
+                const myName=myAdultId==null?"Usted":data.profiles.find(p=>p.id===myAdultId)?.name||"Usted";
+                const approves=a.votes.filter(v=>v.vote==="approve"&&v.profileId!==myAdultId).length;
+                const rejects=a.votes.filter(v=>v.vote==="reject"&&v.profileId!==myAdultId).length;
                 const rule=data.household?.approvalRule||"unanimous";
                 const need=Math.floor(adults.length/2)+1;
                 const newRejects=rejects+1;
@@ -3239,9 +3326,9 @@ export function App(){
                 const totalSi=approves+(myVote==="approve"?1:0);
                 const totalNo=rejects+(myVote==="reject"?1:0);
                 const votesLine=a.votes.length===0?"sin votos":a.votes.map(v=>`${data.profiles.find(p=>p.id===v.profileId)?.name||"Perfil"}: ${v.vote==="approve"?"Sí":"No"}`).join(" · ");
-                const otherVotes=a.votes.filter(v=>v.profileId!==Number(voteProfile)).map(v=>`${data.profiles.find(p=>p.id===v.profileId)?.name||"Perfil"}: ${v.vote==="approve"?"Sí":"No"}`).join(" · ");
+                const otherVotes=a.votes.filter(v=>v.profileId!==myAdultId).map(v=>`${data.profiles.find(p=>p.id===v.profileId)?.name||"Perfil"}: ${v.vote==="approve"?"Sí":"No"}`).join(" · ");
                 const voterLine=myVote?`${myName} ya votó ${myVote==="approve"?"Sí":"No"}.`:`${myName} aún no vota.`;
-                return <div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><div className="flex justify-between gap-2"><b className="font-display">{a.title}</b><span className={`text-xs rounded-full px-2.5 py-1 font-bold shrink-0 ${a.status==="approved"?"bg-green-100 text-green-800":a.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</span></div>{a.description && <p className="text-sm text-[var(--dim)] mt-1">{a.description}</p>}<p className="text-xs text-[var(--dim)] mt-2">Votos: {votesLine}</p><div className="flex gap-2 mt-3"><button aria-label={`Aprobar acuerdo ${a.title}`} className={btnPrimary} disabled={!voteProfile} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"approve"})}>Votar Sí</button><button aria-label={`Rechazar acuerdo ${a.title}`} className={btnGhost} disabled={!voteProfile} onClick={()=>setRejectAgreementPreviewId(a.id)}>Votar No</button>{deleteAgreementPreviewId!==a.id && <button aria-label={`Eliminar acuerdo ${a.title}`} className="text-xs underline text-[var(--red)] ml-auto" onClick={()=>setDeleteAgreementPreviewId(a.id)}>Eliminar</button>}</div>{!voteProfile && <p className="text-xs text-[var(--dim)] mt-1">Seleccione su perfil para votar.</p>}{rejectAgreementPreviewId===a.id && <div aria-label={`Revisión del voto No al acuerdo ${a.title}`} className="mt-3 border border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="font-bold text-sm">Revise antes de votar No</p><div className="mt-2 space-y-1 text-sm"><p className="flex justify-between gap-2"><span>Acuerdo</span><b>{a.title}</b></p>{a.description && <p className="text-xs text-[var(--dim)]">{a.description}</p>}<p className="flex justify-between gap-2"><span>Vota como</span><b>{myName}</b></p><p className="flex justify-between gap-2"><span>Votos hasta ahora</span><b>{totalSi+totalNo===0?"sin votos":`${totalSi} Sí · ${totalNo} No`}</b></p><p className="text-xs text-[var(--dim)]">{otherVotes?`${otherVotes}. ${voterLine}`:voterLine}</p><p className="flex justify-between gap-2"><span>Regla del hogar</span><b>{rule==="unanimous"?"Unánime":"Mayoría"}</b></p></div><p className="font-bold text-sm mt-3">Qué pasa si vota No:</p>{willReject?(<><p className="text-sm mt-1">Su voto No rechaza el acuerdo de inmediato.</p><p className="text-sm mt-1">El acuerdo queda como Rechazado, no se borra.</p></>):(<><p className="text-sm mt-1">Con su voto son {newRejects} de {need} votos No para rechazarlo.</p><p className="text-sm mt-1">El acuerdo sigue como Propuesta.</p></>)}{myVote==="approve" && <p className="text-sm mt-1">Su voto cambia de Sí a No.</p>}<p className="text-sm mt-1">Su voto se puede cambiar después; el estado se recalcula.</p><div className="flex gap-2 mt-3"><button aria-label={`Confirmar el voto No al acuerdo ${a.title}`} className={btnDanger} disabled={voteAg.isPending} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"reject"})}>{voteAg.isPending?"Votando…":"Votar No"}</button><button aria-label={`Cancelar el voto No al acuerdo ${a.title}`} className={btnGhost} onClick={()=>setRejectAgreementPreviewId(null)}>Cancelar</button></div></div>}{deleteAgreementPreviewId===a.id && <div aria-label={`Revisión de la eliminación del acuerdo ${a.title}`} className="mt-3 border border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="font-bold text-sm">Revise antes de eliminar</p><div className="mt-2 space-y-1 text-sm"><p className="flex justify-between gap-2"><span>Acuerdo</span><b>{a.title}</b></p>{a.description && <p className="text-xs text-[var(--dim)]">{a.description}</p>}<p className="flex justify-between gap-2"><span>Estado</span><b>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</b></p><p className="flex justify-between gap-2"><span>Votos</span><b>{totalSi+totalNo===0?"sin votos":`${totalSi} Sí · ${totalNo} No`}</b></p></div><p className="font-bold text-sm mt-3">Qué pasa al eliminar:</p><p className="text-sm mt-1">El acuerdo se elimina y no se puede recuperar.</p><p className="text-sm mt-1">Sus votos se borran con él.</p><p className="text-sm mt-1">Si lo vuelve a necesitar, hay que proponerlo de nuevo.</p><div className="flex gap-2 mt-3"><button aria-label={`Confirmar la eliminación del acuerdo ${a.title}`} className={btnDanger} disabled={delAg.isPending} onClick={()=>delAg.mutate(a.id)}>{delAg.isPending?"Eliminando…":"Eliminar"}</button><button aria-label={`Cancelar la eliminación del acuerdo ${a.title}`} className={btnGhost} onClick={()=>setDeleteAgreementPreviewId(null)}>Cancelar</button></div></div>}</div>;})}
+                return <div key={a.id} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5"><div className="flex justify-between gap-2"><b className="font-display">{a.title}</b><span className={`text-xs rounded-full px-2.5 py-1 font-bold shrink-0 ${a.status==="approved"?"bg-green-100 text-green-800":a.status==="rejected"?"bg-red-100 text-red-800":"bg-[var(--surface2)]"}`}>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</span></div>{a.description && <p className="text-sm text-[var(--dim)] mt-1">{a.description}</p>}<p className="text-xs text-[var(--dim)] mt-2">Votos: {votesLine}</p><div className="flex gap-2 mt-3"><button aria-label={`Aprobar acuerdo ${a.title}`} className={btnPrimary} disabled={myAdultId==null} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"approve"})}>Votar Sí</button><button aria-label={`Rechazar acuerdo ${a.title}`} className={btnGhost} disabled={myAdultId==null} onClick={()=>setRejectAgreementPreviewId(a.id)}>Votar No</button>{deleteAgreementPreviewId!==a.id && <button aria-label={`Eliminar acuerdo ${a.title}`} className="text-xs underline text-[var(--red)] ml-auto" onClick={()=>setDeleteAgreementPreviewId(a.id)}>Eliminar</button>}</div>{myAdultId==null && <p className="text-xs text-[var(--dim)] mt-1">Sin perfil adulto no se puede votar.</p>}{rejectAgreementPreviewId===a.id && <div aria-label={`Revisión del voto No al acuerdo ${a.title}`} className="mt-3 border border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="font-bold text-sm">Revise antes de votar No</p><div className="mt-2 space-y-1 text-sm"><p className="flex justify-between gap-2"><span>Acuerdo</span><b>{a.title}</b></p>{a.description && <p className="text-xs text-[var(--dim)]">{a.description}</p>}<p className="flex justify-between gap-2"><span>Vota como</span><b>{myName}</b></p><p className="flex justify-between gap-2"><span>Votos hasta ahora</span><b>{totalSi+totalNo===0?"sin votos":`${totalSi} Sí · ${totalNo} No`}</b></p><p className="text-xs text-[var(--dim)]">{otherVotes?`${otherVotes}. ${voterLine}`:voterLine}</p><p className="flex justify-between gap-2"><span>Regla del hogar</span><b>{rule==="unanimous"?"Unánime":"Mayoría"}</b></p></div><p className="font-bold text-sm mt-3">Qué pasa si vota No:</p>{willReject?(<><p className="text-sm mt-1">Su voto No rechaza el acuerdo de inmediato.</p><p className="text-sm mt-1">El acuerdo queda como Rechazado, no se borra.</p></>):(<><p className="text-sm mt-1">Con su voto son {newRejects} de {need} votos No para rechazarlo.</p><p className="text-sm mt-1">El acuerdo sigue como Propuesta.</p></>)}{myVote==="approve" && <p className="text-sm mt-1">Su voto cambia de Sí a No.</p>}<p className="text-sm mt-1">Su voto se puede cambiar después; el estado se recalcula.</p><div className="flex gap-2 mt-3"><button aria-label={`Confirmar el voto No al acuerdo ${a.title}`} className={btnDanger} disabled={voteAg.isPending} onClick={()=>voteAg.mutate({agreementId:a.id,vote:"reject"})}>{voteAg.isPending?"Votando…":"Votar No"}</button><button aria-label={`Cancelar el voto No al acuerdo ${a.title}`} className={btnGhost} onClick={()=>setRejectAgreementPreviewId(null)}>Cancelar</button></div></div>}{deleteAgreementPreviewId===a.id && <div aria-label={`Revisión de la eliminación del acuerdo ${a.title}`} className="mt-3 border border-[var(--gold)] rounded-xl p-3 bg-[var(--surface2)]"><p className="font-bold text-sm">Revise antes de eliminar</p><div className="mt-2 space-y-1 text-sm"><p className="flex justify-between gap-2"><span>Acuerdo</span><b>{a.title}</b></p>{a.description && <p className="text-xs text-[var(--dim)]">{a.description}</p>}<p className="flex justify-between gap-2"><span>Estado</span><b>{a.status==="approved"?"Aprobado":a.status==="rejected"?"Rechazado":"Propuesta"}</b></p><p className="flex justify-between gap-2"><span>Votos</span><b>{totalSi+totalNo===0?"sin votos":`${totalSi} Sí · ${totalNo} No`}</b></p></div><p className="font-bold text-sm mt-3">Qué pasa al eliminar:</p><p className="text-sm mt-1">El acuerdo se elimina y no se puede recuperar.</p><p className="text-sm mt-1">Sus votos se borran con él.</p><p className="text-sm mt-1">Si lo vuelve a necesitar, hay que proponerlo de nuevo.</p><div className="flex gap-2 mt-3"><button aria-label={`Confirmar la eliminación del acuerdo ${a.title}`} className={btnDanger} disabled={delAg.isPending} onClick={()=>delAg.mutate(a.id)}>{delAg.isPending?"Eliminando…":"Eliminar"}</button><button aria-label={`Cancelar la eliminación del acuerdo ${a.title}`} className={btnGhost} onClick={()=>setDeleteAgreementPreviewId(null)}>Cancelar</button></div></div>}</div>;})}
               {data.agreements.length===0 && <Empty title="Sin acuerdos registrados" body="Proponga la primera regla del hogar." />}
             </div>
           </section>
@@ -3679,8 +3766,8 @@ export function App(){
             tandas={allTandas}
             detailId={tandaDetailId}
             onDetailChange={setTandaDetailId}
-            formValues={{name:tandaName,count:tandaCount,amount:tandaAmount,start:tandaStart,freq:tandaFreq,drawMode:tandaDrawMode,coverage:tandaCoverage,fine:tandaFine,meeting:tandaMeeting,treasurer:tandaTreasurer,substitute:tandaSubstitute}}
-            onFormChange={(patch)=>{ if(patch.name!==undefined)setTandaName(patch.name); if(patch.count!==undefined)setTandaCount(patch.count); if(patch.amount!==undefined)setTandaAmount(patch.amount); if(patch.start!==undefined)setTandaStart(patch.start); if(patch.freq!==undefined)setTandaFreq(patch.freq); if(patch.drawMode!==undefined)setTandaDrawMode(patch.drawMode); if(patch.coverage!==undefined)setTandaCoverage(patch.coverage); if(patch.fine!==undefined)setTandaFine(patch.fine); if(patch.meeting!==undefined)setTandaMeeting(patch.meeting); if(patch.treasurer!==undefined)setTandaTreasurer(patch.treasurer); if(patch.substitute!==undefined)setTandaSubstitute(patch.substitute); }}
+            formValues={tandaFormValues}
+            onFormChange={onTandaFormChange}
             onFormSubmit={()=>saveTanda.mutate()}
             formPending={saveTanda.isPending}
             organizerName={me?fullName(me):"usted"}

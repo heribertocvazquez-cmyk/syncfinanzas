@@ -16,6 +16,7 @@ import { CollapsibleCard } from "./CollapsibleCard";
 // sección.
 
 export type TandaFrequency = "semanal" | "quincenal" | "mensual";
+export type TandaKind = "ordinaria" | "compartamos";
 export type TandaDrawMode = "random" | "weighted";
 export type TandaCoverage = "fondo" | "prorroga" | "reparto";
 
@@ -31,6 +32,7 @@ export type TandaFormValues = {
   meeting: string;
   treasurer: string;
   substitute: string;
+  kind: TandaKind;
 };
 
 export type TandaAdultProfile = { id: number; name: string };
@@ -66,6 +68,7 @@ export function TandaForm(p: {
         toggleLabel="opciones de grupo"
       >
         <div className="grid md:grid-cols-3 gap-2 items-end mt-2">
+          <div><Label htmlFor="tanda-kind">Tipo de tanda</Label><select id="tanda-kind" aria-label="Tipo de tanda" className={inputCls} value={v.kind} onChange={e => set({ kind: e.target.value as TandaKind })}><option value="ordinaria">Ordinaria (sin multas)</option><option value="compartamos">Compartamos (grupo formal, con multas)</option></select></div>
           <div><Label htmlFor="tanda-coverage">Si alguien no paga</Label><select id="tanda-coverage" aria-label="Regla si alguien no paga en la tanda" className={inputCls} value={v.coverage} onChange={e => set({ coverage: e.target.value as TandaCoverage })}><option value="fondo">Fondo solidario</option><option value="prorroga">Prórroga</option><option value="reparto">Reparto entre los demás</option></select></div>
           <div><Label htmlFor="tanda-fine">Multa por retardo o falta ($)</Label><input id="tanda-fine" aria-label="Multa por retardo o falta en la tanda" type="number" min="0" className={inputCls} value={v.fine} onChange={e => set({ fine: e.target.value })} placeholder="0 = sin multa" /></div>
           <div><Label htmlFor="tanda-meeting">Día fijo de reunión</Label><select id="tanda-meeting" aria-label="Día fijo de reunión de la tanda" className={inputCls} value={v.meeting} onChange={e => set({ meeting: e.target.value })}><option value="">Sin día fijo</option><option value="lunes">Lunes</option><option value="martes">Martes</option><option value="miércoles">Miércoles</option><option value="jueves">Jueves</option><option value="viernes">Viernes</option><option value="sábado">Sábado</option><option value="domingo">Domingo</option></select></div>
