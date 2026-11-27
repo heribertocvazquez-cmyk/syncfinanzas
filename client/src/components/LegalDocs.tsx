@@ -72,7 +72,7 @@ export function LegalMarkdown({ text }: { text: string }) {
 
 function LegalDocCard({ doc }: { doc: LegalDoc }) {
   return (
-    <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4">
+    <div id={`doc-${doc.id}`} className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4">
       <h3 className="font-display font-bold text-lg">{doc.title}</h3>
       <p className="text-xs font-semibold text-[var(--dim)] mt-1">{doc.badge}</p>
       <div className="mt-3 max-h-72 overflow-y-auto pr-1">

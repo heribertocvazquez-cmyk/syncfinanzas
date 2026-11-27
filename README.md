@@ -1,5 +1,7 @@
 # SyncFinanzas — Versión desplegable (Vercel + Supabase, planes gratuitos)
 
+Diseñada por Ren.
+
 Aplicación web de finanzas del hogar con modo Personal y modo Familiar,
 tandas, comprobantes, gráficas y guías. Esta versión ya NO depende de Muse:
 cualquier persona con el enlace puede entrar con su correo y contraseña,

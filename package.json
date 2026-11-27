@@ -1,4 +1,5 @@
 {
+  "author": "Diseñada por Ren",
   "dependencies": {
     "@supabase/supabase-js": "2.119.2",
     "@tanstack/react-query": "5.100.10",

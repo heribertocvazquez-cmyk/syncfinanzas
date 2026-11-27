@@ -26,6 +26,7 @@ import { PlanFinancieroWizard } from "./components/PlanFinancieroWizard";
 import { HomeMovementsCard } from "./components/HomeMovementsCard";
 import { CollapsibleCard } from "./components/CollapsibleCard";
 import { LegalDocumentsView } from "./components/LegalDocs";
+import { AboutSection } from "./components/AboutSection";
 import { money, money2, fmtDate, todayISO, getHouseholdCurrency, setHouseholdCurrency } from "./lib/format";
 import { accountRateNotice, accountRateNoticePending, CURRENCIES, currencyName, findStoredRate, fxLabel, moneyIn, movementRateNotice, previewEquivalent, suggestCurrency, type ExchangeRateInfo, type HouseholdCurrency } from "./lib/currency";
 import { CurrencyPicker } from "./components/CurrencyPicker";
@@ -1991,6 +1992,9 @@ export function App(){
   // de iniciar sesión y al reabrirla, se ven saldo, gráficas, movimientos y las
   // tarjetas principales, sin abrir el menú ni ir a otra pestaña.
   const s=data.summary; const hh=data.household; setHouseholdCurrency(hh?.currency); const effTab:Tab = tab; const goTab=(x:Tab)=>{setTab(x); logUsageEvent(data?.household?.id, x, "ver_modulo"); if(x==="inicio"){ setChartsSeen(true); try{ localStorage.setItem("sf-guide-charts-seen","1"); }catch{} }};
+  const scrollToLegalDoc = (docId: "privacy" | "terms" | "refunds") => {
+    document.getElementById(`doc-${docId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   // Primera vista de la sesión: la analítica también cuenta el módulo en
   // el que se abre la app (goTab solo registra los cambios de módulo).
   const openTandaDetail=(id:number)=>{ setTandaDetailId(id); goTab("tandas"); };
@@ -3990,6 +3994,7 @@ export function App(){
               <p className="text-sm text-[var(--dim)]">Aviso de privacidad, términos y condiciones, política de reembolsos y versión de prueba. Son borradores pendientes de revisión de un abogado.</p>
             </div>
             <LegalDocumentsView acceptedAt={legalQuery.data?.acceptedAt ?? null} />
+            <AboutSection onReadDoc={scrollToLegalDoc} />
           </section>
         )}
       </main>

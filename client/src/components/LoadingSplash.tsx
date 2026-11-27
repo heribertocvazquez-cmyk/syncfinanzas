@@ -32,6 +32,10 @@ export function LoadingSplash() {
           <div className="w-8 h-8 rounded-full border-[3px] border-white/20 border-t-[#00C2B5] animate-spin" aria-hidden="true" />
           <p className="text-xs text-white/60">Cargando…</p>
         </div>
+        <div className="mt-6 flex flex-col items-center gap-0.5">
+          <p className="text-xs text-white/60">Diseñada por Ren</p>
+          <p className="text-xs text-white/40">© 2026 SyncFinanzas</p>
+        </div>
       </div>
     </div>
   );
