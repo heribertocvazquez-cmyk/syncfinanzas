@@ -3029,27 +3029,23 @@ export function App(){
         {effTab==="movimientos" && (
           <section className="grid md:grid-cols-[340px_1fr] gap-4 md:gap-6 items-start">
             {renderMvForm()}
-            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-4 sm:p-5">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="font-display font-bold text-lg">Movimientos</h2>
-                {/* El envoltorio flex-1 mantiene el ancho completo del
-                    embudo: su panel es absoluto y su ancho es
-                    min(320px, 100%) del envoltorio relativo; sin él, como
-                    ítem flex el embudo se encogería al ancho del botón y
-                    el panel saldría de 40 px. El título va a la izquierda
-                    y el embudo queda a la derecha (decisión de Heriberto
-                    2026-11-18: faltaba el título en esta tarjeta). */}
-                <div className="flex-1 min-w-0">
-                  <MovementsFilter
-                    value={mvFilters}
-                    onChange={setMvFilters}
-                    accounts={data.accounts}
-                    subcategories={Array.from(new Set(data.categories.flatMap(c=>c.subcategories))).sort()}
-                    monthsWithMovements={monthsWithMovs}
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-[var(--dim)] mt-2">{mvQuery.isPending ? "Cargando movimientos…" : `${mvTotals.total} movimientos · Entradas ${money(mvTotals.incomeTotal)} · Salidas ${money(mvTotals.expenseTotal)}`}</p>
+            <CollapsibleCard
+              toggleLabel="movimientos"
+              title={<h2 className="font-display font-bold text-lg">Movimientos</h2>}
+              above={<p className="text-xs text-[var(--dim)] mt-1">{mvQuery.isPending ? "Cargando movimientos…" : `${mvTotals.total} movimientos · Entradas ${money(mvTotals.incomeTotal)} · Salidas ${money(mvTotals.expenseTotal)}`}</p>}
+            >
+              {/* El embudo vive dentro del contenido plegable: su panel es
+                  absoluto y su ancho es min(320px, 100%) de su contenedor
+                  relativo. La tarjeta nace cerrada con +/− (decisión de
+                  Heriberto 2026-11-27, como Metas y Fondos); cerrada solo
+                  se ven el título y el resumen. */}
+              <MovementsFilter
+                value={mvFilters}
+                onChange={setMvFilters}
+                accounts={data.accounts}
+                subcategories={Array.from(new Set(data.categories.flatMap(c=>c.subcategories))).sort()}
+                monthsWithMovements={monthsWithMovs}
+              />
               <div className="flex gap-2 flex-wrap mt-2">
                 <button type="button" aria-label="Exportar los movimientos visibles a CSV" className={btnGhost} disabled={exportingCsv} onClick={exportCsv}>{exportingCsv?"Exportando…":"Exportar CSV"}</button>
                 <button type="button" aria-label="Importar movimientos desde un archivo CSV" aria-expanded={importOpen} className={btnGhost} onClick={()=>{setImportOpen(o=>!o); setImportError("");}}>{importOpen?"Cerrar importación":"Importar CSV"}</button>
@@ -3115,7 +3111,7 @@ export function App(){
               {mvQuery.hasNextPage && <div className="mt-3 text-center"><button type="button" className={btnGhost} disabled={mvQuery.isFetchingNextPage} onClick={()=>mvQuery.fetchNextPage()}>{mvQuery.isFetchingNextPage?"Cargando más…":"Cargar más"}</button></div>}
               {mvQuery.isPending && <p className="text-sm text-[var(--dim)] mt-2">Cargando movimientos…</p>}
               {!mvQuery.isPending && filteredMovs.length===0 && <Empty title="Sin movimientos con ese filtro" body="Cambie el filtro o registre el primero." />}
-            </div>
+            </CollapsibleCard>
           </section>
         )}
 
