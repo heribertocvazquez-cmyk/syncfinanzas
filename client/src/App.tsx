@@ -945,6 +945,22 @@ export function App(){
   // invitación de tanda pendiente.
   const isTandaGuest = guestTandas.length>0;
   const [showHouseholdForm,setShowHouseholdForm]=useState(false);
+  // Botón «Crear mi cuenta Personal» (regla 2026-11-27): al pulsarlo el
+  // asistente se abría dos tarjetas más abajo sin desplazar la vista, así
+  // que en el teléfono parecía no hacer nada (verificado en pantalla
+  // 2026-11-27, 363754e). Al abrirse por el botón, la vista se desplaza
+  // hasta él y se enfoca su título; solo al abrirse, no en cada repintado.
+  const wizardRef = useRef<HTMLFormElement|null>(null);
+  const prevWizardOpenRef = useRef(false);
+  useEffect(()=>{
+    const open = pendingTandaAccept!=null || showHouseholdForm;
+    const wasOpen = prevWizardOpenRef.current;
+    prevWizardOpenRef.current = open;
+    if(open && !wasOpen){
+      try{ wizardRef.current?.scrollIntoView({behavior:"smooth", block:"start"}); }catch{}
+      try{ (wizardRef.current?.querySelector("h2") as HTMLElement|null)?.focus?.(); }catch{}
+    }
+  },[pendingTandaAccept, showHouseholdForm]);
   const [guestLanded,setGuestLanded]=useState(false);
   useEffect(()=>{
     if(data && !data.household && modeModalShown && invFound.some(iv=>iv.kind==="tanda")){ setModeModalOpen(false); return; }
@@ -2099,9 +2115,9 @@ export function App(){
             </div>
           )}
           {showHouseholdWizard ? (
-          <form className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();createHh.mutate();}}>
+          <form ref={wizardRef} className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] p-3.5 mt-4 space-y-3" onSubmit={(e:FormEvent)=>{e.preventDefault();createHh.mutate();}}>
             <div className="flex items-center justify-between gap-2">
-              <h2 className="font-display font-bold text-lg">{planMode==="personal"?"Su espacio personal":"Cree su hogar"}</h2>
+              <h2 tabIndex={-1} className="font-display font-bold text-lg">{planMode==="personal"?"Su espacio personal":"Cree su hogar"}</h2>
               <span className="text-xs font-bold text-[var(--dim)] shrink-0">Paso {obStep+1} de 3</span>
             </div>
             <div className="flex gap-1.5" aria-label={`Paso ${obStep+1} de 3`}>
