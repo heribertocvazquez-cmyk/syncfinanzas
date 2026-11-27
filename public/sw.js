@@ -11,7 +11,7 @@
 // worker en espera que se active (SKIP_WAITING) y recarga. La sesión y los
 // datos no se tocan: viven en Supabase y la recarga solo cambia el código
 // de la aplicación.
-const SW_VERSION = "a30a62c";
+const SW_VERSION = "4c2b972";
 // Redespliegue 2026-11-24: Vercel no tomó el commit de versión bedcf0f;
 // este cambio mínimo fuerza un despliegue nuevo.
 const CACHE = `syncfinanzas-${SW_VERSION}`;
