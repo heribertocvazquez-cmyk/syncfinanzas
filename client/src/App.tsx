@@ -4052,7 +4052,7 @@ export function App(){
               <ul className="list-disc ml-5 text-sm space-y-1.5 mt-2 text-[var(--dim)]">
                 <li>Contraseña de 12 caracteres; bloqueo 15 min tras 5 intentos.</li>
                 <li>Cada registro se valida en el servidor.</li>
-                <li>Lo privado solo lo ve su autor.</li>
+                <li>Lo privado no se comparte con otros miembros; solo lo ven su autor y el administrador.</li>
                 <li>Límite de peticiones por minuto.</li>
                 <li>Sin claves en el código.</li>
                 <li>Bloqueo con PIN en este dispositivo (opcional).</li>
