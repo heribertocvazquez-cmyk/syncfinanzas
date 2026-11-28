@@ -2044,7 +2044,7 @@ export function App(){
           <p className="text-[var(--gold-text)] font-display font-extrabold tracking-wide text-sm">SYNCFINANZAS · VERSIÓN GRANDE</p>
           <h1 className="font-display text-2xl font-extrabold mt-2 leading-tight">Un solo hogar,<br/>cuentas claras.</h1>
           <p className="text-[var(--dim)] mt-3">Registre sus gastos e ingresos y vea cuánto le queda.</p>
-          <div className="mt-4"><InstallCard installed={appInstalled} onInstall={handleInstallClick} /></div>
+          {!appInstalled && !installDismissed && <div className="mt-4"><InstallCard installed={appInstalled} onInstall={handleInstallClick} onDismiss={dismissInstall} /></div>}
           <div className="bg-[var(--surface)] rounded-2xl border-2 border-[var(--gold)] p-3.5 mt-4 space-y-2">
             <h2 className="font-display font-bold text-lg">¿Recibió una invitación?</h2>
             <p className="text-sm text-[var(--dim)]">Escriba su correo.</p>
