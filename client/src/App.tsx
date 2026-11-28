@@ -2289,11 +2289,14 @@ export function App(){
   // regla de la lista de Movimientos. Los totales de las gráficas sí
   // incluyen todo el hogar; las ventanas de detalle solo listan lo visible
   // y avisan cuántos movimientos privados quedan fuera.
-  // «mine» lo marca el servidor (el perfil del movimiento pertenece a la
-  // cuenta del usuario): un movimiento propio nunca se esconde, aunque se
-  // haya guardado con otro perfil de la misma cuenta o el perfil actual
-  // del dispositivo sea otro. Sin ese dato, un gasto propio contado en
-  // los totales podía no aparecer en la lista.
+  // La visibilidad la decide el PERFIL ACTIVO del dispositivo (me), no
+  // el flag «mine» del servidor: «mine» marca que el perfil del
+  // movimiento pertenece a la CUENTA de la sesión, y con el perfil
+  // activo en otra persona dejaría ver sus privados. El banner promete
+  // «Ve lo compartido y sus privados»: solo los privados del perfil
+  // activo se listan. Los totales de las gráficas sí incluyen todo el
+  // hogar; las ventanas de detalle solo listan lo visible y avisan
+  // cuántos movimientos privados quedan fuera.
   const canSeeMov = (m:{visibility:string;profileId:number|null;mine?:boolean})=> canSeeMovementRow(m, me);
   const visibleMovs = data.movements.filter(canSeeMov);
   // Movimientos de la tarjeta de Inicio: solo los del mes que muestra el

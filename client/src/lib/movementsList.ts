@@ -8,7 +8,7 @@
 export type ListMovement = {
   visibility: string;
   profileId: number | null;
-  /** Lo marca el servidor: el perfil del movimiento pertenece a la cuenta del usuario. */
+  /** Lo marca el servidor: el perfil del movimiento pertenece a la cuenta del usuario. No decide la visibilidad en la lista: esa la decide el perfil activo (ver canSeeMovementRow). */
   mine?: boolean;
   date: string;
   concept: string;
@@ -17,10 +17,17 @@ export type ListMovement = {
 
 /**
  * ¿Se ve este movimiento en la lista? Misma regla que la lista de
- * Movimientos: compartido, propio (según el servidor, no solo según el
- * perfil actual del dispositivo) o sin perfil siendo administrador.
- * Los privados de otros integrantes no se listan; los totales sí los
- * cuentan, porque no revelan conceptos.
+ * Movimientos: compartido, propio del PERFIL ACTIVO del dispositivo, o
+ * sin perfil siendo administrador. Los privados de otros integrantes no
+ * se listan; los totales sí los cuentan, porque no revelan conceptos.
+ *
+ * El flag `mine` del servidor NO decide aquí: marca que el perfil del
+ * movimiento pertenece a la CUENTA de la sesión, no al perfil activo.
+ * Con el perfil activo en otra persona (p. ej. Rebeca), los privados de
+ * la cuenta (p. ej. de Heriberto) llegarían con `mine: true` y se verían,
+ * contradiciendo el banner «Ve lo compartido y sus privados» — que
+ * promete solo los privados del perfil activo. Sin perfil activo
+ * resuelto no se filtra.
  */
 export function canSeeMovementRow(
   m: Pick<ListMovement, "visibility" | "profileId" | "mine">,
@@ -28,7 +35,6 @@ export function canSeeMovementRow(
 ): boolean {
   return (
     m.visibility === "shared" ||
-    m.mine === true ||
     (me
       ? m.profileId === me.id || (m.profileId === null && me.role === "admin")
       : true)
