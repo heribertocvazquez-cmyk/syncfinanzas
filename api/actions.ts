@@ -63,7 +63,7 @@ const TANDA_PARTICIPANT_ACTIONS = new Set(["setTandaPayment", "verifyTandaPaymen
 
 // Acciones que se identifican solo por id: el hogar se resuelve desde la
 // fila correspondiente antes de ejecutarlas.
-const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | "funds" | "goals" | "agreements" | "patrimonyItems" | "invitations" | "tandaInvitations" | "tandas" | "movements" | "categories" | "tandaParticipants" | "notifications" | "categoryRules"; idField: "id" | "agreementId" | "tandaId" | "categoryId" | "participantId" }> = {
+const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | "funds" | "goals" | "agreements" | "patrimonyItems" | "invitations" | "tandaInvitations" | "tandas" | "movements" | "categories" | "tandaParticipants" | "notifications" | "categoryRules" | "spendingAdjustments"; idField: "id" | "agreementId" | "tandaId" | "categoryId" | "participantId" }> = {
   deleteProfile: { table: "profiles", idField: "id" },
   deleteAccount: { table: "accounts", idField: "id" },
   deleteBudget: { table: "budgets", idField: "id" },
@@ -89,6 +89,8 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   setParticipantCard: { table: "tandaParticipants", idField: "id" },
   removeTandaParticipant: { table: "tandaParticipants", idField: "id" },
   deleteCategoryRule: { table: "categoryRules", idField: "id" },
+  acceptSpendingAdjustment: { table: "spendingAdjustments", idField: "id" },
+  rejectSpendingAdjustment: { table: "spendingAdjustments", idField: "id" },
 };
 
 const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation", "respondJoinRequest", "createGenericHouseholdInvite", "getGenericHouseholdInvite"]);
@@ -135,6 +137,8 @@ async function householdIdForRow(
       return byId(db.select().from(schema.notifications).where(eq(schema.notifications.id, id)).limit(1));
     case "categoryRules":
       return byId(db.select().from(schema.categoryRules).where(eq(schema.categoryRules.id, id)).limit(1));
+    case "spendingAdjustments":
+      return byId(db.select().from(schema.spendingAdjustments).where(eq(schema.spendingAdjustments.id, id)).limit(1));
     default:
       return null;
   }

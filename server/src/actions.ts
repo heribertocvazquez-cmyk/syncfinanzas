@@ -3819,7 +3819,43 @@ export const Actions = {
         } else {
           toApply = storedCuts.filter(c => c.budgetId != null && c.newBudget != null).map(c => ({ budgetId: c.budgetId as number, name: c.name, newBudget: c.newBudget as number, cut: c.amount }));
         }
-        if (toApply.length === 0) throw new Error("Los recortes de esta propuesta ya no aplican: los presupuestos cambiaron. Revise el ajuste de nuevo en Metas.");
+        if (toApply.length === 0) {
+          if (storedCuts.length > 0) throw new Error("Los recortes de esta propuesta ya no aplican: los presupuestos cambiaron. Revise el ajuste de nuevo en Metas.");
+          // Propuesta sin recortes por diseño: ningún presupuesto tenía
+          // margen al proponerla, así que lo único que trae es el cambio
+          // de plan (aportación y/o plazo alargado). Se aplica solo esa
+          // parte; el error de arriba queda para cuando la propuesta SÍ
+          // tenía recortes y los presupuestos cambiaron desde entonces.
+          const planMonthly = derived ? derived.newMonthlyAmount : prop.newMonthlyAmount;
+          const planExtended = derived ? derived.extendedMonths : prop.extendedMonths;
+          const planMonth = derived ? derived.month : prop.month;
+          const plans = await db.select().from(schema.goalPlans).where(eq(schema.goalPlans.goalId, prop.goalId));
+          const plan = plans[0];
+          let aporteText = " Su aportación a la meta sigue igual.";
+          if (plan) {
+            const patch: { monthlyAmount?: number; months?: number } = {};
+            if (planMonthly != null && planMonthly !== plan.monthlyAmount) patch.monthlyAmount = planMonthly;
+            if (planExtended > 0) {
+              const elapsed = Math.max(0, monthDiff(plan.startMonth, planMonth));
+              patch.months = elapsed + planExtended;
+              const targetYm = ymAdd(planMonth, planExtended);
+              const [ty = 2026, tm = 1] = targetYm.split("-").map(Number);
+              const lastDay = new Date(ty, tm, 0).getDate();
+              await db.update(schema.goals).set({ targetDate: `${targetYm}-${String(lastDay).padStart(2, "0")}` }).where(eq(schema.goals.id, prop.goalId));
+            }
+            if (Object.keys(patch).length > 0) await db.update(schema.goalPlans).set(patch).where(eq(schema.goalPlans.id, plan.id));
+            aporteText = planExtended > 0
+              ? ` Su aportación a la meta queda en ${moneyShort(planMonthly ?? plan.monthlyAmount)} al mes y el plazo se alarga a ${planExtended} meses.`
+              : (planMonthly != null && planMonthly > plan.monthlyAmount)
+                ? ` Su aportación a la meta queda en ${moneyShort(planMonthly)} al mes.`
+                : " Su aportación a la meta sigue igual.";
+          }
+          await db.update(schema.spendingAdjustments).set({ status: "aplicado" }).where(eq(schema.spendingAdjustments.id, prop.id));
+          await logActivity(ctx, prop.householdId, "Ajuste de gastos aplicado", `${goalName} · sin recortes`);
+          await notifyHousehold(ctx, prop.householdId, { type: "ajuste_gasto", title: "Ajuste aplicado", body: `Se aplicó el ajuste de gastos para la meta ${goalName}: sin recortes.${aporteText} Sus gastos fijos, sus presupuestos y su aportación quedaron revisados en Metas.`, amount: prop.overAmount, target: "metas" });
+          ctx.invalidateQueries();
+          return { ok: true, id: prop.id };
+        }
         const applied: string[] = [];
         for (const c of toApply) {
           const bRows = await db.select().from(schema.budgets).where(eq(schema.budgets.id, c.budgetId));
