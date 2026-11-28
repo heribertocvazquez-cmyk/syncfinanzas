@@ -4469,27 +4469,59 @@ export const Actions = {
     await db.delete(schema.invitationTokens).where(eq(schema.invitationTokens.tandaId,args.id)); for (const iv of tinvs) await db.delete(schema.invitationTokens).where(eq(schema.invitationTokens.tandaInvitationId,iv.id)); await db.delete(schema.tandaPayments).where(eq(schema.tandaPayments.tandaId,args.id)); await db.delete(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId,args.id)); await db.delete(schema.tandaInvitations).where(eq(schema.tandaInvitations.tandaId,args.id)); await db.delete(schema.organizerRatings).where(eq(schema.organizerRatings.tandaId,args.id)); try { await db.delete(schema.tandaFines).where(eq(schema.tandaFines.tandaId,args.id)); await db.delete(schema.tandaVotes).where(eq(schema.tandaVotes.tandaId,args.id)); await db.delete(schema.tandaDeliveries).where(eq(schema.tandaDeliveries.tandaId,args.id)); await db.delete(schema.tandaFundEntries).where(eq(schema.tandaFundEntries.tandaId,args.id)); } catch { /* tablas v3 aún no creadas */ } await db.delete(schema.tandas).where(eq(schema.tandas.id,args.id)); ctx.invalidateQueries(); return {ok:true}; } }),
 
   addTandaParticipant: defineAction({
-    description: "Adds a participant to a tanda, optionally registering a SIMULATED card requirement as last-4-digits only. No real card data is accepted or stored. Since 2026-11-27, adding a person whose email belongs to an existing account requires that account to own at least a Personal household; without an account yet, the email invitation goes on as before and the rule applies when accepting.",
+    description: "Adds a participant to a tanda, optionally registering a SIMULATED card requirement as last-4-digits only. No real card data is accepted or stored. Since 2026-11-27, adding a person whose email belongs to an existing account requires that account to own at least a Personal household (since 2026-11-28 the account is also resolved via auth.users when it has no profile row yet); without an account yet, the email invitation goes on as before and the rule applies when accepting. Since 2026-11-28, adding the same email twice is rejected, and adding after the draw is rejected (turns are fixed); the replacement flow is unaffected.",
     request: z.object({ householdId: z.number(), tandaId: z.number(), name: z.string().min(1), email: z.string().email().optional(), cardLast4: z.string().regex(/^\d{4}$/, "Deben ser exactamente los últimos 4 dígitos").optional() }),
     response: okRes,
     async handler(ctx, args): Promise<Ok> {
       const db = ctx.db;
       const acc = await tandaAccess(ctx, args.tandaId); requireTandaRank(acc, 3); requireTandaHousehold(acc, args.householdId);
       const tdRows = await db.select().from(schema.tandas).where(eq(schema.tandas.id, args.tandaId)); const td = tdRows[0]; if (!td) throw new Error("Tanda no encontrada");
+      // DEFECTO #137-3 (2026-11-28): agregar tras el sorteo dejaba la fila
+      // sin turno para siempre (el sorteo no se puede repetir). El reemplazo
+      // de un excluido es otra acción (addReplacementParticipant) y sigue
+      // funcionando después del sorteo; esto solo cierra el agregado directo.
+      if (td.turnsLocked === 1) throw new Error("Los turnos ya están fijados. No se puede agregar a nadie después del sorteo.");
       const existing = await db.select().from(schema.tandaParticipants).where(eq(schema.tandaParticipants.tandaId, args.tandaId));
       if (existing.length >= td.participantCount) throw new Error(`La tanda ya tiene sus ${td.participantCount} participantes.`);
-      // REGLA (2026-11-27): agregar directo también exige hogar propio
-      // del destinatario. Solo se puede comprobar cuando el correo
-      // pertenece a una cuenta existente (perfil con userId): sin cuenta
-      // todavía, la invitación por correo sigue como hoy y la regla se
-      // aplica al aceptar.
+      // REGLA (2026-11-27, cerrada 2026-11-28): agregar directo también
+      // exige hogar propio del destinatario. Antes solo se comprobaba
+      // cuando el correo tenía una fila de perfil con userId: una cuenta
+      // recién registrada, sin hogar y sin ninguna fila de perfil, era
+      // invisible y se agregaba con 200 (defecto #137-1). Ahora, si los
+      // perfiles no resuelven la cuenta, se busca en Auth Admin; solo si
+      // no hay cuenta en ningún lado se procede y la regla se aplica al
+      // aceptar la invitación, como hoy.
+      // Sin correo (vía de la UI: solo nombre + últimos 4 dígitos) no hay
+      // cuenta que verificar ni duplicado que detectar por correo: el
+      // agregado queda sin correo y sin acceso hasta que se le invite por
+      // correo aparte. El nombre no es identificador (dos personas pueden
+      // llamarse igual), así que no se deduplica por nombre.
       if (args.email) {
         const mail = args.email.trim().toLowerCase();
         const owners = await db.select().from(schema.profiles).where(sql`lower(${schema.profiles.email}) = ${mail}`);
-        const userIds = [...new Set(owners.map(pr => pr.userId).filter((u): u is string => !!u))];
+        let userIds = [...new Set(owners.map(pr => pr.userId).filter((u): u is string => !!u))];
+        if (userIds.length === 0) {
+          // Una cuenta recién registrada, sin hogar y sin ninguna fila de
+          // perfil, es invisible para el chequeo por perfiles: se resuelve
+          // por correo en auth.users (findUserIdByEmail, el mismo mecanismo
+          // que respondJoinRequest usa para crear la membresía de quien
+          // solicitó). Si auth.users no se puede leer, findUserIdByEmail
+          // devuelve null y se procede como antes — ese es el límite
+          // residual, el mismo que ya tiene ese mecanismo.
+          const authId = await findUserIdByEmail(db, mail);
+          if (authId) userIds = [authId];
+        }
         for (const uid of userIds) {
           if (!(await userHasOwnHousehold(db, uid))) throw new Error(TANDA_REQUIRES_PERSONAL_MSG);
         }
+        // DEFECTO #137-2 (2026-11-28): agregar dos veces el mismo correo
+        // creaba dos filas. Mismo mensaje y misma regla que la invitación
+        // por correo (sin filtro de excluidos): un excluido tampoco se
+        // puede volver a agregar directo, porque tandaAccess resuelve al
+        // usuario a la PRIMERA fila con su correo (la excluida) y quedaría
+        // sin poder actuar; la vía de reingreso de un excluido es el
+        // reemplazo (addReplacementParticipant).
+        if (existing.some(p => (p.email || "").toLowerCase() === mail)) throw new Error("Esa persona ya participa en esta tanda.");
       }
       const nowD = new Date(); const joined = `${nowD.getFullYear()}-${String(nowD.getMonth()+1).padStart(2,"0")}-${String(nowD.getDate()).padStart(2,"0")}`;
       const [r] = await db.insert(schema.tandaParticipants).values({ householdId: args.householdId, tandaId: args.tandaId, name: args.name, email: args.email?.trim().toLowerCase() || null, cardLast4: args.cardLast4 || null, joinedDate: joined }).returning({ id: schema.tandaParticipants.id });
