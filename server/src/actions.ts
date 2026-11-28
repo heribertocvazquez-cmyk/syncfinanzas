@@ -2411,6 +2411,9 @@ export const Actions = {
         const bal = fundMovsR.filter(x=>x.fundId===f.id).reduce((s,x)=> s + (x.type==="contribution"? x.amount : -x.amount),0);
         return { id: f.id, name: f.name, targetAmount: f.targetAmount ?? null, targetDate: fundDates.get(f.id) ?? null, importance: fundImportances.get(f.id) ?? 3, visibility: f.visibility, balance: Math.round(bal*100)/100, createdAt: f.createdAt instanceof Date ? f.createdAt.toISOString() : new Date(Number(f.createdAt)).toISOString() };
       });
+      // #41: la lista de fondos se ordena por importancia (★5 primero, el
+      // fijado arriba), desempate por creación (más antiguo primero).
+      funds.sort((a, b) => (b.importance - a.importance) || (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id - b.id));
       const totalInFunds = funds.reduce((s,f)=>s+f.balance,0);
 
       // Resumen de cada cuenta: cómo nace su saldo y cómo se descuenta

@@ -93,6 +93,27 @@ const ID_LOOKUPS: Record<string, { table: "profiles" | "accounts" | "budgets" | 
   rejectSpendingAdjustment: { table: "spendingAdjustments", idField: "id" },
 };
 
+// #110: cuando la búsqueda por ID no encuentra la fila, el despachador
+// devuelve el 400 formal del manejador (el mismo mensaje que lanzaría el
+// handler si llegara a correr), no el 404 genérico. El mensaje por acción
+// es el que su handler lanza cuando no encuentra su fila; sin mensaje
+// propio, «Registro no encontrado.».
+const ID_LOOKUP_NOT_FOUND: Record<string, string> = {
+  acceptSpendingAdjustment: "No se encontró la propuesta de ajuste.",
+  rejectSpendingAdjustment: "No se encontró la propuesta de ajuste.",
+  addGoalSaving: "Meta no encontrada",
+  setGoalImportance: "Meta no encontrada.",
+  setFundImportance: "Fondo no encontrado.",
+  cancelTandaInvitation: "Invitación de tanda no encontrada.",
+  respondJoinRequest: "Solicitud no encontrada.",
+  addSubcategory: "Categoría no encontrada.",
+  removeSubcategory: "Categoría no encontrada.",
+  drawTanda: "Tanda no encontrada",
+  setParticipantCard: "Participante no encontrado",
+  removeTandaParticipant: "Participante no encontrado",
+  reverseMovement: "Movimiento no encontrado.",
+};
+
 const ADMIN_ONLY = new Set(["resetAllData", "updateHousehold", "deleteProfile", "deleteInvitation", "respondJoinRequest", "createGenericHouseholdInvite", "getGenericHouseholdInvite"]);
 
 async function householdIdForRow(
@@ -345,7 +366,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const idValue = rawArgs[lookup.idField];
       if (typeof idValue !== "number") return res.status(400).json({ error: "Falta el identificador del registro." });
       const hid = await householdIdForRow(db, lookup.table, idValue);
-      if (hid == null) return res.status(404).json({ error: "Registro no encontrado." });
+      if (hid == null) return res.status(400).json({ error: ID_LOOKUP_NOT_FOUND[actionName] ?? "Registro no encontrado." });
       await requireMember(hid);
     } else {
       return res.status(400).json({ error: "No se pudo determinar el hogar de esta acción." });
